@@ -3,13 +3,13 @@ package clickhouse
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/testkit/arangotest"
 	"testing"
 	"time"
 
 	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
 	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	"github.com/calypr/loom/internal/store/clickhouse"
-	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
 type fbxCatalog struct {
@@ -37,22 +37,6 @@ func (c *fbxCatalog) SaveExecution(ctx context.Context, execution pubpublication
 		c.observedID = execution.ID
 	}
 	return c.Registry.SaveExecution(ctx, execution, fenceOwner)
-}
-
-func fbxSetup(t *testing.T) (*pubarango.Registry, context.Context, string) {
-	t.Helper()
-	database := arangotest.Owned(t, "loom_verify_fbx_")
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	t.Cleanup(cancel)
-	client := database.Client
-	if err := client.Bootstrap(ctx, pubarango.BootstrapSpec()); err != nil {
-		t.Fatalf("bootstrap: %v", err)
-	}
-	registry, err := pubarango.New(client)
-	if err != nil {
-		t.Fatalf("registry: %v", err)
-	}
-	return registry, ctx, database.Name[len("loom_verify_fbx_"):]
 }
 
 func fbxBundleIdentity(suffix string) pubpublication.BundleIdentity {
@@ -110,7 +94,7 @@ func fbxDropped(set []string, table string) bool {
 }
 
 func TestAbortDropsServerPublishedBundleAgainstArango(t *testing.T) {
-	registry, ctx, suffix := fbxSetup(t)
+	registry, ctx, suffix := openPublicationRegistry(t, "loom_verify_fbx_")
 	identity := fbxBundleIdentity(suffix)
 	pointerName := identity.PointerName()
 	wrapper := &fbxCatalog{Registry: registry, publishArmed: true}
@@ -172,7 +156,7 @@ func TestAbortDropsServerPublishedBundleAgainstArango(t *testing.T) {
 }
 
 func TestAbortDropsUnpublishedExecutionAgainstArango(t *testing.T) {
-	registry, ctx, suffix := fbxSetup(t)
+	registry, ctx, suffix := openPublicationRegistry(t, "loom_verify_fbx_")
 	identity := fbxBundleIdentity(suffix)
 	wrapper := &fbxCatalog{Registry: registry}
 	ch := &fbxClickHouse{tocFakeClickHouse: &tocFakeClickHouse{}}
@@ -214,4 +198,20 @@ func TestAbortDropsUnpublishedExecutionAgainstArango(t *testing.T) {
 		t.Fatalf("control: never-published execution must end FAILED after Abort, got %q", row.State)
 	}
 	t.Logf("control OK: unpublished execution %q dropped legitimately (dropped=%v), no pointer exists, row FAILED", wrapper.observedID, ch.dropped)
+}
+
+func openPublicationRegistry(t *testing.T, databasePrefix string) (*pubarango.Registry, context.Context, string) {
+	t.Helper()
+	database := arangotest.Owned(t, databasePrefix)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	t.Cleanup(cancel)
+	client := database.Client
+	if err := client.Bootstrap(ctx, pubarango.BootstrapSpec()); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	registry, err := pubarango.New(client)
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	return registry, ctx, database.Name[len(databasePrefix):]
 }

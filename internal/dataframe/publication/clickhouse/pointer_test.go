@@ -150,20 +150,8 @@ type pppHarness struct {
 	database string
 	suffix   string
 
-	mu            sync.Mutex
-	trackedTables []string
-	canaryTable   string
-}
-
-func (h *pppHarness) trackTable(table string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for _, existing := range h.trackedTables {
-		if existing == table {
-			return
-		}
-	}
-	h.trackedTables = append(h.trackedTables, table)
+	tableTracker
+	canaryTable string
 }
 
 func pppOpen(t *testing.T) *pppHarness {
@@ -197,9 +185,7 @@ func pppOpen(t *testing.T) *pppHarness {
 
 func (h *pppHarness) dropAndVerifyClickHouse(t *testing.T) {
 	t.Helper()
-	h.mu.Lock()
-	tables := append([]string(nil), h.trackedTables...)
-	h.mu.Unlock()
+	tables := h.tablesForCleanup()
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	for _, table := range tables {

@@ -153,10 +153,6 @@ func ValidateReceipt(receipt receiptmodel.CompilationReceipt) error {
 	return validateReceipt(receipt)
 }
 
-func SameReceipt(a, b receiptmodel.CompilationReceipt) bool {
-	return sameReceipt(a, b)
-}
-
 const (
 	CompilationReceiptInsertMaxAttempts  = compilationReceiptInsertMaxAttempts
 	CompilationReceiptConflictRetryDelay = compilationReceiptConflictRetryDelay

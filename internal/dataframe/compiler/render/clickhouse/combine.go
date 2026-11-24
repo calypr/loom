@@ -18,10 +18,6 @@ type RenderedCombine struct {
 	Columns []string
 }
 
-func RenderCombine(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHouseTable, project string) (RenderedCombine, error) {
-	return RenderCombineWithLimit(plan, inputs, project, 0)
-}
-
 func RenderCombineWithLimit(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHouseTable, project string, limit int) (RenderedCombine, error) {
 	return renderCombineWithResolvedInputs(plan, inputs, project, limit, nil, false)
 }

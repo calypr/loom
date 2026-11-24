@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"strings"
 	"sync"
 	"testing"
@@ -94,7 +95,7 @@ func TestInsertCompilationReceiptReturnsWinnerFromConcurrentIdenticalWriters(t *
 		if result.err != nil {
 			t.Fatalf("InsertCompilationReceipt() error = %v", result.err)
 		}
-		if result.receipt == nil || !publicationdb.SameReceipt(*result.receipt, receipt) {
+		if result.receipt == nil || result.receipt.ID != receipt.ID || result.receipt.ValidateID() != nil {
 			t.Fatalf("InsertCompilationReceipt() = %#v, want receipt %q", result.receipt, receipt.ID)
 		}
 	}
@@ -116,7 +117,7 @@ func TestInsertCompilationReceiptRetriesOnlyArangoConflict(t *testing.T) {
 		if err != nil {
 			t.Fatalf("InsertCompilationReceipt() error = %v", err)
 		}
-		if stored == nil || !publicationdb.SameReceipt(*stored, receipt) {
+		if stored == nil || stored.ID != receipt.ID || stored.ValidateID() != nil {
 			t.Fatalf("InsertCompilationReceipt() = %#v, want receipt %q", stored, receipt.ID)
 		}
 		if calls := client.insertCallCount(); calls != 3 {
@@ -257,9 +258,9 @@ func (c *receiptWriteClient) QueryRows(ctx context.Context, query string, _ int,
 			insertErr = receiptConflictError()
 		}
 		if insertErr == nil && c.doc == nil {
-			c.doc = cloneReceiptDocument(binds["doc"].(map[string]any))
+			c.doc = maps.Clone(binds["doc"].(map[string]any))
 		}
-		doc := cloneReceiptDocument(c.doc)
+		doc := maps.Clone(c.doc)
 		c.mu.Unlock()
 		if insertErr != nil {
 			return insertErr
@@ -272,7 +273,7 @@ func (c *receiptWriteClient) QueryRows(ctx context.Context, query string, _ int,
 	}
 	c.mu.Lock()
 	c.readCalls++
-	doc := cloneReceiptDocument(c.doc)
+	doc := maps.Clone(c.doc)
 	c.mu.Unlock()
 	if doc == nil {
 		return nil
@@ -317,17 +318,6 @@ func (b *receiptInsertBarrier) wait(ctx context.Context) error {
 	case <-ready:
 		return nil
 	}
-}
-
-func cloneReceiptDocument(doc map[string]any) map[string]any {
-	if doc == nil {
-		return nil
-	}
-	clone := make(map[string]any, len(doc))
-	for key, value := range doc {
-		clone[key] = value
-	}
-	return clone
 }
 
 func receiptConflictError() error {

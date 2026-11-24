@@ -85,11 +85,11 @@ func TestStoredTableShapeMigrationAgainstArango(t *testing.T) {
 
 	baseRevisionProjection := wp17InsertBaseProjection(t, ctx, client, explorer.RevisionWorkspaceArtifact(*storedRevision), legacyRaw)
 	baseHistoryProjection := wp17InsertBaseProjection(t, ctx, client, explorer.DraftWorkspaceArtifact(priorHistory), legacyRaw)
-	beforeBaseRevisionProjection := wp17ReadDocument(t, ctx, client, workspaceProjectionCollection, explorer.RevisionWorkspaceArtifact(*storedRevision).Key())
-	beforeBaseHistoryProjection := wp17ReadDocument(t, ctx, client, workspaceProjectionCollection, explorer.DraftWorkspaceArtifact(priorHistory).Key())
-	beforeRevision := wp17ReadDocument(t, ctx, client, RevisionsCollection, published.ID)
-	beforeHistory := wp17ReadDocument(t, ctx, client, DraftRevisionsCollection, priorHistory.ID)
-	beforeReceipt := wp17ReadDocument(t, ctx, client, CompilationReceiptsCollection, receipt.ID)
+	beforeBaseRevisionProjection := readCanonicalDocument(t, ctx, client, workspaceProjectionCollection, explorer.RevisionWorkspaceArtifact(*storedRevision).Key())
+	beforeBaseHistoryProjection := readCanonicalDocument(t, ctx, client, workspaceProjectionCollection, explorer.DraftWorkspaceArtifact(priorHistory).Key())
+	beforeRevision := readCanonicalDocument(t, ctx, client, RevisionsCollection, published.ID)
+	beforeHistory := readCanonicalDocument(t, ctx, client, DraftRevisionsCollection, priorHistory.ID)
+	beforeReceipt := readCanonicalDocument(t, ctx, client, CompilationReceiptsCollection, receipt.ID)
 
 	beforeDryRun := wp17Inventory(t, ctx, client)
 	dryRun, err := MigrateStoredTableShapes(ctx, client, true)
@@ -145,19 +145,19 @@ func TestStoredTableShapeMigrationAgainstArango(t *testing.T) {
 		t.Fatalf("current owner changed: before=%#v after=%#v", currentOwner, unchangedCurrent)
 	}
 
-	if got := wp17ReadDocument(t, ctx, client, RevisionsCollection, published.ID); !bytes.Equal(got, beforeRevision) {
+	if got := readCanonicalDocument(t, ctx, client, RevisionsCollection, published.ID); !bytes.Equal(got, beforeRevision) {
 		t.Fatalf("migration rewrote immutable revision (includes _rev): before=%s after=%s", beforeRevision, got)
 	}
-	if got := wp17ReadDocument(t, ctx, client, DraftRevisionsCollection, priorHistory.ID); !bytes.Equal(got, beforeHistory) {
+	if got := readCanonicalDocument(t, ctx, client, DraftRevisionsCollection, priorHistory.ID); !bytes.Equal(got, beforeHistory) {
 		t.Fatalf("migration rewrote prior history (includes _rev): before=%s after=%s", beforeHistory, got)
 	}
-	if got := wp17ReadDocument(t, ctx, client, CompilationReceiptsCollection, receipt.ID); !bytes.Equal(got, beforeReceipt) {
+	if got := readCanonicalDocument(t, ctx, client, CompilationReceiptsCollection, receipt.ID); !bytes.Equal(got, beforeReceipt) {
 		t.Fatalf("migration rewrote receipt raw identity: before=%s after=%s", beforeReceipt, got)
 	}
-	if got := wp17ReadDocument(t, ctx, client, workspaceProjectionCollection, explorer.RevisionWorkspaceArtifact(*storedRevision).Key()); !bytes.Equal(got, beforeBaseRevisionProjection) {
+	if got := readCanonicalDocument(t, ctx, client, workspaceProjectionCollection, explorer.RevisionWorkspaceArtifact(*storedRevision).Key()); !bytes.Equal(got, beforeBaseRevisionProjection) {
 		t.Fatalf("WP-17 rewrote WP-18 revision base projection (_rev included): before=%s after=%s", beforeBaseRevisionProjection, got)
 	}
-	if got := wp17ReadDocument(t, ctx, client, workspaceProjectionCollection, explorer.DraftWorkspaceArtifact(priorHistory).Key()); !bytes.Equal(got, beforeBaseHistoryProjection) {
+	if got := readCanonicalDocument(t, ctx, client, workspaceProjectionCollection, explorer.DraftWorkspaceArtifact(priorHistory).Key()); !bytes.Equal(got, beforeBaseHistoryProjection) {
 		t.Fatalf("WP-17 rewrote WP-18 history base projection (_rev included): before=%s after=%s", beforeBaseHistoryProjection, got)
 	}
 
@@ -373,37 +373,6 @@ func wp17JSONEqual(t *testing.T, left, right []byte) bool {
 	return bytes.Equal(leftCanonical, rightCanonical)
 }
 
-func wp17ReadDocument(t *testing.T, ctx context.Context, client *store.Client, collection, key string) []byte {
-	t.Helper()
-	var output []byte
-	if err := client.VisitCollectionDocumentsRaw(ctx, collection, func(raw json.RawMessage) error {
-		var identity struct {
-			Key string `json:"_key"`
-		}
-		if err := json.Unmarshal(raw, &identity); err != nil {
-			return err
-		}
-		if identity.Key != key {
-			return nil
-		}
-		var value any
-		decoder := json.NewDecoder(bytes.NewReader(raw))
-		decoder.UseNumber()
-		if err := decoder.Decode(&value); err != nil {
-			return err
-		}
-		canonical, err := json.Marshal(value)
-		output = canonical
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if len(output) == 0 {
-		t.Fatalf("document %s/%s not found", collection, key)
-	}
-	return output
-}
-
 func wp17Inventory(t *testing.T, ctx context.Context, client *store.Client) map[string][]string {
 	t.Helper()
 	collections, err := client.CollectionNamesReadOnly(ctx)
@@ -428,21 +397,6 @@ func wp17Inventory(t *testing.T, ctx context.Context, client *store.Client) map[
 		sort.Strings(inventory[collection])
 	}
 	return inventory
-}
-
-func wp17OwnerRevision(t *testing.T, ctx context.Context, client *store.Client, owner explorer.Explorer) string {
-	t.Helper()
-	var revision string
-	if err := client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN {revision:d._rev}`, 1, map[string]any{"@c": ExplorersCollection, "key": explorerKey(owner.Project, owner.ExplorerID)}, func(row map[string]any) error {
-		revision, _ = row["revision"].(string)
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if revision == "" {
-		t.Fatal("owner _rev missing")
-	}
-	return revision
 }
 
 func wp17Count(t *testing.T, ctx context.Context, client *store.Client, collection string) int {
@@ -529,13 +483,13 @@ func TestTableShapeMigrationCASFailureRollsBackExactRevisionHistoryAndProjection
 	if _, err := MigrateStoredWorkspaces(ctx, client, false); err != nil {
 		t.Fatalf("WP-18 prerequisite migration: %v", err)
 	}
-	beforeRaw := wp17ReadDocument(t, ctx, client, ExplorersCollection, explorerKey(owner.Project, owner.ExplorerID))
+	beforeRaw := readCanonicalDocument(t, ctx, client, ExplorersCollection, explorerKey(owner.Project, owner.ExplorerID))
 	beforeVersion := owner.DraftVersion
 	beforeDigest := owner.DraftDigest
 	historyPreimage := draftRevisionFromExplorer(owner)
 	historyPreimage.ID = draftRevisionKey(owner.Project, owner.ExplorerID, owner.DraftVersion)
 	projection := newWorkspaceProjection(explorer.DraftWorkspaceArtifact(historyPreimage), migration)
-	revision := wp17OwnerRevision(t, ctx, client, owner)
+	revision := workspaceMigrationOwnerRevision(t, ctx, client, owner)
 	candidate := owner
 	candidate.DraftConfig = append(json.RawMessage(nil), migration.CanonicalJSON...)
 	candidate.DraftDigest = migration.MigratedCanonicalDigest
@@ -562,7 +516,7 @@ func TestTableShapeMigrationCASFailureRollsBackExactRevisionHistoryAndProjection
 	if after.DraftVersion != beforeVersion || after.DraftDigest != beforeDigest || after.Title != owner.Title {
 		t.Fatalf("failed CAS changed owner: before=%#v after=%#v", owner, after)
 	}
-	if got := wp17ReadDocument(t, ctx, client, ExplorersCollection, explorerKey(owner.Project, owner.ExplorerID)); !bytes.Equal(got, beforeRaw) {
+	if got := readCanonicalDocument(t, ctx, client, ExplorersCollection, explorerKey(owner.Project, owner.ExplorerID)); !bytes.Equal(got, beforeRaw) {
 		t.Fatalf("failed CAS changed owner raw document: before=%s after=%s", beforeRaw, got)
 	}
 	if histories := draftCASHistory(t, ctx, client, owner); len(histories) != 0 {
@@ -628,15 +582,15 @@ func TestTableShapeMigrationRejectsConflictingImmutableHistoryAgainstArango(t *t
 	if err := client.QueryRows(ctx, `INSERT @doc INTO @@c RETURN NEW`, 1, map[string]any{"@c": DraftRevisionsCollection, "doc": doc}, func(map[string]any) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
-	ownerBefore := wp17ReadDocument(t, ctx, client, ExplorersCollection, explorerKey(owner.Project, owner.ExplorerID))
-	historyBefore := wp17ReadDocument(t, ctx, client, DraftRevisionsCollection, history.ID)
+	ownerBefore := readCanonicalDocument(t, ctx, client, ExplorersCollection, explorerKey(owner.Project, owner.ExplorerID))
+	historyBefore := readCanonicalDocument(t, ctx, client, DraftRevisionsCollection, history.ID)
 	if _, err := MigrateStoredTableShapes(ctx, client, false); err == nil {
 		t.Fatal("accepted conflicting immutable history")
 	}
-	if !bytes.Equal(ownerBefore, wp17ReadDocument(t, ctx, client, ExplorersCollection, explorerKey(owner.Project, owner.ExplorerID))) {
+	if !bytes.Equal(ownerBefore, readCanonicalDocument(t, ctx, client, ExplorersCollection, explorerKey(owner.Project, owner.ExplorerID))) {
 		t.Fatal("failed migration changed owner")
 	}
-	if !bytes.Equal(historyBefore, wp17ReadDocument(t, ctx, client, DraftRevisionsCollection, history.ID)) {
+	if !bytes.Equal(historyBefore, readCanonicalDocument(t, ctx, client, DraftRevisionsCollection, history.ID)) {
 		t.Fatal("failed migration changed immutable history")
 	}
 	if recorded, err := migrationVersionRecorded(ctx, client, tableShapeWorkspaceMigrationVersion); err != nil || recorded {
@@ -839,11 +793,11 @@ func TestTableShapeMigrationReusesJSONHistoryWithoutRewritingAgainstArango(t *te
 	if err := client.QueryRows(ctx, `LET doc = JSON_PARSE(@raw) INSERT doc INTO @@c RETURN NEW`, 1, map[string]any{"@c": DraftRevisionsCollection, "raw": string(encoded)}, func(map[string]any) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
-	before := wp17ReadDocument(t, ctx, client, DraftRevisionsCollection, history.ID)
+	before := readCanonicalDocument(t, ctx, client, DraftRevisionsCollection, history.ID)
 	if _, err := MigrateStoredTableShapes(ctx, client, false); err != nil {
 		t.Fatalf("equivalent history JSON object order caused collision: %v", err)
 	}
-	after := wp17ReadDocument(t, ctx, client, DraftRevisionsCollection, history.ID)
+	after := readCanonicalDocument(t, ctx, client, DraftRevisionsCollection, history.ID)
 	if !bytes.Equal(before, after) {
 		t.Fatal("migration rewrote matching immutable history")
 	}
@@ -923,8 +877,8 @@ func TestImmutableWorkspaceMigrationAgainstArango(t *testing.T) {
 		t.Fatalf("insert legacy repository config: %v", err)
 	}
 
-	beforeRevision := immutableWorkspaceMigrationDocument(t, ctx, client, RevisionsCollection, published.ID)
-	beforeHistory := immutableWorkspaceMigrationDocument(t, ctx, client, DraftRevisionsCollection, historyKey)
+	beforeRevision := readCanonicalDocument(t, ctx, client, RevisionsCollection, published.ID)
+	beforeHistory := readCanonicalDocument(t, ctx, client, DraftRevisionsCollection, historyKey)
 	beforeReceipt, err := adapter.GetCompilationReceiptForExplorer(ctx, published.Project, published.ExplorerID, receipt.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -948,10 +902,10 @@ func TestImmutableWorkspaceMigrationAgainstArango(t *testing.T) {
 	if report.Projections != 2 || report.RepositoryConfigs != 1 || report.RetiredReceipts != 1 {
 		t.Fatalf("immutable packet apply report = %#v", report)
 	}
-	if after := immutableWorkspaceMigrationDocument(t, ctx, client, RevisionsCollection, published.ID); !bytes.Equal(beforeRevision, after) {
+	if after := readCanonicalDocument(t, ctx, client, RevisionsCollection, published.ID); !bytes.Equal(beforeRevision, after) {
 		t.Fatalf("migration rewrote immutable revision, including _rev:\nbefore=%s\nafter=%s", beforeRevision, after)
 	}
-	if after := immutableWorkspaceMigrationDocument(t, ctx, client, DraftRevisionsCollection, historyKey); !bytes.Equal(beforeHistory, after) {
+	if after := readCanonicalDocument(t, ctx, client, DraftRevisionsCollection, historyKey); !bytes.Equal(beforeHistory, after) {
 		t.Fatalf("migration rewrote preexisting immutable history, including _rev:\nbefore=%s\nafter=%s", beforeHistory, after)
 	}
 
@@ -1039,7 +993,7 @@ func TestImmutableWorkspaceMigrationAgainstArango(t *testing.T) {
 	}
 }
 
-func immutableWorkspaceMigrationDocument(t *testing.T, ctx context.Context, client *store.Client, collection, key string) []byte {
+func readCanonicalDocument(t *testing.T, ctx context.Context, client *store.Client, collection, key string) []byte {
 	t.Helper()
 	var result []byte
 	if err := client.VisitCollectionDocumentsRaw(ctx, collection, func(raw json.RawMessage) error {

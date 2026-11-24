@@ -1096,33 +1096,32 @@ RETURN {patched: true}`, 32, map[string]interface{}{
 	}
 }
 
-func danglingCorruptDropOutputs(t *testing.T, ctx context.Context, client *store.Client, executionID string) {
+type danglingExecutionCorruption string
+
+const (
+	danglingDropOutputs     danglingExecutionCorruption = "drop outputs"
+	danglingDeleteExecution danglingExecutionCorruption = "delete execution"
+)
+
+func danglingCorruptExecution(t *testing.T, ctx context.Context, client *store.Client, executionID string, corruption danglingExecutionCorruption) {
 	t.Helper()
 	removed := false
-	err := client.QueryRows(ctx, `LET doc = DOCUMENT(@@collection, @key)
+	query := `LET doc = DOCUMENT(@@collection, @key)
 FILTER doc != null
 UPDATE doc WITH {outputs: []} IN @@collection
-RETURN {removed: true}`, 32, map[string]interface{}{"@collection": BundleExecutionsCollection, "key": executionID}, func(row map[string]any) error {
-		removed, _ = row["removed"].(bool)
-		return nil
-	})
-	if err != nil || !removed {
-		t.Fatalf("drop outputs of %s: removed=%v err=%v", executionID, removed, err)
-	}
-}
-
-func danglingCorruptDeleteExecution(t *testing.T, ctx context.Context, client *store.Client, executionID string) {
-	t.Helper()
-	removed := false
-	err := client.QueryRows(ctx, `LET doc = DOCUMENT(@@collection, @key)
+RETURN {removed: true}`
+	if corruption == danglingDeleteExecution {
+		query = `LET doc = DOCUMENT(@@collection, @key)
 FILTER doc != null
 REMOVE doc IN @@collection
-RETURN {removed: true}`, 32, map[string]interface{}{"@collection": BundleExecutionsCollection, "key": executionID}, func(row map[string]any) error {
+RETURN {removed: true}`
+	}
+	err := client.QueryRows(ctx, query, 32, map[string]interface{}{"@collection": BundleExecutionsCollection, "key": executionID}, func(row map[string]any) error {
 		removed, _ = row["removed"].(bool)
 		return nil
 	})
 	if err != nil || !removed {
-		t.Fatalf("delete execution %s: removed=%v err=%v", executionID, removed, err)
+		t.Fatalf("%s %s: removed=%v err=%v", corruption, executionID, removed, err)
 	}
 }
 
@@ -1204,7 +1203,7 @@ func TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango(t *testing.
 	}
 	t.Logf("OBSERVED E2 pointer-unnamed control: %s (pointer re-check claim has no code behind it)", danglingMaterializationDigest(list))
 
-	danglingCorruptDropOutputs(t, ctx, client, badExec.ID)
+	danglingCorruptExecution(t, ctx, client, badExec.ID, danglingDropOutputs)
 	t.Log("EXPECT E3: healthy out-a remains in the list; only unavailable optional out-b is omitted")
 	list, err = reader.CurrentProjectDatasets(ctx, project)
 	droppedOutputListKeepsHealthy := err == nil && len(list) == 1 && list[0].Name == "out-a" && list[0].ID == healthyExec.ID+":out-a"
@@ -1220,7 +1219,7 @@ func TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango(t *testing.
 	}
 	t.Logf("OBSERVED E5a: healthy single read while binding out-b corrupt: {Name=%q ID=%q PhysicalTable=%q} -> per-viewer demotion DISPROVEN", single.Name, single.ID, single.PhysicalTable)
 
-	danglingCorruptDeleteExecution(t, ctx, client, badExec.ID)
+	danglingCorruptExecution(t, ctx, client, badExec.ID, danglingDeleteExecution)
 	t.Log("EXPECT E4: healthy out-a remains listed after dangling optional out-b is removed")
 	list, err = reader.CurrentProjectDatasets(ctx, project)
 	danglingListKeepsHealthy := err == nil && len(list) == 1 && list[0].Name == "out-a" && list[0].ID == healthyExec.ID+":out-a"
@@ -1270,14 +1269,14 @@ func TestRequiredBindingSilentDemotion(t *testing.T) {
 		t.Fatalf("R0 baseline broken: list=%s err=%v", danglingMaterializationDigest(list), err)
 	}
 
-	danglingCorruptDropOutputs(t, ctx, client, requiredExec.ID)
+	danglingCorruptExecution(t, ctx, client, requiredExec.ID, danglingDropOutputs)
 	t.Log("EXPECT R4: required=true + Stale=false + corrupted execution -> CurrentProjectDatasets returns error (not silent stale)")
 	var r4ErrChain string
 	list, err = reader.CurrentProjectDatasets(ctx, project)
 	r4Loud := err != nil && len(list) == 0 && strings.Contains(danglingErrorChain(err), "has no queryable output")
 	r4ErrChain = danglingErrorChain(err)
 
-	danglingCorruptDeleteExecution(t, ctx, client, requiredExec.ID)
+	danglingCorruptExecution(t, ctx, client, requiredExec.ID, danglingDeleteExecution)
 	if !r4Loud {
 		t.Fatalf("R4 violated: corrupted required binding did not force a loud whole-list error: list=%s err=[%s]", danglingMaterializationDigest(list), r4ErrChain)
 	}

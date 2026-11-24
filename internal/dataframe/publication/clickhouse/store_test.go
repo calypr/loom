@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -108,6 +109,25 @@ func (c *uprCatalog) pinAcquireCount() int {
 	return c.pinsAcquired
 }
 
+type tableTracker struct {
+	mu     sync.Mutex
+	tables []string
+}
+
+func (h *tableTracker) trackTable(table string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !slices.Contains(h.tables, table) {
+		h.tables = append(h.tables, table)
+	}
+}
+
+func (h *tableTracker) tablesForCleanup() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.tables)
+}
+
 type uprHarness struct {
 	ctx      context.Context
 	endpoint string
@@ -118,19 +138,7 @@ type uprHarness struct {
 	suffix   string
 	log      *uprLog
 
-	mu            sync.Mutex
-	trackedTables []string
-}
-
-func (h *uprHarness) trackTable(table string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for _, existing := range h.trackedTables {
-		if existing == table {
-			return
-		}
-	}
-	h.trackedTables = append(h.trackedTables, table)
+	tableTracker
 }
 
 func uprOpen(t *testing.T) *uprHarness {
@@ -185,9 +193,7 @@ func (h *uprHarness) tablePresent(ctx context.Context, table string) bool {
 
 func (h *uprHarness) drainTables(t *testing.T) {
 	t.Helper()
-	h.mu.Lock()
-	tables := append([]string(nil), h.trackedTables...)
-	h.mu.Unlock()
+	tables := h.tablesForCleanup()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	for _, table := range tables {
@@ -988,41 +994,23 @@ func rdlSeedPublished(t *testing.T, registry *pubarango.Registry, ctx context.Co
 	return pub
 }
 
-func rdlFlipToRunning(t *testing.T, client *storearango.Client, ctx context.Context, execID string) {
+func rdlSetExecutionState(t *testing.T, client *storearango.Client, ctx context.Context, execID, state string) {
 	t.Helper()
 	patched := false
 	err := client.QueryRows(ctx, `LET doc = DOCUMENT(@@collection, @key)
 FILTER doc != null
-UPDATE doc WITH {state: "RUNNING", updatedAt: @updatedAt} IN @@collection
+UPDATE doc WITH {state: @state, updatedAt: @updatedAt} IN @@collection
 RETURN {patched: true}`, 32, map[string]interface{}{
 		"@collection": pubarango.BundleExecutionsCollection,
 		"key":         execID,
+		"state":       state,
 		"updatedAt":   time.Now().UTC().Add(-rdlSeedAge),
 	}, func(row map[string]any) error {
 		patched, _ = row["patched"].(bool)
 		return nil
 	})
 	if err != nil || !patched {
-		t.Fatalf("rdl flip %s to RUNNING: patched=%v err=%v", execID, patched, err)
-	}
-}
-
-func rdlRestorePublished(t *testing.T, client *storearango.Client, ctx context.Context, execID string) {
-	t.Helper()
-	patched := false
-	err := client.QueryRows(ctx, `LET doc = DOCUMENT(@@collection, @key)
-FILTER doc != null
-UPDATE doc WITH {state: "PUBLISHED", updatedAt: @updatedAt} IN @@collection
-RETURN {patched: true}`, 32, map[string]interface{}{
-		"@collection": pubarango.BundleExecutionsCollection,
-		"key":         execID,
-		"updatedAt":   time.Now().UTC().Add(-rdlSeedAge),
-	}, func(row map[string]any) error {
-		patched, _ = row["patched"].(bool)
-		return nil
-	})
-	if err != nil || !patched {
-		t.Fatalf("rdl restore %s to PUBLISHED: patched=%v err=%v", execID, patched, err)
+		t.Fatalf("rdl set %s to %s: patched=%v err=%v", execID, state, patched, err)
 	}
 }
 
@@ -1205,8 +1193,8 @@ func TestReconcileDanglesActiveReleaseBindingAgainstArango(t *testing.T) {
 		t.Fatalf("ABSENT-GUARD CONTROL baseline broken: un-named active-release-bound exec not listed before fault: list=%s err=%v", rdlMaterializationDigest(shadowBaseline), shadowBaselineErr)
 	}
 
-	rdlFlipToRunning(t, client, ctx, pubActive.ID)
-	rdlFlipToRunning(t, client, ctx, shadow.ID)
+	rdlSetExecutionState(t, client, ctx, pubActive.ID, "RUNNING")
+	rdlSetExecutionState(t, client, ctx, shadow.ID, "RUNNING")
 
 	catalog := newRDLCatalog(registry)
 	ch := newRDLClickHouse()
@@ -1262,7 +1250,7 @@ func TestReconcileDanglesActiveReleaseBindingAgainstArango(t *testing.T) {
 		t.Fatalf("F-B9 evidence violated: the active-release-bound exec unexpectedly carries pins post-Reconcile: count=%d", pins)
 	}
 
-	rdlRestorePublished(t, client, ctx, pubActive.ID)
+	rdlSetExecutionState(t, client, ctx, pubActive.ID, "PUBLISHED")
 	healedList, healedErr := reader.CurrentProjectDatasets(ctx, projectActive)
 	if healedErr != nil || len(healedList) != 1 || healedList[0].ID != pubActive.ID+":out-a" || healedList[0].PhysicalTable != specActive.table {
 		t.Fatalf("PREVENTED claim broken: after Reconcile (which must have skipped the active exec) and restoring only the harness's RUNNING flag, the release read degraded: list=%s err=%v", rdlMaterializationDigest(healedList), healedErr)
@@ -1282,7 +1270,7 @@ func TestReconcileDanglesActiveReleaseBindingAgainstArango(t *testing.T) {
 	if ch.didDrop(specShadow.table) || shadowErr == rdlReconcileMarker || pubpublication.BundleState(shadowState).Canonical() != pubpublication.BundleRunning {
 		t.Errorf("REGRESSION (F-B12): the unpointered ACTIVE-release-bound execution %s was reclaimed by Reconcile (state=%q marker=%q tableDropped=%v) — the post-claim active-release binding veto must deny this drop; the ACTIVE release still binds it (archived FAILED-ON-PURPOSE red: this drop destroyed advertised data and failed CurrentProjectDatasets wholesale)", shadow.ID, shadowState, shadowErr, ch.didDrop(specShadow.table))
 	}
-	rdlRestorePublished(t, client, ctx, shadow.ID)
+	rdlSetExecutionState(t, client, ctx, shadow.ID, "PUBLISHED")
 	shadowAfter, shadowListErr := reader.CurrentProjectDatasets(ctx, projectShadow)
 	if shadowListErr != nil || len(shadowAfter) != 1 || shadowAfter[0].ID != shadow.ID+":out-b" {
 		t.Fatalf("binding-veto claim broken: with the drop denied and only the harness's RUNNING flag undone, the shadow release read is not healthy: list=%s err=[%s]", rdlMaterializationDigest(shadowAfter), rdlErrChain(shadowListErr))

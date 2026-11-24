@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -413,10 +414,10 @@ type draftHistoryClient struct {
 }
 
 func (c *draftHistoryClient) WithTransaction(ctx context.Context, collections storepkg.TransactionCollections, fn storepkg.TransactionFunc) error {
-	previousOwner := cloneDocument(c.owner)
+	previousOwner := maps.Clone(c.owner)
 	previousRevisions := make(map[string]map[string]any, len(c.revisions))
 	for id, revision := range c.revisions {
-		previousRevisions[id] = cloneDocument(revision)
+		previousRevisions[id] = maps.Clone(revision)
 	}
 	c.transaction = collections
 	err := fn(ctx, c)
@@ -433,7 +434,7 @@ func (c *draftHistoryClient) QueryRows(_ context.Context, query string, _ int, b
 	collection, _ := binds["@c"].(string)
 	switch {
 	case strings.HasPrefix(strings.TrimSpace(query), "INSERT") && collection == DraftRevisionsCollection:
-		doc := cloneDocument(binds["doc"].(map[string]any))
+		doc := maps.Clone(binds["doc"].(map[string]any))
 		id := doc["_key"].(string)
 		if c.revisions == nil {
 			c.revisions = map[string]map[string]any{}
@@ -442,19 +443,19 @@ func (c *draftHistoryClient) QueryRows(_ context.Context, query string, _ int, b
 			return errors.New("duplicate immutable draft revision")
 		}
 		c.revisions[id] = doc
-		return visit(cloneDocument(doc))
+		return visit(maps.Clone(doc))
 	case strings.Contains(query, "d.id == @revisionId") && collection == DraftRevisionsCollection:
 		id, _ := binds["key"].(string)
 		revision := c.revisions[id]
 		if revision == nil || revision["id"] != binds["revisionId"] || revision["project"] != binds["project"] || revision["explorerId"] != binds["explorerId"] {
 			return nil
 		}
-		return visit(cloneDocument(revision))
+		return visit(maps.Clone(revision))
 	case strings.Contains(query, "UPDATE d WITH MERGE(base, @doc"):
 		if c.loseCAS || !draftOwnerMatches(c.owner, binds) {
 			return nil
 		}
-		updated := cloneDocument(c.owner)
+		updated := maps.Clone(c.owner)
 		if binds["clearDraftConfig"] == true {
 			delete(updated, "draftConfig")
 		}
@@ -464,12 +465,12 @@ func (c *draftHistoryClient) QueryRows(_ context.Context, query string, _ int, b
 		updated["draftVersion"] = binds["nextVersion"]
 		updated["previousDraftRevisionId"] = binds["revisionId"]
 		c.owner = updated
-		return visit(cloneDocument(updated))
+		return visit(maps.Clone(updated))
 	case strings.Contains(query, "RETURN d") && collection == ExplorersCollection && binds["expected"] != nil:
 		if !draftOwnerMatches(c.owner, binds) {
 			return nil
 		}
-		return visit(cloneDocument(c.owner))
+		return visit(maps.Clone(c.owner))
 	default:
 		return nil
 	}
@@ -489,17 +490,6 @@ func draftOwnerMatches(owner map[string]any, binds map[string]any) bool {
 	}
 	expectedDigest, _ := binds["expectedDigest"].(string)
 	return expectedDigest == "" || owner["draftDigest"] == expectedDigest
-}
-
-func cloneDocument(value map[string]any) map[string]any {
-	if value == nil {
-		return nil
-	}
-	cloned := make(map[string]any, len(value))
-	for key, item := range value {
-		cloned[key] = item
-	}
-	return cloned
 }
 
 func TestSaveDraftPersistsExactPreimageAtomicallyAndPreservesActiveRevision(t *testing.T) {

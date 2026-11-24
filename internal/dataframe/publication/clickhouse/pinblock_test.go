@@ -9,7 +9,6 @@ import (
 	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
 	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	"github.com/calypr/loom/internal/store/clickhouse"
-	"github.com/calypr/loom/internal/testkit/arangotest"
 )
 
 type pbxClickHouse struct {
@@ -51,22 +50,6 @@ func pbxDropped(set []string, table string) bool {
 	return false
 }
 
-func pbxSetup(t *testing.T) (*pubarango.Registry, context.Context, string) {
-	t.Helper()
-	database := arangotest.Owned(t, "loom_verify_pbx_")
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	t.Cleanup(cancel)
-	client := database.Client
-	if err := client.Bootstrap(ctx, pubarango.BootstrapSpec()); err != nil {
-		t.Fatalf("bootstrap: %v", err)
-	}
-	registry, err := pubarango.New(client)
-	if err != nil {
-		t.Fatalf("registry: %v", err)
-	}
-	return registry, ctx, database.Name[len("loom_verify_pbx_"):]
-}
-
 func pbxExecution(tag, suffix, physicalTable string, updatedAt time.Time) pubpublication.BundleExecution {
 	identity := pubpublication.BundleIdentity{
 		Name: "pbx-" + tag, TranslationVersion: "1", OutputName: "main",
@@ -98,7 +81,7 @@ func pbxSeed(t *testing.T, registry *pubarango.Registry, ctx context.Context, ex
 }
 
 func TestStalePinBlocksEntireReconcileAgainstArango(t *testing.T) {
-	registry, ctx, suffix := pbxSetup(t)
+	registry, ctx, suffix := openPublicationRegistry(t, "loom_verify_pbx_")
 
 	base := time.Now().UTC()
 	xUpdated := base.Add(-70 * time.Minute)
@@ -140,7 +123,7 @@ func TestStalePinBlocksEntireReconcileAgainstArango(t *testing.T) {
 }
 
 func TestStalePinAbsentReclaimsAllAgainstArango(t *testing.T) {
-	registry, ctx, suffix := pbxSetup(t)
+	registry, ctx, suffix := openPublicationRegistry(t, "loom_verify_pbx_")
 
 	base := time.Now().UTC()
 	xUpdated := base.Add(-70 * time.Minute)
@@ -182,7 +165,7 @@ func TestStalePinAbsentReclaimsAllAgainstArango(t *testing.T) {
 }
 
 func TestLivePinOnOnlyStaleExecutionStillAbortsRunAgainstArango(t *testing.T) {
-	registry, ctx, suffix := pbxSetup(t)
+	registry, ctx, suffix := openPublicationRegistry(t, "loom_verify_pbx_")
 
 	base := time.Now().UTC()
 	xTable := "loom_bundle_pbx_x_" + suffix

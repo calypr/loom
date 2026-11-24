@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"reflect"
 	"strings"
@@ -22,17 +23,6 @@ import (
 
 const draftTransactionRevisionID = "draft_revision_5a5bd747c995d2a79aba154d30be769c0fd16d0329b5eb8ed60efa0f073e02d8"
 const draftTransactionExplorerKey = "explorer_197f03a05310264cc602a25263fcec44e53b05736b3c9c4fddf10fe5c1aee09c"
-
-func draftTransactionClone(value map[string]any) map[string]any {
-	if value == nil {
-		return nil
-	}
-	result := make(map[string]any, len(value))
-	for name, item := range value {
-		result[name] = item
-	}
-	return result
-}
 
 type draftTransactionOutcomes struct {
 	Begin   string `json:"begin"`
@@ -149,7 +139,7 @@ func (c *draftTransactionPrimitive) QueryRows(_ context.Context, query string, b
 	}
 	switch stage {
 	case "read":
-		return visit(draftTransactionClone(c.persistedHead))
+		return visit(maps.Clone(c.persistedHead))
 	case "archive":
 		if binds["@c"] != DraftRevisionsCollection {
 			c.t.Fatal("wrong history collection")
@@ -158,13 +148,13 @@ func (c *draftTransactionPrimitive) QueryRows(_ context.Context, query string, b
 		if !ok {
 			c.t.Fatal("missing history document")
 		}
-		c.stagedHistory = draftTransactionClone(doc)
-		return visit(draftTransactionClone(doc))
+		c.stagedHistory = maps.Clone(doc)
+		return visit(maps.Clone(doc))
 	case "update":
 		if binds["nextVersion"] != int64(2) || binds["revisionId"] != draftTransactionRevisionID {
 			c.t.Fatalf("changed head identity: %#v", binds)
 		}
-		next := draftTransactionClone(c.persistedHead)
+		next := maps.Clone(c.persistedHead)
 		if binds["clearDraftConfig"] == true {
 			delete(next, "draftConfig")
 		}
@@ -178,7 +168,7 @@ func (c *draftTransactionPrimitive) QueryRows(_ context.Context, query string, b
 		next["draftVersion"] = int64(2)
 		next["previousDraftRevisionId"] = binds["revisionId"]
 		c.stagedHead = next
-		return visit(draftTransactionClone(next))
+		return visit(maps.Clone(next))
 	}
 	return nil
 }
