@@ -907,7 +907,7 @@ func TestPreviewErrorPreservesStableClassifications(t *testing.T) {
 		{"memory-limit", dataframeerrors.NewError(dataframeerrors.CodeQueryMemoryLimitExceeded, "private"), http.StatusServiceUnavailable, "QUERY_MEMORY_LIMIT_EXCEEDED"},
 		{"resource-limit", dataframeerrors.NewError(dataframeerrors.CodeQueryResourceLimitExceeded, "private"), http.StatusServiceUnavailable, "QUERY_RESOURCE_LIMIT_EXCEEDED"},
 		{"out-of-memory", dataframeerrors.NewError(dataframeerrors.CodeQueryBackendOutOfMemory, "private"), http.StatusServiceUnavailable, "QUERY_BACKEND_OUT_OF_MEMORY"},
-		{"receipt", &receiptapi.PreviewResolutionError{ReceiptID: "receipt-1", Err: receiptapi.NewContractMismatch("output_execution", "patients", "private-expected", "private-actual")}, http.StatusConflict, "RECEIPT_RECOMPILE_REQUIRED"},
+		{"receipt", &receiptapi.PreviewResolutionError{ReceiptID: "receipt-1", Err: &receiptapi.ContractMismatch{Component: "output_execution", OutputID: "patients", Expected: "private-expected", Actual: "private-actual"}}, http.StatusConflict, "RECEIPT_RECOMPILE_REQUIRED"},
 		{"unknown", errors.New("private"), http.StatusInternalServerError, "PREVIEW_FAILED"},
 	}
 	for _, test := range tests {
@@ -967,7 +967,7 @@ func TestUnlistedPivotCategoryPreviewErrorIsActionable(t *testing.T) {
 }
 
 func TestClassifyReceiptPreviewResolutionErrorOnlyMarksContractFailuresForRecompile(t *testing.T) {
-	mismatch := receiptapi.ClassifyPreviewResolutionError("receipt-1", receiptapi.NewContractMismatch("output_execution", "patients", "expected", "actual"))
+	mismatch := receiptapi.ClassifyPreviewResolutionError("receipt-1", &receiptapi.ContractMismatch{Component: "output_execution", OutputID: "patients", Expected: "expected", Actual: "actual"})
 	var resolution *receiptapi.PreviewResolutionError
 	if !errors.As(mismatch, &resolution) || resolution.ReceiptID != "receipt-1" {
 		t.Fatalf("mismatch classification = %#v", mismatch)

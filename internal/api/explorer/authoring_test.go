@@ -558,9 +558,10 @@ func TestInterpretationReadRoutesEnforceProjectReadAuthorization(t *testing.T) {
 	}
 }
 
-func TestInterpretationPreviewRouteRejectsMissingBody(t *testing.T) {
+func assertAuthoringRouteRejectsMissingBody(t *testing.T, route string) {
+	t.Helper()
 	app := generatedInterpretationReadTestApp(nil)
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/projects/project/explorers/explorer/authoring/v2/interpretation-preview", strings.NewReader("{}"))
+	request := httptest.NewRequest(http.MethodPost, route, strings.NewReader("{}"))
 	request.Header.Set("Content-Type", "application/json")
 	response, err := app.Test(request)
 	if err != nil {
@@ -572,18 +573,12 @@ func TestInterpretationPreviewRouteRejectsMissingBody(t *testing.T) {
 	}
 }
 
+func TestInterpretationPreviewRouteRejectsMissingBody(t *testing.T) {
+	assertAuthoringRouteRejectsMissingBody(t, "/api/v1/projects/project/explorers/explorer/authoring/v2/interpretation-preview")
+}
+
 func TestConfiguredColumnContextRouteRejectsMissingBody(t *testing.T) {
-	app := generatedInterpretationReadTestApp(nil)
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/projects/project/explorers/explorer/authoring/v2/configured-column-context", strings.NewReader("{}"))
-	request.Header.Set("Content-Type", "application/json")
-	response, err := app.Test(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = response.Body.Close()
-	if response.StatusCode != http.StatusBadRequest {
-		t.Fatalf("status=%d, want %d", response.StatusCode, http.StatusBadRequest)
-	}
+	assertAuthoringRouteRejectsMissingBody(t, "/api/v1/projects/project/explorers/explorer/authoring/v2/configured-column-context")
 }
 
 func TestConfiguredColumnContextResponseEncodesEmptyReadyListsAsArrays(t *testing.T) {

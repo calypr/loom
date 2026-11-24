@@ -164,7 +164,7 @@ func TestConstructionFilterSourceHTTPContractPreservesCapabilitiesAndProposals(t
 		t.Fatalf("filterSourceInput.choices = %#v, want the authorized active and id root scalars in fieldPath order", input.Choices)
 	}
 	choice := input.Choices[0]
-	for _, rawChoice := range rawFilterSourceChoices(t, capabilitiesHTTP.Body) {
+	for _, rawChoice := range rawSourceInputChoices(t, capabilitiesHTTP.Body, "filterSourceInput") {
 		var choiceKeys map[string]json.RawMessage
 		if err := json.Unmarshal(rawChoice, &choiceKeys); err != nil {
 			t.Fatal(err)
@@ -271,19 +271,6 @@ func TestConstructionFilterSourceHTTPContractPreservesCapabilitiesAndProposals(t
 	if storedAfter.DraftVersion != storedBefore.DraftVersion || storedAfter.DraftDigest != storedBefore.DraftDigest || !bytes.Equal(storedAfter.DraftConfig, storedBefore.DraftConfig) {
 		t.Fatalf("filter-source proposals mutated the stored draft: before=%#v after=%#v", storedBefore, storedAfter)
 	}
-}
-
-func rawFilterSourceChoices(t *testing.T, body string) []json.RawMessage {
-	t.Helper()
-	var envelope struct {
-		FilterSourceInput struct {
-			Choices []json.RawMessage `json:"choices"`
-		} `json:"filterSourceInput"`
-	}
-	if err := json.Unmarshal([]byte(body), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	return envelope.FilterSourceInput.Choices
 }
 
 func filterSourceHTTPBool(value bool) *bool { return &value }

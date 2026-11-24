@@ -459,10 +459,6 @@ func contractMismatch(component, output, expected, actual string) error {
 	return &ContractMismatch{Component: component, OutputID: output, Expected: expected, Actual: actual}
 }
 
-func NewContractMismatch(component, output, expected, actual string) error {
-	return contractMismatch(component, output, expected, actual)
-}
-
 func MismatchDetails(receiptID string, err error) map[string]any {
 	details := map[string]any{"component": "output_execution"}
 	if strings.TrimSpace(receiptID) != "" {

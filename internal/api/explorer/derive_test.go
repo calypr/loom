@@ -29,19 +29,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-func rawDeriveSourceChoices(t *testing.T, body string) []json.RawMessage {
-	t.Helper()
-	var envelope struct {
-		DeriveSourceInput struct {
-			Choices []json.RawMessage `json:"choices"`
-		} `json:"deriveSourceInput"`
-	}
-	if err := json.Unmarshal([]byte(body), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	return envelope.DeriveSourceInput.Choices
-}
-
 func TestConstructionDeriveSourceHTTPContractPreservesCapabilitiesAndProposals(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	snapshot.Candidates = append(snapshot.Candidates,
@@ -193,7 +180,7 @@ func TestConstructionDeriveSourceHTTPContractPreservesCapabilitiesAndProposals(t
 		t.Fatalf("deriveSourceInput.choices = %#v, want only the numeric root scalar (strings and booleans excluded)", input.Choices)
 	}
 	choice := input.Choices[0]
-	for _, rawChoice := range rawDeriveSourceChoices(t, capabilitiesHTTP.Body) {
+	for _, rawChoice := range rawSourceInputChoices(t, capabilitiesHTTP.Body, "deriveSourceInput") {
 		var choiceKeys map[string]json.RawMessage
 		if err := json.Unmarshal(rawChoice, &choiceKeys); err != nil {
 			t.Fatal(err)

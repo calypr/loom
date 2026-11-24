@@ -13,22 +13,28 @@ type deriveSourceProbe struct {
 	Choices    []FilterSourceChoiceProbe `json:"choices"`
 }
 
-func DecodeDeriveSourceInput(t *testing.T, body string) (map[string]json.RawMessage, *deriveSourceProbe) {
+func DecodeSourceInput(t *testing.T, body, inputName string) (map[string]json.RawMessage, json.RawMessage) {
 	t.Helper()
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(body), &envelope); err != nil {
 		t.Fatalf("decode capabilities envelope: %v body=%s", err, body)
 	}
-	raw, ok := envelope["deriveSourceInput"]
+	raw, ok := envelope[inputName]
 	if !ok {
-		t.Fatalf("capabilities wire response dropped deriveSourceInput: %s", body)
-	}
-	var input deriveSourceProbe
-	if err := json.Unmarshal(raw, &input); err != nil {
-		t.Fatal(err)
+		t.Fatalf("capabilities wire response dropped %s: %s", inputName, body)
 	}
 	var keys map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &keys); err != nil {
+		t.Fatal(err)
+	}
+	return keys, raw
+}
+
+func DecodeDeriveSourceInput(t *testing.T, body string) (map[string]json.RawMessage, *deriveSourceProbe) {
+	t.Helper()
+	keys, raw := DecodeSourceInput(t, body, "deriveSourceInput")
+	var input deriveSourceProbe
+	if err := json.Unmarshal(raw, &input); err != nil {
 		t.Fatal(err)
 	}
 	return keys, &input
@@ -53,20 +59,9 @@ type filterSourceProbe struct {
 
 func DecodeFilterSourceInput(t *testing.T, body string) (map[string]json.RawMessage, *filterSourceProbe) {
 	t.Helper()
-	var envelope map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(body), &envelope); err != nil {
-		t.Fatalf("decode capabilities envelope: %v body=%s", err, body)
-	}
-	raw, ok := envelope["filterSourceInput"]
-	if !ok {
-		t.Fatalf("capabilities wire response dropped filterSourceInput: %s", body)
-	}
+	keys, raw := DecodeSourceInput(t, body, "filterSourceInput")
 	var input filterSourceProbe
 	if err := json.Unmarshal(raw, &input); err != nil {
-		t.Fatal(err)
-	}
-	var keys map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &keys); err != nil {
 		t.Fatal(err)
 	}
 	return keys, &input

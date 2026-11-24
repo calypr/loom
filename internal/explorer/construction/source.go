@@ -398,50 +398,6 @@ func constructionOwnerInputsClearedFromCandidate(base ws.Construction, candidate
 	return true
 }
 
-func constructionRootFieldAlreadyProjected(document ws.Document, steps []ws.ConstructionStep, projections []ws.ConstructionSourceProjection, slotColumnID, fieldPath string) bool {
-	slot := strings.TrimSpace(fieldPath)
-	if slot == "" {
-		return false
-	}
-	for _, column := range document.Columns {
-		if column.ColumnID == "" || column.ColumnID == slotColumnID ||
-			column.OccurrenceID != ws.RootOccurrenceID ||
-			column.Source.Kind != ws.SourceField || column.Source.Field == nil {
-			continue
-		}
-		if column.Column == "_key" || strings.HasPrefix(column.Column, "__loom_") {
-			continue
-		}
-		if strings.TrimSpace(column.Source.Field.Path) == slot {
-			return true
-		}
-	}
-	for _, projection := range projections {
-		if projection.ColumnID == slotColumnID || !constructionStepCarriesSourceLane(steps, projection.OwnerStepID) {
-			continue
-		}
-		if strings.TrimSpace(projection.FieldPath) == slot {
-			return true
-		}
-	}
-	return false
-}
-
-func constructionStepCarriesSourceLane(steps []ws.ConstructionStep, stepID string) bool {
-	if stepID == "" {
-		return false
-	}
-	for _, step := range steps {
-		if step.ID != stepID {
-			continue
-		}
-		return step.Operation.Kind == ws.ConstructionOperationDerive ||
-			step.Operation.Kind == ws.ConstructionOperationFilter ||
-			step.Operation.Kind == ws.ConstructionOperationUnpivot
-	}
-	return false
-}
-
 func clearConstructionPivotInputs(base, candidate ws.Construction, pivotID string) (ws.Construction, error) {
 	pivotIndex := constructionStepIndex(candidate.Steps, pivotID)
 	if pivotIndex < 0 {

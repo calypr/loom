@@ -35,36 +35,22 @@ type unpivotSourceProbe struct {
 
 func decodedUnpivotSourceInput(t *testing.T, body string) (map[string]json.RawMessage, *unpivotSourceProbe) {
 	t.Helper()
-	var envelope map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(body), &envelope); err != nil {
-		t.Fatalf("decode capabilities envelope: %v body=%s", err, body)
-	}
-	raw, ok := envelope["unpivotSourceInput"]
-	if !ok {
-		t.Fatalf("capabilities wire response dropped unpivotSourceInput: %s", body)
-	}
+	keys, raw := explorerfixtures.DecodeSourceInput(t, body, "unpivotSourceInput")
 	var input unpivotSourceProbe
 	if err := json.Unmarshal(raw, &input); err != nil {
-		t.Fatal(err)
-	}
-	var keys map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &keys); err != nil {
 		t.Fatal(err)
 	}
 	return keys, &input
 }
 
-func rawUnpivotSourceChoices(t *testing.T, body string) []json.RawMessage {
+func rawSourceInputChoices(t *testing.T, body, inputName string) []json.RawMessage {
 	t.Helper()
-	var envelope struct {
-		UnpivotSourceInput struct {
-			Choices []json.RawMessage `json:"choices"`
-		} `json:"unpivotSourceInput"`
-	}
-	if err := json.Unmarshal([]byte(body), &envelope); err != nil {
+	keys, _ := explorerfixtures.DecodeSourceInput(t, body, inputName)
+	var choices []json.RawMessage
+	if err := json.Unmarshal(keys["choices"], &choices); err != nil {
 		t.Fatal(err)
 	}
-	return envelope.UnpivotSourceInput.Choices
+	return choices
 }
 
 func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(t *testing.T) {
@@ -242,7 +228,7 @@ func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(
 	if birth == nil {
 		t.Fatalf("unpivotSourceInput.choices omitted the populated integer root scalar: %#v", input.Choices)
 	}
-	for _, rawChoice := range rawUnpivotSourceChoices(t, capabilitiesHTTP.Body) {
+	for _, rawChoice := range rawSourceInputChoices(t, capabilitiesHTTP.Body, "unpivotSourceInput") {
 		var choiceKeys map[string]json.RawMessage
 		if err := json.Unmarshal(rawChoice, &choiceKeys); err != nil {
 			t.Fatal(err)
@@ -844,20 +830,9 @@ func expandSourceHTTPProcedureWorkspace() []byte {
 
 func expandSourceHTTPDecodedInput(t *testing.T, body string) (map[string]json.RawMessage, *expandSourceHTTPInputProbe) {
 	t.Helper()
-	var envelope map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(body), &envelope); err != nil {
-		t.Fatalf("decode capabilities envelope: %v body=%s", err, body)
-	}
-	raw, ok := envelope["expandSourceInput"]
-	if !ok {
-		t.Fatalf("capabilities wire response dropped expandSourceInput: %s", body)
-	}
+	keys, raw := explorerfixtures.DecodeSourceInput(t, body, "expandSourceInput")
 	var input expandSourceHTTPInputProbe
 	if err := json.Unmarshal(raw, &input); err != nil {
-		t.Fatal(err)
-	}
-	var keys map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &keys); err != nil {
 		t.Fatal(err)
 	}
 	return keys, &input
