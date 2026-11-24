@@ -11,7 +11,7 @@ import (
 
 func TestSemanticResourceTypeGuardScansProductionFilesOnly(t *testing.T) {
 	root := t.TempDir()
-	semanticDir := filepath.Join(root, "internal", "fhir", "semantic")
+	semanticDir := filepath.Join(root, "internal", "semantic")
 	if err := os.MkdirAll(semanticDir, 0755); err != nil {
 		t.Fatalf("create semantic source directory: %v", err)
 	}
