@@ -1,0 +1,51 @@
+diff --git a/internal/dataframe/recipeplan/build.go b/internal/dataframe/recipeplan/build.go
+index 7d1b3d109..cbceee1c9 100644
+--- a/internal/dataframe/recipeplan/build.go
++++ b/internal/dataframe/recipeplan/build.go
+@@ -14,0 +15,2 @@ func BuildRecipePlan(bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Rec
++	original := bundle
++	captureResearchBundle(original, "attempted")
+@@ -36,0 +39 @@ func BuildRecipePlan(bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Rec
++	captureResearchBundle(original, "built")
+diff --git a/internal/dataframe/recipeplan/research.go b/internal/dataframe/recipeplan/research.go
+new file mode 100644
+index 000000000..5e0f26aab
+--- /dev/null
++++ b/internal/dataframe/recipeplan/research.go
+@@ -0,0 +1,36 @@
++package recipeplan
++
++import (
++	"crypto/sha256"
++	"encoding/json"
++	"fmt"
++	"github.com/calypr/loom/internal/dataframe/recipe"
++	"os"
++	"path/filepath"
++)
++
++func captureResearchBundle(bundle recipe.Bundle, status string) {
++	dir := os.Getenv("LOOM_COMPILER_RESEARCH_CORPUS")
++	if dir == "" {
++		return
++	}
++	encoded, err := json.Marshal(bundle)
++	if err != nil {
++		panic(err)
++	}
++	hash := sha256.Sum256(encoded)
++	path := filepath.Join(dir, fmt.Sprintf("%s-%x.json", status, hash))
++	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
++	if os.IsExist(err) {
++		return
++	}
++	if err != nil {
++		panic(err)
++	}
++	if _, err = file.Write(encoded); err != nil {
++		panic(err)
++	}
++	if err = file.Close(); err != nil {
++		panic(err)
++	}
++}
