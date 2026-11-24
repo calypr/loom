@@ -178,6 +178,30 @@ func fenceGrantedResource(nonce string) string {
 	return "/programs/example/projects/sig-" + nonce
 }
 
+func churnFenceTokens(t *testing.T, client *FenceUserAccessClient, serverURL, prefix string, bound, tokens int, verifyGrant bool) string {
+	t.Helper()
+	newest := ""
+	for i := 0; i < tokens; i++ {
+		nonce := fmt.Sprintf("%s%03d", prefix, i)
+		token := bearerTokenWithIssuerAndNonce(serverURL, nonce)
+		newest = token
+		resources, err := client.GetAllowedResources(context.Background(), token, "read", "*")
+		if err != nil {
+			t.Fatalf("GetAllowedResources() error = %v", err)
+		}
+		if verifyGrant && (len(resources) != 1 || resources[0] != fenceGrantedResource(nonce)) {
+			t.Fatalf("GetAllowedResources(%s) = %#v, want its token's grant", nonce, resources)
+		}
+		if got := fenceCacheLen(client); got > bound {
+			t.Fatalf("retained entries = %d after %d distinct tokens, want <= %d", got, i+1, bound)
+		}
+	}
+	if got := fenceCacheLen(client); got != bound {
+		t.Fatalf("retained entries = %d, want the configured bound %d", got, bound)
+	}
+	return newest
+}
+
 type fenceTestClock struct {
 	mu  sync.Mutex
 	now time.Time
@@ -251,22 +275,7 @@ func TestFenceUserAccessClientCapsRetainedSnapshotsAcrossTokenChurn(t *testing.T
 	client := newFenceUserAccessClientWithCachePolicy(&http.Client{Timeout: 2 * time.Second}, serverURL, time.Minute, bound, clock.get)
 
 	const tokens = 60
-	newest := ""
-	for i := 0; i < tokens; i++ {
-		nonce := fmt.Sprintf("t%03d", i)
-		token := bearerTokenWithIssuerAndNonce(serverURL, nonce)
-		newest = token
-		resources, err := client.GetAllowedResources(context.Background(), token, "read", "*")
-		if err != nil || len(resources) != 1 || resources[0] != fenceGrantedResource(nonce) {
-			t.Fatalf("GetAllowedResources(%s) = %#v, %v", nonce, resources, err)
-		}
-		if got := fenceCacheLen(client); got > bound {
-			t.Fatalf("retained entries = %d after %d distinct tokens, want <= %d", got, i+1, bound)
-		}
-	}
-	if got := fenceCacheLen(client); got != bound {
-		t.Fatalf("retained entries = %d, want the configured bound %d", got, bound)
-	}
+	newest := churnFenceTokens(t, client, serverURL, "t", bound, tokens, true)
 
 	before := calls.Load()
 	if _, err := client.GetAllowedResources(context.Background(), newest, "read", "*"); err != nil {
@@ -291,18 +300,7 @@ func TestFenceUserAccessClientDefaultBoundCapsTokenChurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFenceUserAccessClientWithTrustedIssuer() error = %v", err)
 	}
-	for i := 0; i < defaultFenceAccessCacheEntries+64; i++ {
-		token := bearerTokenWithIssuerAndNonce(serverURL, fmt.Sprintf("d%05d", i))
-		if _, err := client.GetAllowedResources(context.Background(), token, "read", "*"); err != nil {
-			t.Fatalf("GetAllowedResources() error = %v", err)
-		}
-		if got := fenceCacheLen(client); got > defaultFenceAccessCacheEntries {
-			t.Fatalf("retained entries = %d after %d distinct tokens, want <= default bound %d", got, i+1, defaultFenceAccessCacheEntries)
-		}
-	}
-	if got := fenceCacheLen(client); got != defaultFenceAccessCacheEntries {
-		t.Fatalf("retained entries = %d, want the default bound %d", got, defaultFenceAccessCacheEntries)
-	}
+	churnFenceTokens(t, client, serverURL, "d", defaultFenceAccessCacheEntries, defaultFenceAccessCacheEntries+64, false)
 	if int(calls.Load()) != defaultFenceAccessCacheEntries+64 {
 		t.Fatalf("Fence calls = %d, want one fetch per distinct token", calls.Load())
 	}
