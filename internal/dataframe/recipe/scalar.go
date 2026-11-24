@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 )
 
 type archivedTableScalar struct {
@@ -92,47 +91,7 @@ func (scalar *archivedTableScalar) UnmarshalJSON(raw []byte) error {
 }
 
 func (scalar archivedTableScalar) ValidateStructure() error {
-	payloads := 0
-	if scalar.String != nil {
-		payloads++
-	}
-	if scalar.Integer != nil {
-		payloads++
-	}
-	if scalar.Decimal != nil {
-		payloads++
-	}
-	if scalar.Boolean != nil {
-		payloads++
-	}
-	switch scalar.Kind {
-	case TableScalarNull, TableScalarMissing:
-		if payloads != 0 {
-			return fmt.Errorf("%s scalar does not accept a value payload", scalar.Kind)
-		}
-	case TableScalarString:
-		if payloads != 1 || scalar.String == nil {
-			return fmt.Errorf("STRING scalar must contain exactly one string payload")
-		}
-	case TableScalarInteger:
-		if payloads != 1 || scalar.Integer == nil {
-			return fmt.Errorf("INTEGER scalar must contain exactly one integer payload")
-		}
-	case TableScalarDecimal:
-		if payloads != 1 || scalar.Decimal == nil {
-			return fmt.Errorf("DECIMAL scalar must contain exactly one decimal payload")
-		}
-	case TableScalarBoolean:
-		if payloads != 1 || scalar.Boolean == nil {
-			return fmt.Errorf("BOOLEAN scalar must contain exactly one boolean payload")
-		}
-	default:
-		return fmt.Errorf("unsupported table scalar kind %q", scalar.Kind)
-	}
-	if scalar.Decimal != nil && (math.IsNaN(*scalar.Decimal) || math.IsInf(*scalar.Decimal, 0)) {
-		return fmt.Errorf("decimal scalar must be finite")
-	}
-	return nil
+	return TableScalar(scalar).ValidateStructure()
 }
 
 func (scalar archivedTableScalar) ValidateConcreteValue() error {
@@ -150,26 +109,5 @@ func (scalar archivedTableScalar) ValidatePivotCategoryKey() error {
 }
 
 func (scalar archivedTableScalar) identity() string {
-	return fmt.Sprintf("%s:%s", scalar.Kind, scalar.valueString())
-}
-
-func (scalar archivedTableScalar) valueString() string {
-	switch scalar.Kind {
-	case TableScalarString:
-		return fmt.Sprintf("%q", valueOrZero(scalar.String))
-	case TableScalarInteger:
-		return fmt.Sprint(valueOrZero(scalar.Integer))
-	case TableScalarDecimal:
-		value := valueOrZero(scalar.Decimal)
-		if value == 0 {
-			return "0"
-		}
-		return fmt.Sprintf("%.17g", value)
-	case TableScalarBoolean:
-		return fmt.Sprint(valueOrZero(scalar.Boolean))
-	case TableScalarNull, TableScalarMissing:
-		return ""
-	default:
-		return ""
-	}
+	return TableScalar(scalar).identity()
 }
