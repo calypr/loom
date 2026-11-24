@@ -9,6 +9,7 @@ import (
 	"time"
 
 	dataset "github.com/calypr/loom/internal/dataset"
+	"github.com/calypr/loom/internal/lease"
 	"github.com/calypr/loom/internal/semantic"
 	semanticarango "github.com/calypr/loom/internal/semantic/arango"
 )
@@ -136,33 +137,20 @@ RETURN {claimed:true}`, 1, map[string]any{"@loads": sourceLoadCollection, "key":
 }
 
 func (p *RepositorySourceLoader) renewSourceLoadPublication(parent context.Context, key, owner string) (context.Context, func()) {
-	ctx, cancel := context.WithCancelCause(parent)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				updated := false
-				err := p.client.QueryRows(ctx, `LET record = DOCUMENT(@@loads,@key)
+	renewal := lease.StartRenewal(parent, 30*time.Second, func(ctx context.Context) error {
+		updated := false
+		err := p.client.QueryRows(ctx, `LET record = DOCUMENT(@@loads,@key)
 FILTER record != null AND record.state == @pending AND record.publish_owner == @owner AND record.publish_expires_at >= DATE_NOW()
 UPDATE record WITH {publish_expires_at:DATE_NOW()+@ttl} IN @@loads RETURN {updated:true}`, 1, map[string]any{"@loads": sourceLoadCollection, "key": key, "owner": owner, "ttl": sourceLoadClaimMillis, "pending": SourceLoadPublishPending}, func(row map[string]any) error { updated, _ = row["updated"].(bool); return nil })
-				if err != nil {
-					cancel(err)
-					return
-				}
-				if !updated {
-					cancel(&SourcePublishConflictError{Reason: "source load publication lease was lost"})
-					return
-				}
-			}
+		if err != nil {
+			return err
 		}
-	}()
-	return ctx, func() { cancel(nil); <-done }
+		if !updated {
+			return &SourcePublishConflictError{Reason: "source load publication lease was lost"}
+		}
+		return nil
+	})
+	return renewal.Context(), func() { renewal.Stop(nil) }
 }
 
 func (p *RepositorySourceLoader) completeSourceLoadPublication(ctx context.Context, record sourceLoadRecord, owner string) error {
