@@ -8,12 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -34,6 +35,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/viewer"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 )
 
 func TestCompileMapsPivotReducerTypeDiagnosticToUnprocessable(t *testing.T) {
@@ -415,51 +417,7 @@ func completedTestSelection(snapshot capability.Snapshot, resourceType string) *
 }
 
 func nativeReceipt(snapshot capability.Snapshot) *receiptmodel.CompilationReceipt {
-	bundle := recipe.Bundle{
-		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
-		Name:                "native-test",
-		TranslationVersion:  "test",
-		Outputs:             []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient"}},
-	}
-	emitted := []viewer.EmittedColumn{{OutputID: "patients", EmissionID: "em_patient", PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string", Filterable: true, Chartable: true}}
-	contract := json.RawMessage(`{"outputs":[{"outputId":"patients","columns":[{"column":"patient_id","label":"Patient ID","logicalType":"string","filterable":true,"chartable":true}]}]}`)
-	bundleDigest, _ := bundle.Digest()
-	workspace := ws.NewWorkspace("Patients")
-	workspace.Documents = []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Rows: ws.RecordsRowDefinition(), Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Columns: []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}}
-	workspace.Tabs = []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}
-	normalized, err := workspace.CanonicalJSON()
-	if err != nil {
-		panic(err)
-	}
-	intentDigest, err := workspace.Digest()
-	if err != nil {
-		panic(err)
-	}
-	receipt := &receiptmodel.CompilationReceipt{
-		ReceiptFormatVersion:     receiptmodel.CurrentReceiptFormatVersion,
-		CompilerContractVersion:  receiptmodel.CurrentCompilerContractVersion,
-		Project:                  snapshot.Identity.Project,
-		ExplorerID:               "patients",
-		IntentDigest:             intentDigest,
-		NormalizedBundle:         normalized,
-		SnapshotToken:            snapshot.Token,
-		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
-		CapabilitySchemaDigest:   snapshot.Identity.SchemaDigest,
-		ShapeDigest:              snapshot.Identity.ShapeDigest,
-		SourceGeneration:         snapshot.Identity.Generation,
-		RecipeDigest:             bundleDigest,
-		ResolvedRecipeDigest:     bundleDigest,
-		ResolvedSchemaDigest:     "resolved-schema",
-		CompiledConfig:           json.RawMessage(`{}`),
-		PublicOutputContract:     contract,
-		Bundle:                   bundle,
-		EmittedColumns:           emitted,
-		OutputColumnProvenance:   map[string]map[string]string{"patients": {"patient_id": "EXPLICIT"}},
-	}
-	receipt.OutputContractDigest, _ = receiptmodel.CompilationArtifactDigest(contract)
-	receipt.CompilationKey, _ = receiptmodel.CompilationKey(*receipt)
-	receipt.ID, _ = receiptmodel.ReceiptID(*receipt)
-	return receipt
+	return constructionfixtures.NativeReceipt(snapshot)
 }
 
 func successfulTestExecution(receipt *receiptmodel.CompilationReceipt, state string) ports.Execution {

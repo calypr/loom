@@ -19,6 +19,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/rowdef"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 )
 
 func TestConstructionSourceProjectionAvailabilityUsesAuthoringCarryPolicy(t *testing.T) {
@@ -400,16 +401,7 @@ func TestPivotLabelOnlyEditRejectsChangedInputAncestry(t *testing.T) {
 }
 
 func constructionPivotLabelFilterStep() ws.ConstructionStep {
-	return ws.ConstructionStep{
-		ID: "keep_positive", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "pivot_status"}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
-			ColumnID: "group_id", Operator: ws.ConstructionFilterExists,
-		}},
-		Outputs: []ws.StageColumn{
-			{ID: "group_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
-			{ID: "pivot_final", Name: "final_value", Label: "Final", Type: "string"},
-		},
-	}
+	return constructionfixtures.PivotFilterStep("keep_positive", "pivot_status", "group_id", "group_id", "patient_id", "Patient ID", "pivot_final", "final_value", "Final")
 }
 
 func TestConstructionNodeOccurrencesKeepsRootAndOmitsAmbiguousNodes(t *testing.T) {

@@ -27,6 +27,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 )
 
 const (
@@ -41,40 +42,11 @@ const (
 )
 
 func filterSourceSnapshot(token string) capability.Snapshot {
-	return capability.NewSnapshot(
-		capability.SnapshotIdentity{
-			Project: filterSourceProject, Generation: token, AuthorizationScopeDigest: "scope",
-			SchemaDigest: "schema-a", ResourceInventoryDigest: "resources", RelationshipDigest: "relationships",
-			FieldDigest: "fields", ProtocolVersion: "protocol", CompilerVersion: "compiler",
-			TraversalPolicyVersion: "traversal", ProjectionPolicyVersion: "projection",
-		},
-		capability.Policy{Route: capability.RoutePolicy{Version: "traversal", AllowsRepeatedEdges: true, AllowsSelfLoops: true}},
-		capability.StatusReady, true, false,
-		[]capability.Node{{ID: filterSourceRootNode, ResourceType: filterSourceRootType, RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, DocumentCount: 4}},
-		nil,
-		[]capability.Candidate{
-			{ID: "bs-id", NodeID: filterSourceRootNode, ResourceType: filterSourceRootType, FieldPath: "id", Label: "Logical id", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: true, Populated: true, ObservedDocumentCount: 4},
-			{ID: "bs-active", NodeID: filterSourceRootNode, ResourceType: filterSourceRootType, FieldPath: filterSourceField, Label: "Whether this record is in active use", LogicalType: "boolean", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: true, Populated: true, ObservedDocumentCount: 4},
-			{ID: "bs-description", NodeID: filterSourceRootNode, ResourceType: filterSourceRootType, FieldPath: "description", Label: "Description", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: false, Populated: false},
-			{ID: "bs-patient", NodeID: filterSourceRootNode, ResourceType: filterSourceRootType, FieldPath: "patient", Label: "Patient", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: true, Populated: true, ObservedDocumentCount: 4},
-		},
-		nil,
-	)
+	return constructionfixtures.FilterSourceSnapshot(token, filterSourceProject, filterSourceRootNode, filterSourceRootType, filterSourceIdentity, filterSourceField)
 }
 
 func filterSourceDocument() ws.Document {
-	return ws.Document{
-		Kind:             ws.Kind,
-		Output:           ws.Output{ID: filterSourceOutput, Title: "Body structures"},
-		RootResourceType: filterSourceRootType,
-		Route:            ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: filterSourceRootType},
-		Rows:             ws.RecordsRowDefinition(),
-		Columns: []ws.Column{{
-			ColumnID: filterSourceIdentity, Column: "body_structure_id", Label: "Body structure ID",
-			LogicalType: "string", OccurrenceID: ws.RootOccurrenceID,
-			Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}},
-		}},
-	}
+	return constructionfixtures.FilterSourceDocument(filterSourceOutput, "Body structures", filterSourceRootType, filterSourceIdentity, "body_structure_id", filterSourceField)
 }
 
 func filterSourceIdentityColumns() []ws.StageColumn {
@@ -123,48 +95,17 @@ func filterSourceBase(snapshot capability.Snapshot, construction ws.Construction
 }
 
 func filterSourceFilterStep(columnID string, outputs []ws.StageColumn) ws.ConstructionStep {
-	return ws.ConstructionStep{
-		ID:     "filter-active",
-		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
-			ColumnID: columnID, Operator: ws.ConstructionFilterEquals,
-			Values: []ws.FilterValue{{Kind: ws.ConstructionFilterBoolean, Boolean: filterSourceBool(true)}},
-		}},
-		Outputs: outputs,
-	}
+	return constructionfixtures.FilterSourceFilterStep(columnID, outputs)
 }
 
 func filterSourceBool(value bool) *bool { return &value }
 
 func filterSourceGroupStep() ws.ConstructionStep {
-	return ws.ConstructionStep{
-		ID:     "group-first",
-		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationGroup, Group: &ws.ConstructionGroup{
-			ConstructionID: "group-first", MissingKeyPolicy: ws.ConstructionGroupMissingKeyGroup,
-			Keys:       []ws.ConstructionGroupKey{{InputColumnID: filterSourceIdentity, OutputColumnID: "group_key"}},
-			Aggregates: []ws.ConstructionGroupAggregate{{Operation: ws.ConstructionGroupCountRows, OutputColumnID: "rows"}},
-		}},
-		Outputs: []ws.StageColumn{
-			{ID: "group_key", Name: "group_key", Label: "Group", Type: "string"},
-			{ID: "rows", Name: "rows", Label: "Rows", Type: "integer"},
-		},
-	}
+	return constructionfixtures.FilterSourceGroupStep(filterSourceIdentity)
 }
 
 func filterSourceRowChoice(t *testing.T, snapshot capability.Snapshot, path string) capability.RowChoice {
-	t.Helper()
-	choices, err := filterSourceResolver(t).ListRowChoices(context.Background(), snapshot, filterSourceDocument())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, choice := range choices {
-		if choice.Kind == capability.RowChoiceFieldGroupKey && choice.OccurrenceID == ws.RootOccurrenceID && choice.Path == path {
-			return choice
-		}
-	}
-	t.Fatalf("planner omitted the %s root field choice: %#v", path, choices)
-	return capability.RowChoice{}
+	return constructionfixtures.FilterSourceRowChoice(t, snapshot, filterSourceDocument(), path)
 }
 
 func filterSourceSelection(t *testing.T, snapshot capability.Snapshot, path, columnID string) rowsource.ConstructionFilterSourceSelection {

@@ -2,7 +2,6 @@ package lifecycle
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
@@ -10,6 +9,7 @@ import (
 
 	"github.com/calypr/loom/internal/explorer/authoringnetwork"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
@@ -327,16 +327,7 @@ func findLifecycleColumn(document ws.Document, columnID string) bool {
 }
 
 func cloneLifecycleDocument(t *testing.T, document ws.Document) ws.Document {
-	t.Helper()
-	raw, err := json.Marshal(document)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var cloned ws.Document
-	if err := json.Unmarshal(raw, &cloned); err != nil {
-		t.Fatal(err)
-	}
-	return cloned
+	return constructionfixtures.CloneDocument(t, document)
 }
 
 func TestReviewProjectedRemovalCandidateCASFailure(t *testing.T) {

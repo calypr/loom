@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	"github.com/calypr/loom/internal/semantic"
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 func TestResolveSemanticConstructionChoiceUsesFallbackCandidateOptionsAcrossOptionalRoute(t *testing.T) {
@@ -238,7 +239,7 @@ func TestResolveSemanticConstructionChoiceBuildsOwnerRecordSourceAfterCompilerPr
 
 func TestSchemaFieldCandidateChoiceRecompilesWithoutObservedCatalogEntry(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
-	snapshot := schemaFieldsTestSnapshot(scope, nil)
+	snapshot := explorerfixtures.SchemaFieldsSnapshot(scope, nil)
 	snapshot.Nodes[0].RowRootEligible = true
 	authorized := ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}
 	candidate, ok := uniqueCapabilityCandidate(snapshot, schemaFieldCandidateID(snapshot.Token, "patient-node", "gender"))
@@ -267,7 +268,7 @@ func TestSchemaFieldCandidateChoiceRecompilesWithoutObservedCatalogEntry(t *test
 }
 
 func TestSchemaFieldCandidateMissingGenderHasNoObservedOrOperationClaims(t *testing.T) {
-	snapshot := schemaFieldsTestSnapshot(authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, nil)
+	snapshot := explorerfixtures.SchemaFieldsSnapshot(authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, nil)
 	id := schemaFieldCandidateID(snapshot.Token, "patient-node", "gender")
 	candidate, ok := resolveSchemaFieldCandidate(snapshot, id)
 	if !ok || candidate.FieldPath != "gender" || candidate.LogicalType != "string" || candidate.Cardinality != "optional_one" {
@@ -279,7 +280,7 @@ func TestSchemaFieldCandidateMissingGenderHasNoObservedOrOperationClaims(t *test
 }
 
 func TestSchemaFieldCandidateRejectsWrongSnapshotNodeAndPath(t *testing.T) {
-	snapshot := schemaFieldsTestSnapshot(authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, nil)
+	snapshot := explorerfixtures.SchemaFieldsSnapshot(authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, nil)
 	for _, id := range []string{
 		schemaFieldCandidateID("another-snapshot", "patient-node", "gender"),
 		schemaFieldCandidateID(snapshot.Token, "outside-node", "gender"),

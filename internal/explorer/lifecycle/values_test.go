@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 
@@ -281,16 +282,7 @@ func constructionProposalPivotSetupWithUnrelatedStep(t *testing.T) (testServiceS
 }
 
 func constructionPivotFilterStep() ws.ConstructionStep {
-	return ws.ConstructionStep{
-		ID: "keep_positive", Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputStepOutput, StepID: "pivot_status"}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationFilter, Filter: &ws.ConstructionFilter{
-			ColumnID: "group_id", Operator: ws.ConstructionFilterExists,
-		}},
-		Outputs: []ws.StageColumn{
-			{ID: "group_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
-			{ID: "pivot_final", Name: "final_value", Label: "Final", Type: "string"},
-		},
-	}
+	return constructionfixtures.PivotFilterStep("keep_positive", "pivot_status", "group_id", "group_id", "patient_id", "Patient ID", "pivot_final", "final_value", "Final")
 }
 
 func constructionProposalPivotFixture(t *testing.T) (*Service, *fakeStore, capability.Snapshot, string, string) {

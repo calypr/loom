@@ -26,13 +26,13 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/rowdef"
-	"github.com/calypr/loom/internal/explorer/semanticauthoring"
 	"github.com/calypr/loom/internal/explorer/semanticbrowse"
 	"github.com/calypr/loom/internal/explorer/viewer"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/semantic"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 )
 
 func TestReplacementCompilesOnlyTargetAndLeavesBrokenConsumerForRepair(t *testing.T) {
@@ -1317,40 +1317,11 @@ func TestLegacyPrimaryOnlyFrameCompatibilityDoesNotChangeExtensionBindings(t *te
 }
 
 func semanticFrameCompatibilityObservation(kind string) semantic.Observation {
-	observation := semantic.Observation{
-		SchemaVersion: semantic.ObservationSchemaVersion,
-		Source:        semantic.Source{Type: "Observation", Canonical: "Observation.code", Path: "code"},
-		Key:           semantic.Key{Selector: "code.coding[]", System: "urn:study", Code: "stage"},
-		ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: semantic.CompletenessComplete,
-		Status: "SUPPORTED", RuleHint: semantic.RuleHintCodedValueV1, RuleVersion: strconv.Itoa(semantic.SemanticObservationRuleVersion),
-		Value: semantic.Value{Selector: "valueQuantity.value", Type: "decimal"},
-	}
-	if kind == "codeable concept" {
-		observation.Value = semantic.Value{
-			Selector: "valueCodeableConcept.text", Type: "string",
-			FallbackSelectors: []string{"valueCodeableConcept.coding[].display"}, FallbackOnBlankString: true,
-		}
-		observation.ChoiceArm = "valueCodeableConcept"
-		observation.LogicalType = "string"
-	}
-	return observation
+	return constructionfixtures.SemanticFrameCompatibilityObservation(kind)
 }
 
 func semanticFrameCompatibilityFamily(t *testing.T, entry semantic.Entry) capability.SemanticFrameFamily {
-	t.Helper()
-	plan := semanticauthoring.ResolveSemanticSelectionPlan(entry.Observation)
-	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil {
-		t.Fatalf("semantic compatibility fixture is not compiler-addable: %#v", plan)
-	}
-	binding := plan.Source.Lookup.Binding
-	return capability.SemanticFrameFamily{
-		BindingID: entry.BindingID, ResourceType: entry.Observation.Source.Type,
-		SourcePath: entry.Observation.Source.Path, SourceCanonical: entry.Observation.Source.Canonical, SourceProfile: entry.Observation.Source.Profile,
-		OwningScope: binding.OwnerPath, KeyPath: binding.KeyPath, ValuePath: binding.ValuePath,
-		ValueFallbacks: append([]string(nil), binding.ValueFallback...), FallbackOnBlankString: binding.FallbackOnBlankString,
-		ChoiceArms: append([]string(nil), binding.ChoiceArms...), LogicalType: binding.LogicalType,
-		RuleVersion: entry.Observation.RuleVersion, SchemaVersion: entry.Observation.SchemaVersion,
-	}
+	return constructionfixtures.SemanticFrameCompatibilityFamily(t, entry)
 }
 
 func legacyFrameCompatibilityStore(t *testing.T, frame ws.FrameDefinition) *fakeStore {

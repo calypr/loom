@@ -14,6 +14,7 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"github.com/calypr/loom/internal/semantic"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 )
 
 func TestStandaloneCodedConceptChoiceResolvesSameCodingValueAndStaysOutOfFrames(t *testing.T) {
@@ -378,22 +379,5 @@ func TestIdentifierSemanticItemLabelIncludesItsNamespace(t *testing.T) {
 }
 
 func testCodedCategoryFamily(sourceKind, resourceType, sourcePath, system, version string) semantic.Family {
-	reference := semantic.FamilyReference{
-		BindingID: "binding-" + resourceType, SourceKind: sourceKind, ResourceType: resourceType,
-		SourcePath: sourcePath, System: system, Version: version,
-	}
-	reference.FamilyID = semantic.FamilyID(reference)
-	return semantic.Family{
-		FamilyReference: reference,
-		Source:          semantic.Source{Type: resourceType, Path: sourcePath},
-		KeySelector:     "code.coding[]",
-		Value: semantic.Value{
-			Selector: "code.coding[].display", Type: "string",
-			FallbackSelectors: []string{"code.coding[].code"}, FallbackOnBlankString: true,
-		},
-		LogicalType: "string", SchemaVersion: semantic.ObservationSchemaVersion,
-		RuleVersion:  strconv.Itoa(semantic.SemanticObservationRuleVersion),
-		Completeness: semantic.CompletenessComplete, Status: "SUPPORTED", Population: 2,
-		Examples: []string{"CARBOXYAMIDOTRIAZOLE", "another compound"},
-	}
+	return constructionfixtures.CodedCategoryFamily(sourceKind, resourceType, sourcePath, system, version)
 }

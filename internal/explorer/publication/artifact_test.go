@@ -21,7 +21,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/artifactformat"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
-	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/artifactfs"
@@ -30,7 +29,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/viewer"
-	ws "github.com/calypr/loom/internal/explorer/workspace"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 )
 
 type artifactBackend struct {
@@ -155,7 +154,7 @@ func artifactTestFixture(t *testing.T) (*artifactBackend, *memoryArtifactStore, 
 	t.Helper()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := readySnapshot("project-a", "generation-a", "token-a", scope)
-	receipt := nativeReceipt(snapshot)
+	receipt := constructionfixtures.NativeReceipt(snapshot)
 	receipt.SnapshotToken = snapshot.Token
 	report := publication.QualityReport{ID: "quality-patients", ReceiptID: receipt.ID, Project: receipt.Project, DatasetGeneration: receipt.SourceGeneration, ScopeDigest: receipt.AuthorizationScopeDigest, Output: "patients", PolicyVersion: publication.DefaultQualityPolicyVersion, Completeness: publication.QualityComplete, Verdict: publication.QualityPassed}
 	revision := &explorer.Revision{ID: "revision-a", Project: receipt.Project, ExplorerID: receipt.ExplorerID, CompilationReceiptID: receipt.ID, Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Publication: viewer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: receipt.SourceGeneration, ExecutionID: "execution-a"}, QualityReports: []publication.QualityReport{report}, Status: explorer.RevisionReady}
@@ -996,54 +995,6 @@ func readySnapshot(project, generation, token string, scope authscope.ReadScope)
 	sort.Strings(paths)
 	sum := sha256.Sum256([]byte(string(scope.Mode) + "\x00" + strings.Join(paths, "\x00")))
 	return capability.Snapshot{Identity: capability.SnapshotIdentity{Project: project, Generation: generation, AuthorizationScopeDigest: hex.EncodeToString(sum[:]), SchemaDigest: "schema", ShapeDigest: "shape"}, Status: capability.StatusReady, Complete: true, Token: token}
-}
-
-func nativeReceipt(snapshot capability.Snapshot) *receiptmodel.CompilationReceipt {
-	bundle := recipe.Bundle{
-		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
-		Name:                "native-test",
-		TranslationVersion:  "test",
-		Outputs:             []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient"}},
-	}
-	emitted := []viewer.EmittedColumn{{OutputID: "patients", EmissionID: "em_patient", PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string", Filterable: true, Chartable: true}}
-	contract := json.RawMessage(`{"outputs":[{"outputId":"patients","columns":[{"column":"patient_id","label":"Patient ID","logicalType":"string","filterable":true,"chartable":true}]}]}`)
-	bundleDigest, _ := bundle.Digest()
-	workspace := ws.NewWorkspace("Patients")
-	workspace.Documents = []ws.Document{{Kind: ws.Kind, Output: ws.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Rows: ws.RecordsRowDefinition(), Route: ws.RouteNode{OccurrenceID: ws.RootOccurrenceID, ResourceType: "Patient"}, Columns: []ws.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}}}
-	workspace.Tabs = []ws.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}
-	normalized, err := workspace.CanonicalJSON()
-	if err != nil {
-		panic(err)
-	}
-	intentDigest, err := workspace.Digest()
-	if err != nil {
-		panic(err)
-	}
-	receipt := &receiptmodel.CompilationReceipt{
-		ReceiptFormatVersion:     receiptmodel.CurrentReceiptFormatVersion,
-		CompilerContractVersion:  receiptmodel.CurrentCompilerContractVersion,
-		Project:                  snapshot.Identity.Project,
-		ExplorerID:               "patients",
-		IntentDigest:             intentDigest,
-		NormalizedBundle:         normalized,
-		SnapshotToken:            snapshot.Token,
-		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
-		CapabilitySchemaDigest:   snapshot.Identity.SchemaDigest,
-		ShapeDigest:              snapshot.Identity.ShapeDigest,
-		SourceGeneration:         snapshot.Identity.Generation,
-		RecipeDigest:             bundleDigest,
-		ResolvedRecipeDigest:     bundleDigest,
-		ResolvedSchemaDigest:     "resolved-schema",
-		CompiledConfig:           json.RawMessage(`{}`),
-		PublicOutputContract:     contract,
-		Bundle:                   bundle,
-		EmittedColumns:           emitted,
-		OutputColumnProvenance:   map[string]map[string]string{"patients": {"patient_id": "EXPLICIT"}},
-	}
-	receipt.OutputContractDigest, _ = receiptmodel.CompilationArtifactDigest(contract)
-	receipt.CompilationKey, _ = receiptmodel.CompilationKey(*receipt)
-	receipt.ID, _ = receiptmodel.ReceiptID(*receipt)
-	return receipt
 }
 
 func NewForTest(domain *explorer.Service, config Config) (*Service, error) {

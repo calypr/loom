@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -183,7 +182,7 @@ func prepareBuilderFullUISeeds(t *testing.T, inventoryHeader json.RawMessage, in
 		}
 		rows = append(rows, row)
 	}
-	if err := writeBuilderFullUIPreparedSeeds(preparedPath, header, rows); err != nil {
+	if err := writeLifecycleJSONL(preparedPath, header, rows); err != nil {
 		t.Fatalf("write prepared seed artifact: %v", err)
 	}
 	fmt.Printf("BUILDER_FULL_UI_PREPARE path=%s rows=%d prepared=%d blocked=%d local=%d gap=%d setupFailure=%d inventorySha256=%s inventoryManifestSha256=%s modelStatesSha256=%s modelJsonlSha256=%s\n",
@@ -1020,18 +1019,4 @@ func readBuilderFullUIPreparedSeeds(path string) (map[string]builderFullUISeed, 
 		}
 	}
 	return prepared, append(json.RawMessage(nil), lines[0]...), artifactSHA, nil
-}
-
-func writeBuilderFullUIPreparedSeeds(path string, header builderFullUIPrepareHeader, rows []builderFullUISeed) error {
-	var content bytes.Buffer
-	encoder := json.NewEncoder(&content)
-	if err := encoder.Encode(header); err != nil {
-		return err
-	}
-	for _, row := range rows {
-		if err := encoder.Encode(row); err != nil {
-			return err
-		}
-	}
-	return os.WriteFile(path, content.Bytes(), 0o600)
 }

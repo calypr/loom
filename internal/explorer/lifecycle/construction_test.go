@@ -16,12 +16,12 @@ import (
 	"github.com/calypr/loom/internal/explorer/construction"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
-	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 )
 
 func constructionProposalService(t *testing.T, options ...testServiceOption) (*Service, *fakeStore, capability.Snapshot) {
@@ -61,91 +61,7 @@ func constructionProposalSetup(t *testing.T, options ...testServiceOption) testS
 }
 
 func testConstructionStageDescriptors(workspace ws.Workspace, outputID string) []receiptmodel.ReceiptConstructionStage {
-	index := constructionDocumentIndex(workspace, outputID)
-	if index < 0 {
-		return nil
-	}
-	document := workspace.Documents[index]
-	columns := make([]receiptmodel.ReceiptConstructionStageColumn, 0, len(document.Columns))
-	for _, column := range document.Columns {
-		columns = append(columns, receiptmodel.ReceiptConstructionStageColumn{
-			ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType, Cardinality: expression.OptionalOne,
-		})
-	}
-	allChoices := func() []receiptmodel.ReceiptConstructionOperationChoice {
-		return []receiptmodel.ReceiptConstructionOperationChoice{
-			{Kind: "PIVOT", Supported: true}, {Kind: "DERIVE", Supported: true},
-			{Kind: "FILTER", Supported: true}, {Kind: "UNPIVOT", Supported: true},
-			{Kind: "RELATED_EXPAND", Supported: true},
-		}
-	}
-	rootAnchor := receiptmodel.ReceiptConstructionRelatedExpandAnchor{
-		AnchorColumnID: "_key", Kind: "root", ResourceType: document.RootResourceType,
-		Label: "Original " + document.RootResourceType,
-	}
-	stages := []receiptmodel.ReceiptConstructionStage{{
-		ID: recipe.ConstructionSourceProjectionID, Columns: columns, Capabilities: allChoices(),
-		RelatedExpandAnchors: []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor},
-	}}
-	var activeAnchor *receiptmodel.ReceiptConstructionActiveRelatedRecord
-	if document.Construction == nil {
-		return stages
-	}
-	for _, step := range document.Construction.Steps {
-		stageColumns := make([]receiptmodel.ReceiptConstructionStageColumn, 0, len(step.Outputs))
-		for _, column := range step.Outputs {
-			stageColumns = append(stageColumns, receiptmodel.ReceiptConstructionStageColumn{
-				ID: column.ID, Name: column.Name, Label: column.Label, Type: column.Type, Cardinality: expression.OptionalOne,
-			})
-		}
-		inputStageID := recipe.ConstructionSourceProjectionID
-		if len(stages) > 1 {
-			inputStageID = stages[len(stages)-1].ID
-		}
-		stage := receiptmodel.ReceiptConstructionStage{
-			ID: step.ID, InputStageID: inputStageID, Operation: string(step.Operation.Kind),
-			Columns: stageColumns, Capabilities: allChoices(),
-		}
-		if related := step.Operation.RelatedExpand; related != nil {
-			route := make([]recipe.ConstructionRelatedRouteStep, 0, len(related.Route))
-			for _, hop := range related.Route {
-				route = append(route, recipe.ConstructionRelatedRouteStep{
-					EdgeID: hop.EdgeID, FromNodeID: hop.FromNodeID, ToNodeID: hop.ToNodeID,
-					FromResourceType: hop.FromResourceType, ToResourceType: hop.ToResourceType,
-					Relationship: hop.Relationship, StorageDirection: hop.StorageDirection, MatchMode: hop.MatchMode,
-				})
-			}
-			stage.RelatedExpand = &receiptmodel.ReceiptConstructionRelatedExpand{
-				AnchorColumnID: related.AnchorColumnID, AnchorColumn: related.AnchorColumnID,
-				AnchorKind: "root", AnchorNodeID: related.Route[0].FromNodeID,
-				AnchorResourceType:     related.Route[0].FromResourceType,
-				RelatedRecordColumnID:  related.RelatedRecordColumnID,
-				ParentIdentityColumnID: "__test_parent_identity", ParentIdentityColumn: "__test_parent_identity",
-				TerminalIdentityColumn: "__test_terminal_identity", TargetNodeID: related.TargetNodeID,
-				TargetResourceType: related.TargetResourceType, Route: route,
-			}
-			activeAnchor = &receiptmodel.ReceiptConstructionActiveRelatedRecord{
-				TargetNodeID: related.TargetNodeID, TargetResourceType: related.TargetResourceType,
-				TerminalIdentityColumn: "__test_terminal_identity",
-			}
-		} else if step.Operation.Kind != ws.ConstructionOperationFilter &&
-			step.Operation.Kind != ws.ConstructionOperationDerive &&
-			step.Operation.Kind != ws.ConstructionOperationRelatedSource &&
-			step.Operation.Kind != ws.ConstructionOperationRelatedField {
-			activeAnchor = nil
-		}
-		stage.RelatedExpandAnchors = []receiptmodel.ReceiptConstructionRelatedExpandAnchor{rootAnchor}
-		if activeAnchor != nil {
-			stage.ActiveRelatedRecord = activeAnchor
-			stage.RelatedExpandAnchors = append(stage.RelatedExpandAnchors, receiptmodel.ReceiptConstructionRelatedExpandAnchor{
-				AnchorColumnID: activeAnchor.TerminalIdentityColumn, Kind: "activeRelatedRecord",
-				NodeID: activeAnchor.TargetNodeID, ResourceType: activeAnchor.TargetResourceType,
-				Label: "Current related " + activeAnchor.TargetResourceType,
-			})
-		}
-		stages = append(stages, stage)
-	}
-	return stages
+	return constructionfixtures.ConstructionStageDescriptors(workspace, outputID)
 }
 
 func constructionProposalRequest(owner *explorer.Explorer, snapshot capability.Snapshot, document ws.Document, changedStepID string) construction.ConstructionProposalRequest {

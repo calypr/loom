@@ -231,7 +231,7 @@ func TestBuilderFullUIRequestReplay(t *testing.T) {
 		GuardRows: len(guards), GuardStatesResolved: guardStatesResolved,
 		Counts: counts,
 	}
-	if err := writeBuilderFullUIObservations(goObservationsPath, outputHeader, observations); err != nil {
+	if err := writeLifecycleJSONL(goObservationsPath, outputHeader, observations); err != nil {
 		t.Fatalf("write Go observation artifact: %v", err)
 	}
 
