@@ -69,7 +69,7 @@ func classifyRepositoryCompilationError(err error) error {
 
 func (s *Service) PublishRepository(ctx context.Context, request RepositoryPublishRequest) (RepositoryPublishResult, error) {
 	if err := request.Workspace.ValidateForPublication(); err != nil {
-		code := authoringcore.WorkspaceValidationCode(err)
+		code := support.WorkspaceValidationCode(err)
 		return RepositoryPublishResult{}, support.Unprocessable("repository_publish", code, err.Error(), err)
 	}
 	if s.config.Capability.Current == nil || s.config.Capability.ForCompilation == nil || s.config.CompileReceipt == nil {

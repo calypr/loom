@@ -24,6 +24,17 @@ Column policy and source relationship use one preparation path for catalog autho
 
 The successful source-relationship HTTP fixture counts two compilation capability lookups: proposal preparation and the compile boundary. The column-policy fixture denies the second lookup. It returns `FORBIDDEN` at the `capability` stage before compiling, persisting a receipt, running preview, or saving the draft. A scratch overlay that called `CompileAuthorized` with the earlier grant failed this test because the request succeeded. Keep the recheck. Production re-resolves the read scope and active generation, so the earlier grant is insufficient after scope or release turnover. The fixture counts resolver calls and makes no latency claim.
 
+## Backend architecture cycle decisions
+
+- **Proposal preparation** now owns the shared draft checks for column policy and source relationship. The scope recheck is required at compile time. The first slice also compared row definition, population removal, and construction and records their distinct loading and execution rules above.
+- **Workspace validation errors** use one validation-code mapping in lifecycle support. Compile, reconcile, construction, and publication still choose their original public stage. Construction calls the receipt output validator directly.
+- **Viewer rows and facets** keep the separate endpoints and current identity check. Reopen the combined-read candidate with paired browser requests against the same active data release, including a release turnover and a facet-only failure. Count catalog reads and query calls and compare client latency. The synthetic service-level benchmark below did not establish a performance case.
+- **Arango error normalization** remains split by use case. To test a classifier move, inject the same wrapped cancellation, deadline, and forbidden errors in the general dataframe query, saved preview, and recipe publication query paths. Compare HTTP status, public error code and stage, and the wrapped cause at each boundary. Move the mapping only if that comparison shows how to preserve all four.
+- **Recipe execution authorization** stays on the common record reader. REST concealment and Explorer's requirement for usable execution and output states serve different callers.
+- **Construction façade and proposal execution** keep the current service owners. Construction selection routes already share the underlying search implementation. Construction, choice, and population-member proposals already share the preview executor. A proposed façade change needs to remove call-site or constructor plumbing across these consumers while preserving the different input contracts.
+- **Explorer affordances** continue to distinguish deleting a saved view config from deleting an Explorer. The latter is gated off and needs a product decision before a public route is added.
+- **JSON response conversions** keep the measured typed mapper on selection pages. Before changing other shapes, test the same production-sized response with its existing codec and a typed mapper. Compare bytes for optional fields and payload variants and measure allocations and CPU. The selection measurement alone cannot establish equivalence for other shapes.
+
 ## Ranked implementation units
 
 ### 1. Remove the retired GraphQL resolver scheduler and retain SQL job batching
