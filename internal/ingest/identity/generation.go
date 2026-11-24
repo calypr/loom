@@ -116,14 +116,6 @@ func requireProject(document map[string]json.RawMessage, project string) error {
 	return nil
 }
 
-func generationDocumentID(project, datasetGeneration, documentID string) (string, error) {
-	return GenerationDocumentIDWithFormat(project, datasetGeneration, documentID, publication.IdentityFormatCompact)
-}
-
-func GenerationDocumentID(project, datasetGeneration, documentID string) (string, error) {
-	return generationDocumentID(project, datasetGeneration, documentID)
-}
-
 func GenerationDocumentIDWithFormat(project, datasetGeneration, documentID, identityFormat string) (string, error) {
 	collection, logicalKey, ok := strings.Cut(documentID, "/")
 	if !ok || strings.TrimSpace(collection) == "" || strings.TrimSpace(logicalKey) == "" || strings.Contains(logicalKey, "/") {
@@ -132,28 +124,12 @@ func GenerationDocumentIDWithFormat(project, datasetGeneration, documentID, iden
 	return collection + "/" + GenerationDocumentKeyWithFormat(project, datasetGeneration, collection, logicalKey, identityFormat), nil
 }
 
-func generationDocumentKey(project, datasetGeneration, collection, logicalKey string) string {
-	return GenerationDocumentKeyWithFormat(project, datasetGeneration, collection, logicalKey, publication.IdentityFormatCompact)
-}
-
-func generationEdgeKey(project, datasetGeneration, logicalKey, from, to string) string {
-	return GenerationEdgeKeyWithFormat(project, datasetGeneration, logicalKey, from, to, publication.IdentityFormatCompact)
-}
-
 func GenerationDocumentKeyWithFormat(project, datasetGeneration, collection, logicalKey, format string) string {
 	format = NormalizeIdentityFormat(format)
 	if format == publication.IdentityFormatLegacy {
 		return "g_" + generationHash("vertex", project, datasetGeneration, collection, logicalKey, "", 5, 64)
 	}
 	return "g2" + generationHash("vertex", project, datasetGeneration, collection, logicalKey, "", 5, 32)
-}
-
-func GenerationDocumentKey(project, datasetGeneration, collection, logicalKey string) string {
-	return generationDocumentKey(project, datasetGeneration, collection, logicalKey)
-}
-
-func GenerationEdgeKey(project, datasetGeneration, logicalKey, from, to string) string {
-	return generationEdgeKey(project, datasetGeneration, logicalKey, from, to)
 }
 
 func GenerationEdgeKeyWithFormat(project, datasetGeneration, logicalKey, from, to, format string) string {

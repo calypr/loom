@@ -3,9 +3,10 @@ package row
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/ingest/identity"
 	"strings"
 	"time"
+
+	"github.com/calypr/loom/internal/ingest/identity"
 
 	"github.com/bytedance/sonic"
 	fhir "github.com/calypr/loom/fhir/model"
@@ -103,10 +104,6 @@ type edgeRow struct {
 	SourceFile        string `json:"source_file,omitempty"`
 }
 
-func marshalEdgeRows(documents []fhir.EdgeDocument, project, authResourcePath, datasetGeneration, sourceFile string) ([]json.RawMessage, []catalog.RelationshipKey, error) {
-	return marshalEdgeRowsWithFormat(documents, project, authResourcePath, datasetGeneration, sourceFile, publication.IdentityFormatCompact)
-}
-
 func marshalEdgeRowsWithFormat(documents []fhir.EdgeDocument, project, authResourcePath, datasetGeneration, sourceFile, identityFormat string) ([]json.RawMessage, []catalog.RelationshipKey, error) {
 	encoded := make([]json.RawMessage, len(documents))
 	relationships := make([]catalog.RelationshipKey, 0, len(documents))
@@ -169,22 +166,6 @@ func namespaceEdgeDocumentValueWithFormat(document fhir.EdgeDocument, project, a
 		return edgeRow{}, catalog.RelationshipKey{}, fmt.Errorf("edge label is empty")
 	}
 	return row, catalog.RelationshipKey{Project: project, DatasetGeneration: catalog.NormalizeDatasetGeneration(datasetGeneration), AuthResourcePath: authResourcePath, FromType: fromType, Label: document.Label, ToType: toType}, nil
-}
-
-func edgeWithAuthResourcePath(edge json.RawMessage, authResourcePath string) (json.RawMessage, error) {
-	if authResourcePath == "" {
-		return edge, nil
-	}
-	var doc map[string]any
-	if err := sonic.ConfigFastest.Unmarshal(edge, &doc); err != nil {
-		return nil, err
-	}
-	doc["auth_resource_path"] = authResourcePath
-	out, err := sonic.ConfigFastest.Marshal(doc)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(out), nil
 }
 
 type sourceFileOwnerRowBuilder struct {

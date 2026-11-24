@@ -1,12 +1,8 @@
 package row
 
 import (
-	"fmt"
-	"maps"
 	"regexp"
 	"strings"
-
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 var validKeyPart = regexp.MustCompile(`[^A-Za-z0-9_\-:.@()+,=;$!*'%]`)
@@ -29,34 +25,6 @@ type EdgeDocument struct {
 	Project  string `json:"project"`
 	FromType string `json:"from_type"`
 	ToType   string `json:"to_type"`
-}
-
-func VertexFromFHIRWithExtra(project, resourceType string, payload, extraArgs map[string]any) (VertexDocument, error) {
-	canonicalType, ok := fhirschema.ConcreteResourceType(resourceType)
-	if !ok {
-		return VertexDocument{}, fmt.Errorf("unsupported FHIR graph resource type %q", resourceType)
-	}
-	id, ok := payload["id"].(string)
-	if !ok || strings.TrimSpace(id) == "" {
-		return VertexDocument{}, fmt.Errorf("%s payload missing string id", resourceType)
-	}
-	payloadCopy := maps.Clone(payload)
-	authResourcePath := ""
-	if extraArgs != nil {
-		maps.Copy(payloadCopy, extraArgs)
-		if auth, ok := extraArgs["auth_resource_path"].(string); ok {
-			authResourcePath = auth
-		}
-	}
-	return VertexDocument{
-		Key:              SanitizeKey(id),
-		ID:               id,
-		Project:          project,
-		ProjectID:        project,
-		ResourceType:     canonicalType,
-		AuthResourcePath: authResourcePath,
-		Payload:          payloadCopy,
-	}, nil
 }
 
 func SanitizeKey(value string) string {

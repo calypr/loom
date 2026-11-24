@@ -22,16 +22,17 @@ func TestGeneratedLoadCapabilityMatchesGeneratedFHIRMethods(t *testing.T) {
 }
 
 func TestGeneratedResearchSubjectStudyEdgeTargetsResearchStudy(t *testing.T) {
-	_, edges, _, err := loadRowGenerated("ResearchSubject", []byte(`{
+	result, _, err := NewGeneratedRowBuilder("project-1", "").Build("ResearchSubject", []byte(`{
   "resourceType": "ResearchSubject",
   "id": "research-subject-1",
   "status": "active",
   "study": {"reference": "ResearchStudy/study-1"},
   "subject": {"reference": "Patient/patient-1"}
-}`), "project-1", map[string]float64{})
+}`), map[string]float64{})
 	if err != nil {
 		t.Fatalf("loadRowGenerated(ResearchSubject): %v", err)
 	}
+	edges := result.Edges()
 
 	var studyEdge *fhir.EdgeDocument
 	for _, raw := range edges {
@@ -62,14 +63,15 @@ func TestGeneratedResearchSubjectStudyEdgeTargetsResearchStudy(t *testing.T) {
 }
 
 func TestGeneratedNestedLinkUsesConcreteRuntimeEndpoints(t *testing.T) {
-	_, edges, _, err := loadRowGenerated("Practitioner", []byte(`{
+	result, _, err := NewGeneratedRowBuilder("project-1", "").Build("Practitioner", []byte(`{
   "resourceType": "Practitioner",
   "id": "practitioner-1",
   "qualification": [{"code": {"text": "board-certified"}, "issuer": {"reference": "Organization/org-1"}}]
-}`), "project-1", map[string]float64{})
+}`), map[string]float64{})
 	if err != nil {
 		t.Fatalf("loadRowGenerated(Practitioner): %v", err)
 	}
+	edges := result.Edges()
 	if len(edges) != 1 {
 		t.Fatalf("expected one forward qualification edge, got %d", len(edges))
 	}
@@ -84,16 +86,17 @@ func TestGeneratedNestedLinkUsesConcreteRuntimeEndpoints(t *testing.T) {
 }
 
 func TestGeneratedTaskUsesOfficialForProperty(t *testing.T) {
-	_, edges, _, err := loadRowGenerated("Task", []byte(`{
+	result, _, err := NewGeneratedRowBuilder("project-1", "").Build("Task", []byte(`{
 		"resourceType":"Task",
 		"id":"task-1",
 		"status":"requested",
 		"intent":"order",
 		"for":{"reference":"Patient/patient-1"}
-	}`), "project-1", map[string]float64{})
+	}`), map[string]float64{})
 	if err != nil {
 		t.Fatalf("load official Task shape: %v", err)
 	}
+	edges := result.Edges()
 	if len(edges) != 1 {
 		t.Fatalf("expected one Task.for edge, got %d", len(edges))
 	}
@@ -108,7 +111,7 @@ func TestGeneratedTaskUsesOfficialForProperty(t *testing.T) {
 
 func TestGeneratedLoadAddsProjectIDToEnvelopeAndPayload(t *testing.T) {
 	project := "HTAN_INT-BForePC"
-	vertex, _, _, err := loadRowGenerated("Patient", []byte(`{
+	vertex, _, _, _, err := loadRowGeneratedDocumentsWithPayload("Patient", []byte(`{
   "resourceType": "Patient",
   "id": "patient-1"
 }`), project, map[string]float64{})
@@ -130,7 +133,7 @@ func TestGeneratedLoadAddsProjectIDToEnvelopeAndPayload(t *testing.T) {
 func TestGeneratedLoadRejectsUnknownAndUnsupportedResourceTypes(t *testing.T) {
 	for _, resourceType := range []string{"Unknown", "Resource"} {
 		t.Run(resourceType, func(t *testing.T) {
-			_, _, kind, err := loadRowGenerated(resourceType, []byte(`{}`), "project-1", map[string]float64{})
+			_, _, _, kind, err := loadRowGeneratedDocumentsWithPayload(resourceType, []byte(`{}`), "project-1", map[string]float64{})
 			if kind != RowErrorGeneration || err == nil || !strings.Contains(err.Error(), "generated loader does not support") {
 				t.Fatalf("loadRowGenerated(%q) = kind %q err %v, want unsupported-resource generation error", resourceType, kind, err)
 			}
@@ -138,15 +141,14 @@ func TestGeneratedLoadRejectsUnknownAndUnsupportedResourceTypes(t *testing.T) {
 	}
 }
 
-func TestWithProjectIDRetainsInputWhenPayloadCannotBeDecoded(t *testing.T) {
-	line := []byte(`{"resourceType":`)
-	if got := withProjectID(line, "project-1"); string(got) != string(line) {
-		t.Fatalf("withProjectID malformed-input fallback = %q, want original %q", got, line)
+func TestDecodePayloadWithProjectIDRejectsMalformedJSON(t *testing.T) {
+	if payload, err := decodePayloadWithProjectID([]byte(`{"resourceType":`), "project-1"); err == nil || payload != nil {
+		t.Fatalf("malformed payload = %#v, error = %v", payload, err)
 	}
 }
 
 func TestGeneratedLoadRejectsMissingFHIRID(t *testing.T) {
-	_, _, kind, err := loadRowGenerated("DocumentReference", []byte(`{
+	_, _, _, kind, err := loadRowGeneratedDocumentsWithPayload("DocumentReference", []byte(`{
   "resourceType": "DocumentReference",
   "status": "current",
   "content": [{"attachment": {}}]
@@ -154,15 +156,6 @@ func TestGeneratedLoadRejectsMissingFHIRID(t *testing.T) {
 	if kind != RowErrorValidation || err == nil || !strings.Contains(err.Error(), "DocumentReference payload missing string id") {
 		t.Fatalf("loadRowGenerated() = kind %q err %v, want missing ID validation error", kind, err)
 	}
-}
-
-func loadRowGenerated(resourceType string, line []byte, project string, stageSeconds map[string]float64) (VertexDocument, []json.RawMessage, RowErrorType, error) {
-	vertex, documents, _, errorType, err := loadRowGeneratedInternal(resourceType, line, project, stageSeconds, false)
-	if err != nil {
-		return VertexDocument{}, nil, errorType, err
-	}
-	edges, err := marshalEdgeDocuments(documents)
-	return vertex, edges, errorType, err
 }
 
 func TestGeneratedLoadNormalizesNumericFHIRInteger64(t *testing.T) {
@@ -189,7 +182,7 @@ func TestGeneratedLoadNormalizesNumericFHIRInteger64(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			raw := []byte(`{"resourceType":"DocumentReference","id":"doc","status":"current","content":[{"attachment":{"size":` + test.value + `,"pages":2}},{"attachment":{"size":"7"}}],"unknownNumber":12}`)
-			vertex, _, _, _, err := loadRowGeneratedWithPayload("DocumentReference", raw, "test", map[string]float64{})
+			vertex, _, _, _, err := loadRowGeneratedDocumentsWithPayload("DocumentReference", raw, "test", map[string]float64{})
 			if test.want == "" {
 				if err == nil {
 					t.Fatal("expected invalid integer64 to be rejected")
@@ -222,7 +215,7 @@ func TestGeneratedLoadNormalizesNumericFHIRInteger64(t *testing.T) {
 
 func TestGeneratedLoadRejectsCodingSystemWhitespace(t *testing.T) {
 	raw := []byte(`{"resourceType":"ImagingStudy","id":"study","status":"available","subject":{"reference":"Patient/p"},"series":[{"uid":"1.2.3","modality":{"coding":[{"system":" http://dicom.nema.org/resources/ontology/DCM","code":"CT"}]}}]}`)
-	_, _, _, kind, err := loadRowGeneratedWithPayload("ImagingStudy", raw, "test", map[string]float64{})
+	_, _, _, kind, err := loadRowGeneratedDocumentsWithPayload("ImagingStudy", raw, "test", map[string]float64{})
 	if kind != RowErrorValidation || err == nil || !strings.Contains(err.Error(), "field 'system' does not match its schema pattern") {
 		t.Fatalf("expected Coding.system validation error, got %v (%v)", err, kind)
 	}

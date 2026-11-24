@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	fhir "github.com/calypr/loom/fhir/model"
+
 	"github.com/calypr/loom/internal/catalog"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest/identity"
@@ -26,7 +28,7 @@ func TestNamespaceRowBuildResultKeepsLogicalFHIRIdentityAndQualifiesGraphIdentit
 		payload: map[string]any{"resourceType": "Patient", "id": "patient-1"},
 	}
 
-	namespaced, err := namespaceRowBuildResult(result, "project-a", "generation-1", "Patient")
+	namespaced, err := namespaceRowBuildResultWithFormat(result, "project-a", "generation-1", "Patient", publication.IdentityFormatCompact)
 	if err != nil {
 		t.Fatalf("namespaceRowBuildResult() error = %v", err)
 	}
@@ -115,17 +117,17 @@ func TestNamespaceRowBuildResultSeparatesProjectsAndGenerationsWithSameFHIRID(t 
 		vertex:  json.RawMessage(`{"_key":"same-id","id":"same-id","project":"project-a","resourceType":"Patient"}`),
 		payload: map[string]any{"id": "same-id"},
 	}
-	first, err := namespaceRowBuildResult(result, "project-a", "generation-a", "Patient")
+	first, err := namespaceRowBuildResultWithFormat(result, "project-a", "generation-a", "Patient", publication.IdentityFormatCompact)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := namespaceRowBuildResult(result, "project-a", "generation-b", "Patient")
+	second, err := namespaceRowBuildResultWithFormat(result, "project-a", "generation-b", "Patient", publication.IdentityFormatCompact)
 	if err != nil {
 		t.Fatal(err)
 	}
 	otherProject := result
 	otherProject.vertex = json.RawMessage(`{"_key":"same-id","id":"same-id","project":"project-b","resourceType":"Patient"}`)
-	third, err := namespaceRowBuildResult(otherProject, "project-b", "generation-a", "Patient")
+	third, err := namespaceRowBuildResultWithFormat(otherProject, "project-b", "generation-a", "Patient", publication.IdentityFormatCompact)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +164,7 @@ func TestNamespaceRowBuildResultRejectsMalformedOrCrossProjectDocuments(t *testi
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := namespaceRowBuildResult(test.result, "project-a", "generation-a", "Patient"); err == nil {
+			if _, err := namespaceRowBuildResultWithFormat(test.result, "project-a", "generation-a", "Patient", publication.IdentityFormatCompact); err == nil {
 				t.Fatal("namespaceRowBuildResult() error = nil, want validation failure")
 			}
 		})
@@ -268,7 +270,7 @@ func documentString(t *testing.T, document map[string]json.RawMessage, field str
 
 func generationDocumentIDMust(t *testing.T, project, generation, documentID string) string {
 	t.Helper()
-	value, err := identity.GenerationDocumentID(project, generation, documentID)
+	value, err := identity.GenerationDocumentIDWithFormat(project, generation, documentID, publication.IdentityFormatCompact)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,32 +318,36 @@ func TestGeneratedEdgeRowsMatchRawEdgePath(t *testing.T) {
 }
 
 func compareEdgePaths(resourceType string, line []byte) error {
-	_, documents, _, gotKind, gotErr := loadRowGeneratedDocumentsWithPayload(resourceType, line, "edge-parity", map[string]float64{})
-	_, rawEdges, _, wantKind, wantErr := loadRowGeneratedWithPayload(resourceType, line, "edge-parity", map[string]float64{})
-	if (gotErr != nil) != (wantErr != nil) || gotKind != wantKind {
-		return fmt.Errorf("decode error differs: current %q %v, raw %q %v", gotKind, gotErr, wantKind, wantErr)
+	_, documents, _, kind, decodeErr := loadRowGeneratedDocumentsWithPayload(resourceType, line, "edge-parity", map[string]float64{})
+	built, buildKind, buildErr := NewGeneratedRowBuilder("edge-parity", "").Build(resourceType, line, map[string]float64{})
+	if (decodeErr != nil) != (buildErr != nil) || kind != buildKind {
+		return fmt.Errorf("builder and decoder disagree: builder %q %v, decoder %q %v", buildKind, buildErr, kind, decodeErr)
 	}
-	if gotErr != nil {
+	if decodeErr != nil {
 		return nil
+	}
+	if len(built.Edges()) != len(documents) {
+		return fmt.Errorf("builder emitted %d edges for %d extracted documents", len(built.Edges()), len(documents))
 	}
 	for _, auth := range []string{"", "/programs/p/projects/q"} {
 		for _, generation := range []string{"", "generation-1"} {
 			for _, sourceFile := range []string{"", resourceType} {
-				got, gotRelationships, err := marshalEdgeRows(documents, "edge-parity", auth, generation, sourceFile)
+				got, gotRelationships, err := marshalEdgeRowsWithFormat(documents, "edge-parity", auth, generation, sourceFile, publication.IdentityFormatCompact)
 				if err != nil {
 					return err
 				}
-				want := append([]json.RawMessage(nil), rawEdges...)
-				if auth != "" {
-					for index, edge := range want {
-						want[index], err = edgeWithAuthResourcePath(edge, auth)
-						if err != nil {
-							return err
-						}
+				want := make([]json.RawMessage, len(documents))
+				for i, doc := range documents {
+					want[i], err = json.Marshal(struct {
+						fhir.EdgeDocument
+						AuthResourcePath string `json:"auth_resource_path,omitempty"`
+					}{doc, auth})
+					if err != nil {
+						return err
 					}
 				}
 				if generation != "" {
-					want, err = namespaceRowEdges(want, "edge-parity", generation)
+					want, err = namespaceRowEdgesWithFormat(want, "edge-parity", generation, publication.IdentityFormatCompact)
 					if err != nil {
 						return err
 					}
@@ -410,12 +416,6 @@ func decodeEdgeMapsRaw(edges []json.RawMessage) ([]map[string]any, error) {
 		}
 	}
 	return result, nil
-}
-
-func TestEdgeWithAuthResourcePathFailsClosed(t *testing.T) {
-	if _, err := edgeWithAuthResourcePath(json.RawMessage(`{`), "projects/p"); err == nil {
-		t.Fatal("malformed edge was returned without its authorization path")
-	}
 }
 
 func TestGeneratedRowBuilderPreservesPayloadIdentityAndEdges(t *testing.T) {
@@ -532,7 +532,7 @@ func TestGeneratedRowBuilderPreservesPayloadIdentityAndEdges(t *testing.T) {
 	if got := documentString(t, namespacedVertex, "auth_resource_path"); got != authResourcePath {
 		t.Fatalf("namespaced vertex auth_resource_path = %q, want %q", got, authResourcePath)
 	}
-	if got := documentString(t, namespacedVertex, "_key"); got != identity.GenerationDocumentKey(project, "generation-1", "ResearchSubject", vertex.Key) {
+	if got := documentString(t, namespacedVertex, "_key"); got != identity.GenerationDocumentKeyWithFormat(project, "generation-1", "ResearchSubject", vertex.Key, publication.IdentityFormatCompact) {
 		t.Fatalf("namespaced vertex key = %q, want generation-qualified key", got)
 	}
 	var storedPayload map[string]any

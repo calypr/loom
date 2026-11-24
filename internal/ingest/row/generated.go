@@ -3,10 +3,10 @@ package row
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/ingest/source"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/calypr/loom/internal/ingest/source"
 
 	"github.com/bytedance/sonic"
 	fhir "github.com/calypr/loom/fhir/model"
@@ -18,37 +18,7 @@ type generatedLoadResource interface {
 	ExtractEdgeDocuments(string) ([]fhir.EdgeDocument, error)
 }
 
-func loadRowGeneratedWithPayload(resourceType string, line []byte, project string, stageSeconds map[string]float64) (VertexDocument, []json.RawMessage, map[string]any, RowErrorType, error) {
-	vertex, documents, payload, errorType, err := loadRowGeneratedInternal(resourceType, line, project, stageSeconds, true)
-	if err != nil {
-		return VertexDocument{}, nil, nil, errorType, err
-	}
-	edges, err := marshalEdgeDocuments(documents)
-	return vertex, edges, payload, errorType, err
-}
-
 func loadRowGeneratedDocumentsWithPayload(resourceType string, line []byte, project string, stageSeconds map[string]float64) (VertexDocument, []fhir.EdgeDocument, map[string]any, RowErrorType, error) {
-	return loadRowGeneratedInternal(resourceType, line, project, stageSeconds, true)
-}
-
-func marshalEdgeDocuments(documents []fhir.EdgeDocument) ([]json.RawMessage, error) {
-	edges := make([]json.RawMessage, len(documents))
-	for index, document := range documents {
-		edges[index] = json.RawMessage(fmt.Sprintf(
-			`{"_key":%q,"_from":%q,"_to":%q,"label":%q,"project":%s,"from_type":%q,"to_type":%q}`,
-			document.Key,
-			document.From,
-			document.To,
-			document.Label,
-			strconv.Quote(document.Project),
-			document.FromType,
-			document.ToType,
-		))
-	}
-	return edges, nil
-}
-
-func loadRowGeneratedInternal(resourceType string, line []byte, project string, stageSeconds map[string]float64, includePayloadMap bool) (VertexDocument, []fhir.EdgeDocument, map[string]any, RowErrorType, error) {
 	resource, ok := fhir.NewConcreteResource(resourceType)
 	if !ok {
 		return VertexDocument{}, nil, nil, RowErrorGeneration, fmt.Errorf("generated loader does not support %q", resourceType)
@@ -74,9 +44,7 @@ func loadRowGeneratedInternal(resourceType string, line []byte, project string, 
 			return VertexDocument{}, nil, nil, RowErrorValidation, err
 		}
 		vertexPayload = normalized
-		if includePayloadMap {
-			payload = normalizedPayload
-		}
+		payload = normalizedPayload
 	}
 	stageSeconds["decode"] += time.Since(start).Seconds()
 
@@ -102,17 +70,13 @@ func loadRowGeneratedInternal(resourceType string, line []byte, project string, 
 	}
 
 	if vertexPayload == nil {
-		if includePayloadMap {
-			start = time.Now()
-			payload, err = decodePayloadWithProjectID(line, project)
-			stageSeconds["payload_map_decode"] += time.Since(start).Seconds()
-			if err != nil {
-				return VertexDocument{}, nil, nil, RowErrorValidation, err
-			}
-			vertexPayload = marshalPayloadWithFallback(payload, line)
-		} else {
-			vertexPayload = withProjectID(line, project)
+		start = time.Now()
+		payload, err = decodePayloadWithProjectID(line, project)
+		stageSeconds["payload_map_decode"] += time.Since(start).Seconds()
+		if err != nil {
+			return VertexDocument{}, nil, nil, RowErrorValidation, err
 		}
+		vertexPayload = marshalPayloadWithFallback(payload, line)
 	}
 
 	return VertexDocument{
@@ -140,14 +104,6 @@ func marshalPayloadWithFallback(payload map[string]any, fallback []byte) json.Ra
 		return json.RawMessage(fallback)
 	}
 	return json.RawMessage(encoded)
-}
-
-func withProjectID(line []byte, project string) json.RawMessage {
-	payload, err := decodePayloadWithProjectID(line, project)
-	if err != nil {
-		return json.RawMessage(line)
-	}
-	return marshalPayloadWithFallback(payload, line)
 }
 
 func SupportsGeneratedLoad(resourceType string) bool {

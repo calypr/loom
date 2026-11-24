@@ -37,7 +37,7 @@ func TestViewerRowFileDownloadObservationFixtureLoadsGenerated(t *testing.T) {
 		t.Fatalf("FileCell Observation identity = %s/%s, want Observation/filecell-observation-001", source.ResourceType, source.ID)
 	}
 
-	vertex, _, kind, err := loadRowGenerated("Observation", []byte(rows[0]), "filecell-project", map[string]float64{})
+	vertex, _, _, kind, err := loadRowGeneratedDocumentsWithPayload("Observation", []byte(rows[0]), "filecell-project", map[string]float64{})
 	if err != nil {
 		t.Fatalf("loadRowGenerated(FileCell Observation): kind=%q err=%v", kind, err)
 	}

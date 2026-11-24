@@ -35,7 +35,7 @@ func TestBasicObservationFixturesPassGeneratedLoaderValidation(t *testing.T) {
 					continue
 				}
 				rows++
-				if _, _, category, err := loadRowGenerated("Observation", scanner.Bytes(), "fixture-validation", stageSeconds); err != nil {
+				if _, _, _, category, err := loadRowGeneratedDocumentsWithPayload("Observation", scanner.Bytes(), "fixture-validation", stageSeconds); err != nil {
 					t.Errorf("Observation row %d fails generated loading (%s): %v", rows, category, err)
 				}
 			}
