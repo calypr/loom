@@ -16,11 +16,9 @@ import (
 	"github.com/calypr/loom/internal/explorer/viewer"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
-	"github.com/calypr/loom/internal/projectid"
 )
 
 type SourceRelationshipProposalRequest struct {
@@ -85,29 +83,18 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	if capabilityResolver.ForCompilation == nil || capabilityResolver.Catalog == nil || network == nil || (request.hasRelationshipChange() && editRelationship == nil) || (request.SourceStep != nil && editSource == nil) || (request.SourceSteps != nil && editSources == nil) {
 		return fail, support.Unavailable("source-relationship-proposal", "IMPORTED_SOURCE_UNAVAILABLE", "native relationship editing is unavailable", nil)
 	}
-	authorized, err := capabilityResolver.ForCompilation(ctx, request.Project, request.SnapshotToken)
-	if err != nil || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(authorized.Snapshot.Identity.Project) != projectid.Canonical(request.Project) || authorized.Snapshot.Identity.Generation == "" {
-		return fail, support.Conflict("source-relationship-proposal", "STALE_CATALOG_SNAPSHOT", "reload the relationship catalog", nil, err)
-	}
-	if err := support.ValidateAuthorizedReadScope(authorized.Scope, authorized.Snapshot.Identity.AuthorizationScopeDigest); err != nil {
-		return fail, support.Conflict("source-relationship-proposal", "STALE_AUTHORIZATION_SCOPE", "the authorized source scope changed", nil, err)
-	}
-	owner, err := s.config.Core.GetOwner(ctx, request.Project, request.ExplorerID)
+	draft, err := s.prepareDraft(ctx, draftTarget{
+		project: request.Project, explorerID: request.ExplorerID, snapshotToken: request.SnapshotToken,
+		draftVersion: request.ExpectedDraftVersion, draftDigest: request.ExpectedDraftDigest, outputID: request.OutputID,
+	}, draftDiagnostics{
+		stage: "source-relationship-proposal", staleCatalog: "reload the relationship catalog", staleScope: "the authorized source scope changed",
+		changedDraft: "the saved draft changed; preview again", unreadableDraft: "the saved source cannot be read",
+		workspaceDigest: "saved workspace digest does not match",
+	})
 	if err != nil {
 		return fail, err
 	}
-	if owner.DraftVersion != request.ExpectedDraftVersion || owner.DraftDigest != request.ExpectedDraftDigest {
-		return fail, support.Conflict("source-relationship-proposal", "DRAFT_CONFLICT", "the saved draft changed; preview again", nil, explorer.ErrDraftConflict)
-	}
-	workspace, err := ws.DecodeWorkspace(owner.DraftConfig)
-	if err != nil {
-		return fail, support.Conflict("source-relationship-proposal", "AUTHORING_STATE_MISSING", "the saved source cannot be read", nil, err)
-	}
-	digest, err := workspace.Digest()
-	if err != nil || digest != owner.DraftDigest {
-		return fail, support.Conflict("source-relationship-proposal", "DRAFT_CONFLICT", "saved workspace digest does not match", nil, err)
-	}
-	document := support.ProposalDocument(workspace, request.OutputID)
+	document := draft.document
 	if document == nil || document.ImportedRecipe == nil {
 		return fail, support.Unprocessable("source-relationship-proposal", "IMPORTED_SOURCE_REQUIRED", "choose an imported output", nil)
 	}
@@ -117,13 +104,13 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	}
 	var updated ws.Document
 	if creatingRule {
-		updated, err = createRule(ctx, request.Project, authorized, *document, *request.SourceRule)
+		updated, err = createRule(ctx, request.Project, draft.authorization, *document, *request.SourceRule)
 	} else if request.SourceSteps != nil {
-		updated, err = editSources(ctx, request.Project, authorized, *document, request.SourceSteps)
+		updated, err = editSources(ctx, request.Project, draft.authorization, *document, request.SourceSteps)
 	} else if request.SourceStep != nil {
-		updated, err = editSource(ctx, request.Project, authorized, *document, request.SourceStep)
+		updated, err = editSource(ctx, request.Project, draft.authorization, *document, request.SourceStep)
 	} else {
-		updated, err = editRelationship(ctx, request.Project, authorized, *document, request.Change)
+		updated, err = editRelationship(ctx, request.Project, draft.authorization, *document, request.Change)
 	}
 	if err != nil {
 		var typed *ports.Error
@@ -139,11 +126,11 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	if err := command.ResolveImportedDocument(updated); err != nil {
 		return fail, support.Unprocessable("source-relationship-proposal", "INVALID_IMPORTED_SOURCE", err.Error(), err)
 	}
-	candidate, _, err := authoringv2.ApplyCommands(workspace, s.catalog(authorized.Snapshot, request.ExplorerID), "source-relationship-preview", []authoringv2.Command{command})
+	candidate, _, err := authoringv2.ApplyCommands(draft.workspace, s.catalog(draft.authorization.Snapshot, request.ExplorerID), "source-relationship-preview", []authoringv2.Command{command})
 	if err != nil {
 		return fail, support.Unprocessable("source-relationship-proposal", "INVALID_IMPORTED_SOURCE", err.Error(), err)
 	}
-	candidate, err = ws.PrepareWorkspaceForCompilation(candidate, s.catalog(authorized.Snapshot, request.ExplorerID))
+	candidate, err = ws.PrepareWorkspaceForCompilation(candidate, s.catalog(draft.authorization.Snapshot, request.ExplorerID))
 	if err != nil {
 		return fail, err
 	}
@@ -151,12 +138,12 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	if err != nil {
 		return fail, err
 	}
-	binding := &receiptmodel.SourceRelationshipProposalBinding{DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, OutputID: request.OutputID, BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest, SnapshotToken: request.SnapshotToken}
+	binding := &receiptmodel.SourceRelationshipProposalBinding{DraftVersion: draft.owner.DraftVersion, DraftDigest: draft.owner.DraftDigest, OutputID: request.OutputID, BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest, SnapshotToken: request.SnapshotToken}
 	receipt, err := s.config.Core.Compile(ctx, authoringcore.CompileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: candidate, SnapshotToken: request.SnapshotToken, RequestID: "source-relationship-proposal", SourceRelationshipProposal: binding})
 	if err != nil {
 		return fail, err
 	}
-	verifiedCandidate, err := s.config.Core.VerifyProposalReceipt(ctx, "source-relationship-proposal", receipt, request.Project, request.ExplorerID, request.SnapshotToken, authorized.Snapshot, &candidate)
+	verifiedCandidate, err := s.config.Core.VerifyProposalReceipt(ctx, "source-relationship-proposal", receipt, request.Project, request.ExplorerID, request.SnapshotToken, draft.authorization.Snapshot, &candidate)
 	if err != nil {
 		return fail, err
 	}
@@ -165,7 +152,7 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	if candidateDocument == nil {
 		return fail, support.Conflict("source-relationship-proposal", "INVALID_SOURCE_RELATIONSHIP_PROPOSAL", "candidate output missing", nil, nil)
 	}
-	candidateNetwork, err := network(ctx, request.Project, authorized, *candidateDocument)
+	candidateNetwork, err := network(ctx, request.Project, draft.authorization, *candidateDocument)
 	if err != nil {
 		var typed *ports.Error
 		if errors.As(err, &typed) {
@@ -224,7 +211,7 @@ func (s *Service) ProposeSourceRelationship(ctx context.Context, request SourceR
 	if request.Change.MatchMode == ws.RouteMatchRequired {
 		notices = append(notices, "Required matches exclude source rows without a match; they do not expand rows.")
 	}
-	return SourceRelationshipProposal{NativePreview: &preview, CandidateDocument: *candidateDocument, CandidateNetwork: candidateNetwork, CandidateRowIdentity: candidateRowIdentity, ProposalID: receipt.ID, CandidateReceiptID: receipt.ID, OutputID: request.OutputID, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest, PreviewStatus: "READY", SampledRows: preview.Summary.RowCount, Sampled: !preview.Summary.Complete || preview.Summary.Truncated || preview.Summary.PartialValidation, AffectedColumns: affected, Notices: notices}, nil
+	return SourceRelationshipProposal{NativePreview: &preview, CandidateDocument: *candidateDocument, CandidateNetwork: candidateNetwork, CandidateRowIdentity: candidateRowIdentity, ProposalID: receipt.ID, CandidateReceiptID: receipt.ID, OutputID: request.OutputID, SnapshotToken: request.SnapshotToken, DraftVersion: draft.owner.DraftVersion, DraftDigest: draft.owner.DraftDigest, BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest, PreviewStatus: "READY", SampledRows: preview.Summary.RowCount, Sampled: !preview.Summary.Complete || preview.Summary.Truncated || preview.Summary.PartialValidation, AffectedColumns: affected, Notices: notices}, nil
 }
 
 func (s *Service) prepareImportedRelationshipProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {

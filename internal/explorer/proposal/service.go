@@ -12,12 +12,10 @@ import (
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/viewer"
 
-	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
-	"github.com/calypr/loom/internal/projectid"
 )
 
 type Config struct {
@@ -61,29 +59,18 @@ func (s *Service) ProposeColumnPolicy(ctx context.Context, request ColumnPolicyP
 	if capabilityResolver.ForCompilation == nil || capabilityResolver.Catalog == nil || !s.config.Core.CompileConfigured() {
 		return fail, support.Unavailable(stage, "PROPOSAL_UNAVAILABLE", "column policy compilation is unavailable", nil)
 	}
-	authorized, err := capabilityResolver.ForCompilation(ctx, request.Project, request.SnapshotToken)
-	if err != nil || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(authorized.Snapshot.Identity.Project) != projectid.Canonical(request.Project) || authorized.Snapshot.Identity.Generation == "" {
-		return fail, support.Conflict(stage, "STALE_CATALOG_SNAPSHOT", "reload the source catalog", nil, err)
-	}
-	if err := support.ValidateAuthorizedReadScope(authorized.Scope, authorized.Snapshot.Identity.AuthorizationScopeDigest); err != nil {
-		return fail, support.Conflict(stage, "STALE_AUTHORIZATION_SCOPE", "source authorization changed", nil, err)
-	}
-	owner, err := s.config.Core.GetOwner(ctx, request.Project, request.ExplorerID)
+	draft, err := s.prepareDraft(ctx, draftTarget{
+		project: request.Project, explorerID: request.ExplorerID, snapshotToken: request.SnapshotToken,
+		draftVersion: request.ExpectedDraftVersion, draftDigest: request.ExpectedDraftDigest, outputID: request.OutputID,
+	}, draftDiagnostics{
+		stage: stage, staleCatalog: "reload the source catalog", staleScope: "source authorization changed",
+		changedDraft: "saved draft changed; preview again", unreadableDraft: "saved source cannot be read",
+		workspaceDigest: "saved source digest does not match",
+	})
 	if err != nil {
 		return fail, err
 	}
-	if owner.DraftVersion != request.ExpectedDraftVersion || owner.DraftDigest != request.ExpectedDraftDigest {
-		return fail, support.Conflict(stage, "DRAFT_CONFLICT", "saved draft changed; preview again", nil, explorer.ErrDraftConflict)
-	}
-	workspace, err := ws.DecodeWorkspace(owner.DraftConfig)
-	if err != nil {
-		return fail, support.Conflict(stage, "AUTHORING_STATE_MISSING", "saved source cannot be read", nil, err)
-	}
-	digest, err := workspace.Digest()
-	if err != nil || digest != owner.DraftDigest {
-		return fail, support.Conflict(stage, "DRAFT_CONFLICT", "saved source digest does not match", nil, err)
-	}
-	document := support.ProposalDocument(workspace, request.OutputID)
+	document := draft.document
 	if document == nil {
 		return fail, support.Unprocessable(stage, "OUTPUT_NOT_FOUND", "saved output is unavailable", nil)
 	}
@@ -98,8 +85,8 @@ func (s *Service) ProposeColumnPolicy(ctx context.Context, request ColumnPolicyP
 	if err := command.ResolveColumnPolicyProposal(request.ColumnID, request.ProjectionMode); err != nil {
 		return fail, support.Malformed(stage, err.Error(), err)
 	}
-	catalog := s.catalog(authorized.Snapshot, request.ExplorerID)
-	candidate, _, err := authoringv2.ApplyCommands(workspace, catalog, "column-policy-preview", []authoringv2.Command{command})
+	catalog := s.catalog(draft.authorization.Snapshot, request.ExplorerID)
+	candidate, _, err := authoringv2.ApplyCommands(draft.workspace, catalog, "column-policy-preview", []authoringv2.Command{command})
 	if err != nil {
 		return fail, support.Unprocessable(stage, "INVALID_COLUMN_POLICY", err.Error(), err)
 	}
@@ -111,12 +98,12 @@ func (s *Service) ProposeColumnPolicy(ctx context.Context, request ColumnPolicyP
 	if err != nil {
 		return fail, err
 	}
-	binding := &receiptmodel.ColumnPolicyProposalBinding{RowDefinitionProposalBinding: receiptmodel.RowDefinitionProposalBinding{DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, OutputID: request.OutputID, BaseDocumentDigest: baseDigest, CandidateWorkspaceDigest: candidateDigest, SnapshotToken: request.SnapshotToken}, ColumnID: request.ColumnID, ProjectionMode: request.ProjectionMode}
+	binding := &receiptmodel.ColumnPolicyProposalBinding{RowDefinitionProposalBinding: receiptmodel.RowDefinitionProposalBinding{DraftVersion: draft.owner.DraftVersion, DraftDigest: draft.owner.DraftDigest, OutputID: request.OutputID, BaseDocumentDigest: baseDigest, CandidateWorkspaceDigest: candidateDigest, SnapshotToken: request.SnapshotToken}, ColumnID: request.ColumnID, ProjectionMode: request.ProjectionMode}
 	receipt, err := s.config.Core.Compile(ctx, authoringcore.CompileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: candidate, SnapshotToken: request.SnapshotToken, RequestID: stage, ColumnPolicyProposal: binding})
 	if err != nil {
 		return fail, err
 	}
-	verified, err := s.config.Core.VerifyProposalReceipt(ctx, stage, receipt, request.Project, request.ExplorerID, request.SnapshotToken, authorized.Snapshot, &candidate)
+	verified, err := s.config.Core.VerifyProposalReceipt(ctx, stage, receipt, request.Project, request.ExplorerID, request.SnapshotToken, draft.authorization.Snapshot, &candidate)
 	if err != nil {
 		return fail, err
 	}
@@ -134,7 +121,7 @@ func (s *Service) ProposeColumnPolicy(ctx context.Context, request ColumnPolicyP
 	if err != nil {
 		return fail, err
 	}
-	return ColumnPolicyProposal{CandidateDocument: *candidateDocument, CandidateNetwork: network, CandidateRowIdentity: support.RowIdentityForNetwork(*candidateDocument, network), ProposalID: receipt.ID, CandidateReceiptID: receipt.ID, OutputID: request.OutputID, SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, BaseDocumentDigest: baseDigest, CandidateWorkspaceDigest: candidateDigest, PreviewStatus: "READY", SampledRows: preview.Summary.RowCount, Sampled: !preview.Summary.Complete || preview.Summary.Truncated || preview.Summary.PartialValidation, AffectedColumns: []string{request.ColumnID}, Notices: []string{"The existing column keeps its identity, source occurrence, and field. Only its value policy changes; output row identity is preserved.", "Existing downstream operations must compile and validate before Apply."}}, nil
+	return ColumnPolicyProposal{CandidateDocument: *candidateDocument, CandidateNetwork: network, CandidateRowIdentity: support.RowIdentityForNetwork(*candidateDocument, network), ProposalID: receipt.ID, CandidateReceiptID: receipt.ID, OutputID: request.OutputID, SnapshotToken: request.SnapshotToken, DraftVersion: draft.owner.DraftVersion, DraftDigest: draft.owner.DraftDigest, BaseDocumentDigest: baseDigest, CandidateWorkspaceDigest: candidateDigest, PreviewStatus: "READY", SampledRows: preview.Summary.RowCount, Sampled: !preview.Summary.Complete || preview.Summary.Truncated || preview.Summary.PartialValidation, AffectedColumns: []string{request.ColumnID}, Notices: []string{"The existing column keeps its identity, source occurrence, and field. Only its value policy changes; output row identity is preserved.", "Existing downstream operations must compile and validate before Apply."}}, nil
 }
 
 func (s *Service) prepareColumnPolicyProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, authorized ports.AuthorizedCapability, current ws.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
