@@ -2992,10 +2992,10 @@ components:
       enum: [SCALAR, INDEXED, FIRST, ARRAY, DISTINCT_ARRAY, VALUE, ALL, DISTINCT]
     Workspace:
       type: object
-      x-go-type: authoringv2.Workspace
+      x-go-type: ws.Workspace
       x-go-type-import:
-        path: github.com/calypr/loom/internal/explorer/authoringv2
-        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/workspace
+        name: ws
       additionalProperties: false
       required: [apiVersion, kind, explorer, documents, tabs]
       properties:
@@ -3059,10 +3059,10 @@ components:
           items: {$ref: '#/components/schemas/Action'}
         construction: {$ref: '#/components/schemas/Construction'}
     RowDefinition:
-      x-go-type: authoringv2.RowDefinition
+      x-go-type: ws.RowDefinition
       x-go-type-import:
-        path: github.com/calypr/loom/internal/explorer/authoringv2
-        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/workspace
+        name: ws
       oneOf:
         - type: object
           additionalProperties: false
@@ -3882,10 +3882,10 @@ components:
       type: object
       additionalProperties: false
       required: [kind, parameters]
-      x-go-type: authoringv2.SourceRuleCreate
+      x-go-type: ws.SourceRuleCreate
       x-go-type-import:
-        name: authoringv2
-        path: github.com/calypr/loom/internal/explorer/authoringv2
+        path: github.com/calypr/loom/internal/explorer/workspace
+        name: ws
       oneOf:
         - properties:
             kind: {enum: [DYNAMIC_COLUMN]}
@@ -3903,10 +3903,9 @@ components:
         parameters: {$ref: '#/components/schemas/ImportedSourceParameters'}
     SourceRelationshipProposalRequest:
       type: object
-      x-go-type: lifecycle.SourceRelationshipProposalRequest
+      x-go-type: proposal.SourceRelationshipProposalRequest
       x-go-type-import:
-        name: lifecycle
-        path: github.com/calypr/loom/internal/explorer/lifecycle
+        path: github.com/calypr/loom/internal/explorer/proposal
       additionalProperties: false
       required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId]
       oneOf:
@@ -3953,10 +3952,9 @@ components:
         notices: {type: array, items: {type: string}}
     ColumnPolicyProposalRequest:
       type: object
-      x-go-type: lifecycle.ColumnPolicyProposalRequest
+      x-go-type: proposal.ColumnPolicyProposalRequest
       x-go-type-import:
-        name: lifecycle
-        path: github.com/calypr/loom/internal/explorer/lifecycle
+        path: github.com/calypr/loom/internal/explorer/proposal
       additionalProperties: false
       required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, columnId, projectionMode]
       properties:
@@ -4047,10 +4045,10 @@ components:
           - FIRST
           - ALL
           - DISTINCT
-      x-go-type: authoringv2.ImportedFieldParameters
+      x-go-type: ws.ImportedFieldParameters
       x-go-type-import:
-        name: authoringv2
-        path: github.com/calypr/loom/internal/explorer/authoringv2
+        path: github.com/calypr/loom/internal/explorer/workspace
+        name: ws
     ImportedOutputParameters:
       type: object
       additionalProperties: false
@@ -4068,10 +4066,10 @@ components:
           - error
           - overwrite
           - coalesce
-      x-go-type: authoringv2.ImportedOutputParameters
+      x-go-type: ws.ImportedOutputParameters
       x-go-type-import:
-        name: authoringv2
-        path: github.com/calypr/loom/internal/explorer/authoringv2
+        path: github.com/calypr/loom/internal/explorer/workspace
+        name: ws
     ImportedFieldGroupParameters:
       type: object
       additionalProperties: false
@@ -4083,10 +4081,10 @@ components:
           maxItems: 4096
           items:
             $ref: '#/components/schemas/ImportedSourceFieldParameters'
-      x-go-type: authoringv2.ImportedFieldGroupParameters
+      x-go-type: ws.ImportedFieldGroupParameters
       x-go-type-import:
-        name: authoringv2
-        path: github.com/calypr/loom/internal/explorer/authoringv2
+        path: github.com/calypr/loom/internal/explorer/workspace
+        name: ws
     ImportedCatalogParameters:
       type: object
       additionalProperties: false
@@ -4131,10 +4129,10 @@ components:
           - ''
           - PATH
           - PATH_SUFFIX
-      x-go-type: authoringv2.ImportedCatalogParameters
+      x-go-type: ws.ImportedCatalogParameters
       x-go-type-import:
-        name: authoringv2
-        path: github.com/calypr/loom/internal/explorer/authoringv2
+        path: github.com/calypr/loom/internal/explorer/workspace
+        name: ws
     ImportedDynamicParameters:
       type: object
       additionalProperties: false
@@ -4164,10 +4162,10 @@ components:
             properties:
               key: {type: string, minLength: 1, maxLength: 2048}
               enabled: {type: boolean}
-      x-go-type: authoringv2.ImportedDynamicParameters
+      x-go-type: ws.ImportedDynamicParameters
       x-go-type-import:
-        name: authoringv2
-        path: github.com/calypr/loom/internal/explorer/authoringv2
+        path: github.com/calypr/loom/internal/explorer/workspace
+        name: ws
     ImportedExtensionParameters:
       type: object
       additionalProperties: false
@@ -4193,10 +4191,10 @@ components:
             properties:
               key: {type: string, pattern: '^ext-v1:[0-9a-f]{64}$'}
               enabled: {type: boolean}
-      x-go-type: authoringv2.ImportedExtensionParameters
+      x-go-type: ws.ImportedExtensionParameters
       x-go-type-import:
-        name: authoringv2
-        path: github.com/calypr/loom/internal/explorer/authoringv2
+        path: github.com/calypr/loom/internal/explorer/workspace
+        name: ws
     ImportedPivotParameters:
       type: object
       additionalProperties: false
@@ -4252,10 +4250,10 @@ components:
               key: {type: string, minLength: 1, maxLength: 2048}
               enabled: {type: boolean}
               name: {type: string, maxLength: 128}
-      x-go-type: authoringv2.ImportedPivotParameters
+      x-go-type: ws.ImportedPivotParameters
       x-go-type-import:
-        name: authoringv2
-        path: github.com/calypr/loom/internal/explorer/authoringv2
+        path: github.com/calypr/loom/internal/explorer/workspace
+        name: ws
     ImportedExpansionParameters:
       type: object
       additionalProperties: false
@@ -4278,10 +4276,10 @@ components:
           - ERROR
           - EXCLUDE
           - PRESERVE_PARENT
-      x-go-type: authoringv2.ImportedExpansionParameters
+      x-go-type: ws.ImportedExpansionParameters
       x-go-type-import:
-        name: authoringv2
-        path: github.com/calypr/loom/internal/explorer/authoringv2
+        path: github.com/calypr/loom/internal/explorer/workspace
+        name: ws
     ImportedIdentityParameters:
       type: object
       additionalProperties: false
@@ -4294,10 +4292,10 @@ components:
           maxLength: 2048
         expr:
           $ref: '#/components/schemas/SourceRecipeExpression'
-      x-go-type: authoringv2.ImportedIdentityParameters
+      x-go-type: ws.ImportedIdentityParameters
       x-go-type-import:
-        name: authoringv2
-        path: github.com/calypr/loom/internal/explorer/authoringv2
+        path: github.com/calypr/loom/internal/explorer/workspace
+        name: ws
     ImportedTraversalParameters:
       type: object
       additionalProperties: false
@@ -4316,10 +4314,10 @@ components:
           maxLength: 2048
         from:
           $ref: '#/components/schemas/SourceRecipeExpression'
-      x-go-type: authoringv2.ImportedTraversalParameters
+      x-go-type: ws.ImportedTraversalParameters
       x-go-type-import:
-        name: authoringv2
-        path: github.com/calypr/loom/internal/explorer/authoringv2
+        path: github.com/calypr/loom/internal/explorer/workspace
+        name: ws
     ImportedSourceParameters:
       type: object
       additionalProperties: false
@@ -4361,10 +4359,10 @@ components:
         - identity
       - required:
         - traversal
-      x-go-type: authoringv2.ImportedSourceParameters
+      x-go-type: ws.ImportedSourceParameters
       x-go-type-import:
-        name: authoringv2
-        path: github.com/calypr/loom/internal/explorer/authoringv2
+        path: github.com/calypr/loom/internal/explorer/workspace
+        name: ws
     ImportedSourceStepChange:
       type: object
       x-go-type: authoringv2.ImportedSourceStepChange
