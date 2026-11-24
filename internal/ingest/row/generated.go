@@ -12,18 +12,12 @@ import (
 	fhir "github.com/calypr/loom/fhir/model"
 )
 
-type generatedLoadResource interface {
-	fhir.ConcreteResource
-	Validate() error
-	ExtractEdgeDocuments(string) ([]fhir.EdgeDocument, error)
-}
-
 func loadRowGeneratedDocumentsWithPayload(resourceType string, line []byte, project string, stageSeconds map[string]float64) (VertexDocument, []fhir.EdgeDocument, map[string]any, RowErrorType, error) {
 	resource, ok := fhir.NewConcreteResource(resourceType)
 	if !ok {
 		return VertexDocument{}, nil, nil, RowErrorGeneration, fmt.Errorf("generated loader does not support %q", resourceType)
 	}
-	value, ok := resource.(generatedLoadResource)
+	value, ok := resource.(source.GeneratedLoadResource)
 	if !ok {
 		return VertexDocument{}, nil, nil, RowErrorGeneration, fmt.Errorf("generated loader does not support %q", resourceType)
 	}
@@ -38,7 +32,7 @@ func loadRowGeneratedDocumentsWithPayload(resourceType string, line []byte, proj
 			return VertexDocument{}, nil, nil, RowErrorValidation, err
 		}
 		resource, _ := fhir.NewConcreteResource(resourceType)
-		value = resource.(generatedLoadResource)
+		value = resource.(source.GeneratedLoadResource)
 		if err := sonic.ConfigFastest.Unmarshal(normalized, value); err != nil {
 			stageSeconds["decode"] += time.Since(start).Seconds()
 			return VertexDocument{}, nil, nil, RowErrorValidation, err

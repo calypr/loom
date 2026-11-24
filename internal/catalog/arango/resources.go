@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/authscope"
 	"sort"
 	"strings"
+
+	"github.com/calypr/loom/internal/authscope"
+	store "github.com/calypr/loom/internal/store/arango"
 
 	"github.com/calypr/loom/internal/catalog"
 )
@@ -29,7 +31,7 @@ func (s *ResourceStore) DiscoverExistingAuthResourcePaths(ctx context.Context, o
 		delete(bindVars, "dataset_generation")
 	}
 	err := s.client.QueryRows(ctx, query, opts.CursorBatch, bindVars, func(row map[string]any) error {
-		if value := stringValue(row["auth_resource_path"]); value != "" {
+		if value := store.StringValue(row["auth_resource_path"]); value != "" {
 			result = append(result, value)
 		}
 		return nil
@@ -111,7 +113,7 @@ func (s *ResourceStore) DiscoverResourceInventory(ctx context.Context, opts cata
 		"auth_resource_paths":              append([]string(nil), opts.AuthResourcePaths...),
 		"auth_resource_paths_unrestricted": authPathsUnrestricted,
 	}, func(row map[string]any) error {
-		resourceType := stringValue(row["resource_type"])
+		resourceType := store.StringValue(row["resource_type"])
 		if _, ok := counts[resourceType]; !ok {
 			return fmt.Errorf("resource inventory count returned uncovered type %q", resourceType)
 		}

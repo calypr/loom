@@ -4,15 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/ingest/bootstrap"
-	ingestevent "github.com/calypr/loom/internal/ingest/event"
-	"github.com/calypr/loom/internal/ingest/row"
-	"github.com/calypr/loom/internal/ingest/source"
 	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/calypr/loom/internal/ingest/bootstrap"
+	ingestevent "github.com/calypr/loom/internal/ingest/event"
+	"github.com/calypr/loom/internal/ingest/row"
+	"github.com/calypr/loom/internal/ingest/source"
 
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
@@ -234,7 +235,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 			return semanticStore.FailSemanticInventoryBuild(cleanupCtx, inventoryBuild, diagnostic)
 		})
 	}()
-	catalogs := make(map[generationCatalogKey]*fieldprofile.Profiler)
+	catalogs := make(map[catalog.FieldProfileIdentity]*fieldprofile.Profiler)
 	relationshipCounts := make(map[catalog.RelationshipKey]int64)
 	lastInventoryCheckpoint := ""
 	rowErrorCandidates := make([][]row.RowErrorSample, len(files))
@@ -329,19 +330,14 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		summary.BatchCounts["semantic_inventory"] += result.SemanticInventoryBatches
 		catalog.MergeRelationshipCounts(relationshipCounts, result.RelationshipCounts)
 
-		key := generationCatalogKey{
-			project:           opts.Project,
-			datasetGeneration: plan.Dataset.Generation,
-			authResourcePath:  opts.AuthResourcePath,
-			resourceType:      result.ResourceType,
-		}
+		key := catalog.NewFieldProfileIdentity(opts.Project, plan.Dataset.Generation, opts.AuthResourcePath, result.ResourceType)
 		merged := catalogs[key]
 		if merged == nil {
 			merged = fieldprofile.NewProfilerForGenerationWithLimits(
-				key.project,
-				key.datasetGeneration,
-				key.authResourcePath,
-				key.resourceType,
+				key.Project,
+				key.DatasetGeneration,
+				key.AuthResourcePath,
+				key.ResourceType,
 				nil,
 				opts.CatalogLimits,
 			)

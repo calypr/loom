@@ -24,8 +24,8 @@ func TestFieldDiscoveryMatchesStoredRecipeMetadataPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []schema.FieldCandidate{
-		{ResourceType: "Observation", Path: "status", Kind: "scalar", DistinctValues: []string{"final"}, ExtensionValues: []schema.ExtensionValueObservation{}},
-		{ResourceType: "Observation", Path: "code", Kind: "codeable_concept", ExtensionValues: []schema.ExtensionValueObservation{}, PivotCandidate: true, PivotFamily: "code", PivotColumns: []string{"system"}, PivotColumnSelect: "code.coding.system", PivotValueSelect: "code.coding.code", PivotItemSource: "code.coding", PivotItemResourceType: "Coding", PivotValueSelectors: []string{"code.coding.code"}},
+		{ResourceType: "Observation", Path: "status", Kind: "scalar", DistinctValues: []string{"final"}, ExtensionValues: []fieldcatalog.ExtensionValueObservation{}},
+		{ResourceType: "Observation", Path: "code", Kind: "codeable_concept", ExtensionValues: []fieldcatalog.ExtensionValueObservation{}, PivotCandidate: true, PivotFamily: "code", PivotColumns: []string{"system"}, PivotColumnSelect: "code.coding.system", PivotValueSelect: "code.coding.code", PivotItemSource: "code.coding", PivotItemResourceType: "Coding", PivotValueSelectors: []string{"code.coding.code"}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("shared recipe discovery = %#v, want %#v", got, want)

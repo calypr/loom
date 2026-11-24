@@ -2,10 +2,11 @@ package clickhouse
 
 import (
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/publication"
-	"github.com/calypr/loom/internal/store/clickhouse"
 	"regexp"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/publication"
+	"github.com/calypr/loom/internal/store/clickhouse"
 )
 
 func withRowIdentityColumn(columns []clickhouse.Column) []clickhouse.Column {

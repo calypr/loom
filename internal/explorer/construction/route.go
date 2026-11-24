@@ -503,15 +503,7 @@ func encodeRelatedFieldChoiceCursor(cursor relatedFieldChoiceCursor) (string, er
 }
 
 func decodeRelatedFieldChoiceCursor(encoded string) (relatedFieldChoiceCursor, error) {
-	var cursor relatedFieldChoiceCursor
-	raw, err := base64.RawURLEncoding.DecodeString(encoded)
-	if err != nil {
-		return cursor, err
-	}
-	if err := json.Unmarshal(raw, &cursor); err != nil {
-		return cursor, err
-	}
-	return cursor, nil
+	return decodeChoiceCursor[relatedFieldChoiceCursor](encoded)
 }
 
 func encodeRelatedExpandContributorChoiceCursor(cursor relatedExpandContributorChoiceCursor) (string, error) {
@@ -523,7 +515,11 @@ func encodeRelatedExpandContributorChoiceCursor(cursor relatedExpandContributorC
 }
 
 func decodeRelatedExpandContributorChoiceCursor(encoded string) (relatedExpandContributorChoiceCursor, error) {
-	var cursor relatedExpandContributorChoiceCursor
+	return decodeChoiceCursor[relatedExpandContributorChoiceCursor](encoded)
+}
+
+func decodeChoiceCursor[T any](encoded string) (T, error) {
+	var cursor T
 	raw, err := base64.RawURLEncoding.DecodeString(encoded)
 	if err != nil {
 		return cursor, err

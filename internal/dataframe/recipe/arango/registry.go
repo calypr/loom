@@ -13,14 +13,12 @@ import (
 
 const Collection = "loom_dataframe_recipes"
 
-type Client = arangostore.RowBatchClient
-
 type Registry struct {
-	client    Client
+	client    arangostore.RowBatchClient
 	batchSize int
 }
 
-func New(client Client) (*Registry, error) {
+func New(client arangostore.RowBatchClient) (*Registry, error) {
 	if client == nil {
 		return nil, fmt.Errorf("Arango recipe registry client is required")
 	}

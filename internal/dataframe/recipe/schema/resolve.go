@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
@@ -26,7 +27,7 @@ type FieldCandidate struct {
 	DistinctValues    []string
 	DistinctTruncated bool
 
-	ExtensionValues       []ExtensionValueObservation
+	ExtensionValues       []fieldcatalog.ExtensionValueObservation
 	PivotCandidate        bool
 	PivotFamily           string
 	PivotColumns          []string
@@ -35,14 +36,6 @@ type FieldCandidate struct {
 	PivotItemSource       string
 	PivotItemResourceType string
 	PivotValueSelectors   []string
-}
-
-type ExtensionValueObservation struct {
-	URL        string
-	SourcePath string
-	ValuePath  string
-	ValueType  string
-	URLPath    []string
 }
 
 type Discovery interface {
@@ -187,7 +180,7 @@ func cloneCandidates(in []FieldCandidate) []FieldCandidate {
 	for i := range in {
 		out[i] = in[i]
 		out[i].DistinctValues = append([]string(nil), in[i].DistinctValues...)
-		out[i].ExtensionValues = append([]ExtensionValueObservation(nil), in[i].ExtensionValues...)
+		out[i].ExtensionValues = append([]fieldcatalog.ExtensionValueObservation(nil), in[i].ExtensionValues...)
 		for j := range out[i].ExtensionValues {
 			out[i].ExtensionValues[j].URLPath = append([]string(nil), in[i].ExtensionValues[j].URLPath...)
 		}

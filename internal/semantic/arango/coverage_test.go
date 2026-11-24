@@ -332,7 +332,10 @@ func TestSemanticCoverageIncompleteReplayCannotReuseCompletedMarkerOrSummary(t *
 	if err != nil || lookup.State != semantic.SemanticCoverageBuildBuilding || len(lookup.Candidates[0].References) != 0 {
 		t.Fatalf("lookup during replay = %+v err=%v, want BUILDING with no replacement refs", lookup, err)
 	}
-	page, err := adapter.readSemanticCoveragePage(context.Background(), identity.Project, identity.DatasetGeneration, buildID, identity.SourceKind, identity.SchemaIdentity, semanticCoverageEnvelopeRecordKind, []string{contribution.Identity.AuthResourcePath}, false, "", 10)
+	page, err := adapter.readSemanticCoveragePage(context.Background(), semanticCoveragePageRequest{
+		Identity:   SemanticCoverageBuildIdentity{Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: buildID, SourceKind: identity.SourceKind, SchemaIdentity: identity.SchemaIdentity},
+		RecordKind: semanticCoverageEnvelopeRecordKind, AuthResourcePaths: []string{contribution.Identity.AuthResourcePath}, Limit: 10,
+	})
 	if err != nil || len(page.Rows) != 1 {
 		t.Fatalf("prior source envelope after failed replace rows = %d err=%v, want the original atomic envelope preserved", len(page.Rows), err)
 	}
@@ -911,7 +914,10 @@ func TestReadSemanticCoveragePageIsBuildAndAuthorizationScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	page, err := adapter.readSemanticCoveragePage(context.Background(), "project", "generation", "build-2", "retained_vertex", "schema", semanticCoverageEnvelopeRecordKind, []string{"Patient/allowed"}, false, "", 2)
+	page, err := adapter.readSemanticCoveragePage(context.Background(), semanticCoveragePageRequest{
+		Identity:   SemanticCoverageBuildIdentity{Project: "project", DatasetGeneration: "generation", BuildID: "build-2", SourceKind: "retained_vertex", SchemaIdentity: "schema"},
+		RecordKind: semanticCoverageEnvelopeRecordKind, AuthResourcePaths: []string{"Patient/allowed"}, Limit: 2,
+	})
 	if err != nil {
 		t.Fatalf("read coverage page: %v", err)
 	}
@@ -941,7 +947,10 @@ func TestReadSemanticCoveragePageRejectsMissingScopeAndPropagatesErrors(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := adapter.readSemanticCoveragePage(context.Background(), "project", "generation", "", "retained_vertex", "schema", "source", nil, true, "", 2); !errors.Is(err, ErrInvalidSemanticCoverageRead) {
+	if _, err := adapter.readSemanticCoveragePage(context.Background(), semanticCoveragePageRequest{
+		Identity:   SemanticCoverageBuildIdentity{Project: "project", DatasetGeneration: "generation", SourceKind: "retained_vertex", SchemaIdentity: "schema"},
+		RecordKind: "source", AuthResourcePathsUnrestricted: true, Limit: 2,
+	}); !errors.Is(err, ErrInvalidSemanticCoverageRead) {
 		t.Fatalf("missing-build error = %v, want invalid read request", err)
 	}
 	if client.queryCalls != 0 {
@@ -949,7 +958,10 @@ func TestReadSemanticCoveragePageRejectsMissingScopeAndPropagatesErrors(t *testi
 	}
 
 	client.queryErr = errors.New("injected read error")
-	_, err = adapter.readSemanticCoveragePage(context.Background(), "project", "generation", "build", "file", "schema", "summary", nil, true, "cursor", 2)
+	_, err = adapter.readSemanticCoveragePage(context.Background(), semanticCoveragePageRequest{
+		Identity:   SemanticCoverageBuildIdentity{Project: "project", DatasetGeneration: "generation", BuildID: "build", SourceKind: "file", SchemaIdentity: "schema"},
+		RecordKind: "summary", AuthResourcePathsUnrestricted: true, AfterKey: "cursor", Limit: 2,
+	})
 	if err == nil || !strings.Contains(err.Error(), "injected read error") {
 		t.Fatalf("query error = %v, want injected read error", err)
 	}

@@ -6,6 +6,22 @@ import (
 	"testing"
 )
 
+func TestStringValueCoercesStoredScalars(t *testing.T) {
+	for _, test := range []struct {
+		value any
+		want  string
+	}{
+		{value: nil, want: ""},
+		{value: "text", want: "text"},
+		{value: int64(42), want: "42"},
+		{value: true, want: "true"},
+	} {
+		if got := StringValue(test.value); got != test.want {
+			t.Errorf("StringValue(%v) = %q, want %q", test.value, got, test.want)
+		}
+	}
+}
+
 func TestReadOnlyDocumentScannerRejectsMissingClientAndVisitor(t *testing.T) {
 	var client *Client
 	if _, err := client.CollectionNamesReadOnly(context.Background()); err == nil {

@@ -3,9 +3,11 @@ package arango
 import (
 	"context"
 	"encoding/json"
-	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"sort"
 	"time"
+
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
+	store "github.com/calypr/loom/internal/store/arango"
 
 	"github.com/bytedance/sonic"
 	"github.com/calypr/loom/internal/catalog"
@@ -68,7 +70,7 @@ func (s *FieldStore) DiscoverFieldEnrichment(ctx context.Context, opts catalog.F
 		vars["resource_types"] = nil
 	}
 	err := s.client.QueryRows(ctx, fieldEnrichmentAQL, opts.CursorBatch, vars, func(row map[string]any) error {
-		if stringValue(row["record_type"]) == fieldprofile.FieldProfileStatusRecordType {
+		if store.StringValue(row["record_type"]) == fieldprofile.FieldProfileStatusRecordType {
 			recordCoverage(row)
 			if truncated, ok := row["enrichment_truncated"].(bool); ok && truncated {
 				result.Truncated = true

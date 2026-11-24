@@ -81,7 +81,7 @@ func (s *SemanticInventoryStore) ReadRetainedSemanticInventoryPage(ctx context.C
 		"limit":              limit + 1,
 	}, func(row map[string]any) error {
 		var source RetainedSemanticInventoryRow
-		if err := decodeInventoryRow(row, &source); err != nil {
+		if err := decodeSemanticRow(row, &source, "semantic inventory"); err != nil {
 			return err
 		}
 		if source.Key == "" {
@@ -143,7 +143,7 @@ func (s *SemanticInventoryStore) ClaimSemanticInventoryBackfill(ctx context.Cont
 		"now":              now.UnixMilli(),
 		"lease_expires_at": now.Add(lease).UnixMilli(),
 	}, func(row map[string]any) error {
-		if err := decodeInventoryRow(row, &claimed); err != nil {
+		if err := decodeSemanticRow(row, &claimed, "semantic inventory"); err != nil {
 			return err
 		}
 		found = true
@@ -179,7 +179,7 @@ func (s *SemanticInventoryStore) RefreshSemanticInventorySourceAvailability(ctx 
 		"key": expected.Key, "project": expected.Project, "dataset_generation": catalog.NormalizeDatasetGeneration(expected.DatasetGeneration),
 		"build_id": expected.BuildID, "auth_resource_path": expected.AuthResourcePath, "scanned_resources": expected.ScannedResources,
 	}, func(row map[string]any) error {
-		if err := decodeInventoryRow(row, &refreshed); err != nil {
+		if err := decodeSemanticRow(row, &refreshed, "semantic inventory"); err != nil {
 			return err
 		}
 		found = true
@@ -235,7 +235,7 @@ func (s *SemanticInventoryStore) executeSemanticInventoryBackfill(ctx context.Co
 	var updated semantic.Build
 	found := false
 	err := s.client.QueryRows(ctx, query, 1, bindVars, func(row map[string]any) error {
-		if err := decodeInventoryRow(row, &updated); err != nil {
+		if err := decodeSemanticRow(row, &updated, "semantic inventory"); err != nil {
 			return err
 		}
 		found = true
@@ -470,7 +470,7 @@ func (s *SemanticInventoryStore) PageSemanticInventory(ctx context.Context, opts
 			Family      *semantic.Family `json:"family"`
 			SelectionID string           `json:"selection_id"`
 		}
-		if err := decodeInventoryRow(row, &item); err != nil {
+		if err := decodeSemanticRow(row, &item, "semantic inventory"); err != nil {
 			return err
 		}
 		count++
@@ -583,7 +583,7 @@ func (s *SemanticInventoryStore) ResolveSemanticInventorySelections(ctx context.
 	if len(references) > 0 {
 		if err := s.client.QueryRows(ctx, query, len(references), vars, func(row map[string]any) error {
 			var entry semantic.Entry
-			if err := decodeInventoryRow(row, &entry); err != nil {
+			if err := decodeSemanticRow(row, &entry, "semantic inventory"); err != nil {
 				return err
 			}
 			result.Entries = append(result.Entries, entry)
@@ -602,7 +602,7 @@ func (s *SemanticInventoryStore) ResolveSemanticInventorySelections(ctx context.
 		}
 		if err := s.client.QueryRows(ctx, semanticInventoryResolveFamiliesAQL, len(familyReferences), familyVars, func(row map[string]any) error {
 			var family semantic.Family
-			if err := decodeInventoryRow(row, &family); err != nil {
+			if err := decodeSemanticRow(row, &family, "semantic inventory"); err != nil {
 				return err
 			}
 			family.FamilyID = semantic.FamilyID(family.FamilyReference)
@@ -619,7 +619,7 @@ func (s *SemanticInventoryStore) semanticInventoryBuildByKey(ctx context.Context
 	var build semantic.Build
 	found := false
 	err := s.client.QueryRows(ctx, semanticInventoryBuildByKeyAQL, 1, map[string]interface{}{"key": key}, func(row map[string]any) error {
-		if err := decodeInventoryRow(row, &build); err != nil {
+		if err := decodeSemanticRow(row, &build, "semantic inventory"); err != nil {
 			return err
 		}
 		found = true
@@ -635,7 +635,7 @@ func (s *SemanticInventoryStore) semanticInventoryBuilds(ctx context.Context, pr
 		"dataset_generation": generation,
 	}, func(row map[string]any) error {
 		var build semantic.Build
-		if err := decodeInventoryRow(row, &build); err != nil {
+		if err := decodeSemanticRow(row, &build, "semantic inventory"); err != nil {
 			return err
 		}
 		builds = append(builds, build)
@@ -651,17 +651,6 @@ func (s *SemanticInventoryStore) writeSemanticInventoryBuild(ctx context.Context
 	}
 	if err := s.client.InsertBatchRaw(ctx, semantic.BuildCollection, []json.RawMessage{encoded}, true, ""); err != nil {
 		return fmt.Errorf("write semantic inventory build: %w", err)
-	}
-	return nil
-}
-
-func decodeInventoryRow(row map[string]any, out any) error {
-	encoded, err := json.Marshal(row)
-	if err != nil {
-		return fmt.Errorf("encode semantic inventory row: %w", err)
-	}
-	if err := json.Unmarshal(encoded, out); err != nil {
-		return fmt.Errorf("decode semantic inventory row: %w", err)
 	}
 	return nil
 }

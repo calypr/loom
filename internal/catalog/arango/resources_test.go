@@ -166,7 +166,7 @@ func TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen(t *testing.T)
 		t.Fatalf("repeated immutable-generation rebuild changed its identity or counts: first=%+v/%+v repeated=%+v/%+v", firstBuild, firstRows, repeatedBuild, repeatedRows)
 	}
 
-	recorder := &resourceInventoryQueryRecorder{client: client}
+	recorder := &resourceInventoryQueryRecorder{CollectionBootstrapClient: client}
 	store, err = New(recorder)
 	if err != nil {
 		t.Fatal(err)
@@ -277,9 +277,9 @@ func readPersistedResourceInventory(t *testing.T, ctx context.Context, client *a
 		}
 		complete, _ := row["complete"].(bool)
 		marker = resourceInventoryPersistedMarker{
-			Key: stringValue(row["_key"]), Project: stringValue(row["project"]),
-			DatasetGeneration: stringValue(row["dataset_generation"]), BuildID: stringValue(row["build_id"]),
-			CoverageDigest: stringValue(row["coverage_digest"]), ResourceTypeCount: int(resourceTypeCount),
+			Key: arangostore.StringValue(row["_key"]), Project: arangostore.StringValue(row["project"]),
+			DatasetGeneration: arangostore.StringValue(row["dataset_generation"]), BuildID: arangostore.StringValue(row["build_id"]),
+			CoverageDigest: arangostore.StringValue(row["coverage_digest"]), ResourceTypeCount: int(resourceTypeCount),
 			CountRowCount: int(countRowCount), Complete: complete,
 		}
 		return nil
@@ -294,9 +294,9 @@ func readPersistedResourceInventory(t *testing.T, ctx context.Context, client *a
 		"record_type": catalog.ResourceInventoryCountRecordType,
 	}, func(row map[string]any) error {
 		rows = append(rows, catalog.ResourceInventoryCount{
-			Key: stringValue(row["_key"]), Project: stringValue(row["project"]),
-			DatasetGeneration: stringValue(row["dataset_generation"]), BuildID: stringValue(row["build_id"]),
-			AuthResourcePath: stringValue(row["auth_resource_path"]), ResourceType: stringValue(row["resource_type"]),
+			Key: arangostore.StringValue(row["_key"]), Project: arangostore.StringValue(row["project"]),
+			DatasetGeneration: arangostore.StringValue(row["dataset_generation"]), BuildID: arangostore.StringValue(row["build_id"]),
+			AuthResourcePath: arangostore.StringValue(row["auth_resource_path"]), ResourceType: arangostore.StringValue(row["resource_type"]),
 			DocumentCount: 0,
 		})
 		count, err := decodeInt64(row["document_count"])
@@ -352,7 +352,7 @@ type resourceInventoryRecordedQuery struct {
 }
 
 type resourceInventoryQueryRecorder struct {
-	client
+	arangostore.CollectionBootstrapClient
 	queries []resourceInventoryRecordedQuery
 }
 
@@ -362,7 +362,7 @@ func (r *resourceInventoryQueryRecorder) QueryRows(ctx context.Context, query st
 		vars[key] = value
 	}
 	r.queries = append(r.queries, resourceInventoryRecordedQuery{query: query, vars: vars})
-	return r.client.QueryRows(ctx, query, batchSize, bindVars, visit)
+	return r.CollectionBootstrapClient.QueryRows(ctx, query, batchSize, bindVars, visit)
 }
 
 func assertNoRawResourceCountQueries(t *testing.T, queries []resourceInventoryRecordedQuery, resourceTypes []string) {

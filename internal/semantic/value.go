@@ -142,7 +142,7 @@ func semanticObservedUnits(value any) []string {
 	}
 	units := make([]string, 0, 3)
 	for _, key := range []string{"unit", "code", "system"} {
-		if text := strings.TrimSpace(stringValue(object[key])); text != "" {
+		if text := strings.TrimSpace(StringValue(object[key])); text != "" {
 			units = append(units, text)
 		}
 	}
@@ -194,7 +194,7 @@ func semanticValueType(value any) string {
 	}
 }
 
-func stringValue(value any) string {
+func StringValue(value any) string {
 	if s, ok := value.(string); ok {
 		return s
 	}

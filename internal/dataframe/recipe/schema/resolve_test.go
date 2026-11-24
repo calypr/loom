@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	lowerphysical "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -546,7 +547,7 @@ func TestResolveExtensionColumnsPreservesPrimitiveMapping(t *testing.T) {
 		ExtensionColumns: []recipe.ExtensionColumn{{Name: "attachment", ColumnPrefix: &prefix, MaxColumns: 4, Source: recipe.Expression{Select: "root.content[].attachment.extension[]"}}},
 	}}}
 	resolved, err := Resolve(context.Background(), bundle, Scope{Project: "p"}, fakeDiscovery{fields: []FieldCandidate{
-		{ResourceType: "DocumentReference", Path: "content[].attachment.extension[].url", ExtensionValues: []ExtensionValueObservation{{URL: "http://example.org/source_path", SourcePath: "content[].attachment.extension[]", ValuePath: "valueUrl", ValueType: "string"}, {URL: "http://example.org/sha256", SourcePath: "content[].attachment.extension[]", ValuePath: "valueString", ValueType: "string"}}},
+		{ResourceType: "DocumentReference", Path: "content[].attachment.extension[].url", ExtensionValues: []fieldcatalog.ExtensionValueObservation{{URL: "http://example.org/source_path", SourcePath: "content[].attachment.extension[]", ValuePath: "valueUrl", ValueType: "string"}, {URL: "http://example.org/sha256", SourcePath: "content[].attachment.extension[]", ValuePath: "valueString", ValueType: "string"}}},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -576,7 +577,7 @@ func TestNestedExtensionRemovalUsesRawMappingIdentityAndKeepsSibling(t *testing.
 		ExtensionColumns: []recipe.ExtensionColumn{{Name: "extension", ColumnPrefix: stringPointer(""), MaxColumns: 4, Source: recipe.Expression{Select: "root.extension[]"}, OutputOverrides: []recipe.ExtensionColumnOutputOverride{{Key: keyA, Enabled: false}}}},
 	}}}
 	resolved, err := Resolve(context.Background(), bundle, Scope{Project: "p", DatasetGeneration: "g"}, fakeDiscovery{fields: []FieldCandidate{{
-		ResourceType: "Patient", Path: "extension[].extension[].url", ExtensionValues: []ExtensionValueObservation{
+		ResourceType: "Patient", Path: "extension[].extension[].url", ExtensionValues: []fieldcatalog.ExtensionValueObservation{
 			{URL: leafURL, SourcePath: "extension[].extension[]", ValuePath: "valueString", ValueType: "string", URLPath: []string{ancestorA}},
 			{URL: leafURL, SourcePath: "extension[].extension[]", ValuePath: "valueString", ValueType: "string", URLPath: []string{ancestorB}},
 		},

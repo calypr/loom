@@ -20,11 +20,11 @@ import (
 const RevisionCollection = "loom_dataframe_recipe_revisions"
 
 type RevisionRegistry struct {
-	client    Client
+	client    arangostore.RowBatchClient
 	batchSize int
 }
 
-func NewRevisionRegistry(client Client) (*RevisionRegistry, error) {
+func NewRevisionRegistry(client arangostore.RowBatchClient) (*RevisionRegistry, error) {
 	if client == nil {
 		return nil, fmt.Errorf("Arango recipe revision registry client is required")
 	}
@@ -90,7 +90,7 @@ func (r *RevisionRegistry) Register(ctx context.Context, project string, bundle 
 func (r *RevisionRegistry) currentDigest(ctx context.Context, project, name string) (string, error) {
 	var digest string
 	err := r.client.QueryRows(ctx, `FOR doc IN @@collection FILTER doc.project == @project AND doc.name == @name SORT doc.createdAt DESC LIMIT 1 RETURN {digest: doc.digest}`, r.batchSize, map[string]any{"@collection": RevisionCollection, "project": project, "name": name}, func(row map[string]any) error {
-		digest = stringValue(row["digest"])
+		digest = arangostore.StringValue(row["digest"])
 		return nil
 	})
 	if err != nil {
@@ -131,10 +131,3 @@ func (r *RevisionRegistry) List(ctx context.Context, project, name string) ([]re
 }
 
 var _ recipe.RevisionStore = (*RevisionRegistry)(nil)
-
-func stringValue(value any) string {
-	if value == nil {
-		return ""
-	}
-	return fmt.Sprint(value)
-}

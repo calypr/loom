@@ -15,16 +15,14 @@ import (
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
-type Client = arangostore.RowBatchClient
-
 type Registry struct {
-	client    Client
+	client    arangostore.RowBatchClient
 	batchSize int
 }
 
 const ExecutionReadPinsCollection = "loom_dataframe_execution_read_pins"
 
-func New(client Client) (*Registry, error) {
+func New(client arangostore.RowBatchClient) (*Registry, error) {
 	if client == nil {
 		return nil, fmt.Errorf("Arango bundle registry client is required")
 	}

@@ -27,6 +27,13 @@ func (c *Client) CollectionNamesReadOnly(ctx context.Context) ([]string, error) 
 	return names, nil
 }
 
+func StringValue(value any) string {
+	if value == nil {
+		return ""
+	}
+	return fmt.Sprint(value)
+}
+
 func (c *Client) VisitCollectionDocumentsRaw(ctx context.Context, collection string, visit func(json.RawMessage) error) (resultErr error) {
 	if c == nil || c.db == nil || collection == "" || visit == nil {
 		return errors.New("raw collection audit requires an open database, collection, and visitor")
