@@ -42,6 +42,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'cmd/arango-maintenance': 'Run read-only audits and explicit local Arango index, workspace, and source-plan '
                            'migrations.',
  'cmd/check-go-comments': 'Enforce the Go source comment policy locally and in CI.',
+ 'cmd/compiler-reference': 'Run compiler reference-interpreter comparisons.',
  'cmd/dataframe-profile': 'Run and compare developer-facing dataframe profiling workloads.',
  'cmd/dataframe-query': 'Execute a saved REST dataframe request and report response timing and diagnostics.',
  'cmd/generate': 'Generate FHIR models, schema metadata, validation, and edge extraction from source schemas.',
@@ -69,6 +70,8 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/catalog/discoverycache': 'Cache bounded field and relationship discovery results.',
  'internal/catalog/fieldcatalog': 'Own field-profile read and write DTOs shared by catalog and discovery.',
  'internal/catalog/fieldprofile': 'Profile FHIR fields, retain shape plans and reconcile semantic evidence.',
+ 'internal/compilerresearch/differential': 'Compare compiler prototype and reference output rows.',
+ 'internal/compilerresearch/reference': 'Evaluate compiler research recipes with an in-memory reference interpreter.',
  'internal/dataframe/artifactformat': 'Encode published dataframe rows and metadata as downloadable artifacts.',
  'internal/dataframe/columntransform': 'Define closed, backend-neutral transformations over one selected output column '
                                        'value.',
@@ -186,6 +189,7 @@ RESPONSIBILITIES = {'.': 'Start the default Loom server process through the inte
  'internal/ingest/source': 'Discover source files and preflight source schemas.',
  'internal/ingest/sourceload': 'Stage, validate, copy and publish repository source files.',
  'internal/projectid': 'Define canonical and legacy-compatible public project identity normalization.',
+ 'internal/research/compilerprobe': 'Exercise compiler redesign prototypes against existing query behavior.',
  'internal/semantic': 'Walk FHIR members, extract coded concepts, and build semantic inventory and coverage.',
  'internal/semantic/arango': 'Persist and retrieve semantic inventory and coverage in ArangoDB.',
  'internal/semantic/backfill': 'Drive semantic inventory backfill over leased builds.',
