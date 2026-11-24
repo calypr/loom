@@ -161,7 +161,7 @@ func TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer(t *test
 		t.Fatalf("scoped receipt response builder/outputs mismatch: builder=%#v outputs=%#v", response.Builder, response.Outputs)
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, store)
 	outputID := "patients"
 	body, err := json.Marshal(loomapi.ReconcileRequest{SnapshotToken: snapshot.Token, DraftVersion: 3, DraftDigest: digest, OutputId: &outputID})
 	if err != nil {

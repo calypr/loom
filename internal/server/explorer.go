@@ -185,9 +185,13 @@ func wireLifecycle(serverConfig Config, logger *slog.Logger, storage storageComp
 	return lifecycleConfig, nil
 }
 
-func wireExplorerHandlers(authorizer authscope.Authorizer, scopeResolver *authscope.ScopeResolver, dataframe dataframeComponents, explorerDeps explorerComponents, storage storageComponents, lifecycleConfig lifecycle.Config) *explorerapi.Handlers {
+func wireExplorerHandlers(authorizer authscope.Authorizer, scopeResolver *authscope.ScopeResolver, dataframe dataframeComponents, explorerDeps explorerComponents, storage storageComponents, lifecycleConfig lifecycle.Config) (*explorerapi.Handlers, error) {
 	materializationReader, publishedRegistry := dataframe.reader, dataframe.registry
 	explorerService := explorerDeps.service
+	application, err := lifecycle.New(explorerService, lifecycleConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create Explorer lifecycle application: %w", err)
+	}
 	readRecipeExecution := recipeexec.NewRecipeExecutionAuthorizer(publishedRegistry, scopeResolver)
 	var constructionInputsReader constructioninputs.ExactReader
 	if materializationReader != nil {
@@ -202,10 +206,10 @@ func wireExplorerHandlers(authorizer authscope.Authorizer, scopeResolver *authsc
 			return scopeResolver.AuthorizeReadProject(ctx, principal, project)
 		},
 		Explorers:          explorerService,
+		Application:        application,
 		Revisions:          storage.explorerRevisions,
 		ViewBuilder:        storage.explorerViewBuilder,
-		Lifecycle:          lifecycleConfig,
 		ConstructionInputs: constructioninputs.New(constructionInputsReader, publishedRegistry, lifecycleConfig.Capability, scopeResolver, explorerService, storage.explorerRevisions),
 		AuthorizeExecution: readRecipeExecution,
-	})
+	}), nil
 }

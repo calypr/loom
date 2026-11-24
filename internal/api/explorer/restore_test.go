@@ -375,7 +375,7 @@ func newCoreProtocolPendingFixture(t *testing.T) *coreProtocolPendingFixture {
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, base.store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, base.store)
 	base.app = app
 	return pending
 }
@@ -942,7 +942,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 		}
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	base := "/api/v1/projects/project-a/explorers/route-roundtrip/authoring/v2"
 	type saved struct {
 		Workspace *ws.Workspace `json:"workspace"`
@@ -1211,7 +1211,7 @@ func TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible(t *testing.T) {
 		Catalog: ws.CatalogFromCapability,
 	}}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config, store)
 	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 	commandBody := fmt.Sprintf(`{"commandId":"restore-draft-3","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":4,"expectedDraftDigest":%q,"commands":[{"type":"RESTORE_DRAFT_REVISION","draftRevisionId":%q}]}`,
 		ws.CurrentSemanticsVersion, snapshot.Token, currentDigest, owner.PreviousDraftRevisionID)

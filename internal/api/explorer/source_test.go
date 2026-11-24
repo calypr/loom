@@ -190,7 +190,7 @@ func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 
 	capabilitiesHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
@@ -522,7 +522,7 @@ func newUnpivotMeltFirstEnvWithCandidates(t *testing.T, extra ...capability.Cand
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	return &unpivotMeltFirstEnv{t: t, app: app, basePath: "/api/v1/projects/project-a/explorers/custom/authoring/v2", snapshot: snapshot, draftVer: 1, draftDgst: digest}
 }
 
@@ -984,7 +984,7 @@ func TestConstructionExpandSourceHTTPContractSignsAndPersistsExpandedField(t *te
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 
 	capabilitiesHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(

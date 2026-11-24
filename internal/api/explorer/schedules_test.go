@@ -273,7 +273,7 @@ func coreProtocolReplayArangoStores(t *testing.T, client *storearango.Client, gr
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, graph)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, graph)
 	fixture.app = app
 	t.Logf("core protocol replay store=arango: disposable database=%s project=%s explorerId=%s (identity bytes identical to map mode; isolation comes from the per-schedule database)", database, coreProtocolReplayProject, coreProtocolReplayExplorerID)
 	t.Log("store=arango documented divergence: draft revision ids are sha256-derived by the Arango store (internal/explorer/arango/drafts.go via key() in store.go), not the map store's draft_revision_core-protocol_N literal; the replay body never hardcodes a revision id, so both modes drive head identity solely from the save acknowledgement and stored bytes")

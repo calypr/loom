@@ -326,7 +326,7 @@ func c19NewFixture(t *testing.T) (*coreProtocolFixture, *c19RowStore) {
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, store)
 	fixture.app = app
 	return fixture, rows
 }
@@ -885,7 +885,7 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, store)
 	fixture.app = app
 
 	typed := c19TypedRow()
@@ -1102,7 +1102,7 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, store)
 	fixture := &coreProtocolFixture{t: t, app: app, snapshot: snapshot, workspace: workspace, initialDigest: digest, basePath: "/api/v1/projects/project-a/explorers/core-protocol/authoring/v2"}
 
 	saved, ack := fixture.saveLabel("core-arango-save-1", "Patient Identifier", 1, digest)

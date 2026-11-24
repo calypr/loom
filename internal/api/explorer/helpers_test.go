@@ -3,6 +3,7 @@ package explorerapi
 import (
 	"context"
 	"fmt"
+	"testing"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
 	"github.com/calypr/loom/internal/authscope"
@@ -66,10 +67,12 @@ func testAuthoringV2CapabilitySnapshot() capability.Snapshot {
 	return capabilityfixtures.AuthoringV2CapabilitySnapshot(capabilityresolver.ScopeDigest(authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}))
 }
 
-func registerGeneratedExplorerTestRoutes(router fiber.Router, authorizer authscope.Authorizer, authorizeRead func(context.Context, *authscope.Principal, string) error, service *explorer.Service, config lifecycle.Config, backing ...explorer.ExplorerStore) {
+func registerGeneratedExplorerTestRoutes(t testing.TB, router fiber.Router, authorizer authscope.Authorizer, authorizeRead func(context.Context, *authscope.Principal, string) error, service *explorer.Service, config lifecycle.Config, backing ...explorer.ExplorerStore) {
+	t.Helper()
 	dependencies := explorerDependenciesForTest(backing...)
 	config = lifecycleConfigForTest(config, dependencies)
-	handlers := NewHandlers(Config{Authorizer: authorizer, AuthorizeRead: authorizeRead, Explorers: service, Revisions: dependencies.Revisions, ViewBuilder: dependencies.ViewBuilder, Lifecycle: config})
+	application := newTestLifecycleApplication(t, service, config)
+	handlers := NewHandlers(Config{Authorizer: authorizer, AuthorizeRead: authorizeRead, Explorers: service, Application: application, Revisions: dependencies.Revisions, ViewBuilder: dependencies.ViewBuilder})
 	loomapi.RegisterHandlersWithOptions(router, loomapi.NewStrictHandler(strictExplorerHandlers(handlers), nil), loomapi.FiberServerOptions{})
 }
 
@@ -77,7 +80,8 @@ type HTTPRoutes struct {
 	explorer *Handlers
 }
 
-func newExplorerHTTPHandlers(authorizer authscope.Authorizer, authorizeRead func(context.Context, *authscope.Principal, string) error, service *explorer.Service, options ...any) *Handlers {
+func newExplorerHTTPHandlers(t testing.TB, authorizer authscope.Authorizer, authorizeRead func(context.Context, *authscope.Principal, string) error, service *explorer.Service, options ...any) *Handlers {
+	t.Helper()
 	config := lifecycle.Config{}
 	var backing []explorer.ExplorerStore
 	for _, option := range options {
@@ -90,7 +94,17 @@ func newExplorerHTTPHandlers(authorizer authscope.Authorizer, authorizeRead func
 	}
 	dependencies := explorerDependenciesForTest(backing...)
 	config = lifecycleConfigForTest(config, dependencies)
-	return NewHandlers(Config{Authorizer: authorizer, AuthorizeRead: authorizeRead, Explorers: service, Revisions: dependencies.Revisions, ViewBuilder: dependencies.ViewBuilder, Lifecycle: config})
+	application := newTestLifecycleApplication(t, service, config)
+	return NewHandlers(Config{Authorizer: authorizer, AuthorizeRead: authorizeRead, Explorers: service, Application: application, Revisions: dependencies.Revisions, ViewBuilder: dependencies.ViewBuilder})
+}
+
+func newTestLifecycleApplication(t testing.TB, store *explorer.Service, config lifecycle.Config) *lifecycle.Service {
+	t.Helper()
+	application, err := lifecycle.New(store, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return application
 }
 
 func explorerDependenciesForTest(backing ...explorer.ExplorerStore) explorerfixtures.Stores {

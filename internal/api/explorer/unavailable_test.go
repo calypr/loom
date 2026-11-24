@@ -43,7 +43,7 @@ func TestBuilderUnavailableResponseExplainsResourceInventoryRebuild(t *testing.T
 		Catalog: ws.CatalogFromCapability,
 	}}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, backingStore)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, backingStore)
 	response := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/default/authoring/v2/builder", "")
 	if response.StatusCode != http.StatusServiceUnavailable || !strings.Contains(response.Body, `"code":"CAPABILITY_UNAVAILABLE"`) || !strings.Contains(response.Body, "resource inventory is unavailable") || !strings.Contains(response.Body, "rebuild the generation inventory") {
 		t.Fatalf("unavailable Builder response status=%d body=%s", response.StatusCode, response.Body)

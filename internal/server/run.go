@@ -104,7 +104,10 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return err
 	}
-	explorerHandlers := wireExplorerHandlers(authorizer, scopeResolver, dataframe, explorerDeps, storage, lifecycleConfig)
+	explorerHandlers, err := wireExplorerHandlers(authorizer, scopeResolver, dataframe, explorerDeps, storage, lifecycleConfig)
+	if err != nil {
+		return err
+	}
 	if err := registerRoutes(server, generationService, authorizer, explorerHandlers, routeDependencies{
 		releases: publishedRegistry, scopes: scopeResolver, sourceLoader: sourceLoader,
 		sourceLimits: sourceLoadLimits, dataframes: dataframeReads,

@@ -84,7 +84,7 @@ func TestBrowseSemanticInventoryThroughPublicAPI(t *testing.T) {
 	}
 	denied := false
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error {
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error {
 		if denied {
 			return errors.New("denied")
 		}
@@ -152,7 +152,7 @@ func TestBrowseSemanticInventoryOutputScopeReturnsTypedNotFound(t *testing.T) {
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config, store)
 	path := "/api/v1/projects/project-a/explorers/explorer/authoring/v2/semantic-inventory"
 	response := requestJSON(t, app, http.MethodPost, path, `{"snapshotToken":"snapshot","rowRoot":"Observation","outputId":"out_000000000000000000000000"}`)
 	if response.StatusCode != http.StatusNotFound || !strings.Contains(response.Body, "EXPLORER_NOT_FOUND") {

@@ -131,7 +131,7 @@ func TestConstructionFilterSourceHTTPContractPreservesCapabilitiesAndProposals(t
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 
 	capabilitiesHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(

@@ -181,7 +181,7 @@ func TestBuilderHTTPSerializesEmptyConstructionStepsAsArray(t *testing.T) {
 		}, nil
 	}}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 	response := requestJSON(t, app, http.MethodGet, basePath+"/builder", "")
 	if response.StatusCode != http.StatusOK {
@@ -297,7 +297,7 @@ func TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation(t *testing.
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 
 	capabilitiesHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(

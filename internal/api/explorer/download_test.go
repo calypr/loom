@@ -56,7 +56,7 @@ func downloadArtifactWithRecord(t *testing.T, now time.Time, record *explorer.Ar
 		ArtifactStore: store,
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config, backingStore)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config, backingStore)
 	path := "/api/v1/projects/project-a/explorers/custom/authoring/v2/artifacts/" + artifactDownloadId()
 	response := requestJSON(t, app, http.MethodGet, path, "")
 	if store.opened != 0 {

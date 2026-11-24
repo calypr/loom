@@ -128,7 +128,7 @@ func newCoreProtocolReceiptsFixture(t *testing.T) *coreProtocolReceiptsFixture {
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, store)
 	fixture.app = app
 	return fixture
 }

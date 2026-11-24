@@ -157,7 +157,7 @@ func TestSourceRelationshipAndNetworkHTTPContract(t *testing.T) {
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 	identity := fmt.Sprintf(`"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients"`, snapshot.Token, digest)
 	networkResponse := requestJSON(t, app, http.MethodPost, basePath+"/authoring-network", "{"+identity+"}")
@@ -744,7 +744,7 @@ func applyConstructionPreviewRouteFixture(t *testing.T, failApplyCapture, emptyA
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	return app, service, snapshot, draftDigest, &previewCallCount
 }
 

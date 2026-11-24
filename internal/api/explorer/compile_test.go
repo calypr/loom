@@ -215,7 +215,7 @@ func newScopedCompileFixture(t *testing.T) *scopedCompileFixture {
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig, store)
 	return &scopedCompileFixture{t: t, app: app, store: store, snapshot: snapshot, workspace: workspace, initialDigest: digest}
 }
 

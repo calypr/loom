@@ -81,7 +81,7 @@ func TestColumnPolicyHTTPContractPreviewApplyAndClosedIntent(t *testing.T) {
 		return dataframeexecution.PreviewSummary{RowCount: 1, Complete: true}, nil
 	}}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	path := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 	intent := fmt.Sprintf(`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","columnId":"patient-id","projectionMode":"FIRST"}`, snapshot.Token, digest)
 	for _, extra := range []string{`,"project":"other"`, `,"candidateWorkspace":{}`, `,"candidateDocument":{}`, `,"candidateNetwork":{}`, `,"source":{"kind":"field","field":{"path":"secret"}}`, `,"limit":0`, `,"limit":null`} {

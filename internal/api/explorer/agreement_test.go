@@ -256,6 +256,6 @@ func publicationAgreementFixture(t *testing.T) (*fiber.App, *agreementPublicatio
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	return app, store, service, receipt, &calls, &badQuality
 }

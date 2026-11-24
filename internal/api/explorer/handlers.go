@@ -26,25 +26,24 @@ type Config struct {
 	Authorizer         authscope.Authorizer
 	AuthorizeRead      func(context.Context, *authscope.Principal, string) error
 	Explorers          *explorer.Service
+	Application        *lifecycle.Service
 	Revisions          explorer.RevisionReader
 	ViewBuilder        explorer.ViewBuilderRepository
-	Lifecycle          lifecycle.Config
 	ConstructionInputs constructioninputs.Catalog
 	AuthorizeExecution func(context.Context, string) error
 }
 
 func NewHandlers(config Config) *Handlers {
-	application, _ := lifecycle.New(config.Explorers, config.Lifecycle)
 	handlers := &Handlers{
 		authorizer:         config.Authorizer,
 		authorizeRead:      config.AuthorizeRead,
 		views:              projectconfig.New(config.Explorers, config.Revisions, config.ViewBuilder),
-		application:        application,
+		application:        config.Application,
 		constructionInputs: config.ConstructionInputs,
 		authorizeExecution: config.AuthorizeExecution,
 	}
-	if application != nil {
-		handlers.owners = application.OwnerServices()
+	if config.Application != nil {
+		handlers.owners = config.Application.OwnerServices()
 	}
 	return handlers
 }

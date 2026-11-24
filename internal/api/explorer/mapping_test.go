@@ -173,7 +173,7 @@ func TestPopulationMappingRouteUsesReceiptBoundAuthoredFilterConstruction(t *tes
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config, store)
 	basePath := "/api/v1/projects/" + project + "/explorers/" + explorerID + "/authoring/v2"
 
 	reconcile := requestJSON(t, app, http.MethodPost, basePath+"/reconcile", fmt.Sprintf(`{"snapshotToken":%q,"draftVersion":1,"draftDigest":%q}`, snapshot.Token, draftDigest))

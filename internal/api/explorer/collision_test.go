@@ -124,7 +124,7 @@ func fs1New(t *testing.T) *fs1Env {
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config, store)
 	return &fs1Env{t: t, app: app, basePath: "/api/v1/projects/project-a/explorers/custom/authoring/v2", service: service, snapshot: snapshot, initialVersion: 1, initialDigest: digest}
 }
 

@@ -134,7 +134,7 @@ func TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS(t *
 		},
 	}
 	app := fiber.New()
-	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config, store)
+	registerGeneratedExplorerTestRoutes(t, app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config, store)
 	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 
 	proposalHTTP := requestJSON(t, app, http.MethodPost, basePath+"/population-member-proposals", fmt.Sprintf(

@@ -710,9 +710,10 @@ FOR d IN Patient
 		SelectionReferenceValidator: explorerStore.ValidateSelectionReferences,
 	}
 	config = lifecycleConfigForTest(config, dependencies)
+	application := newTestLifecycleApplication(t, domain, config)
 	handlers := NewHandlers(Config{
 		Authorizer: authscope.ScopeAuthorizer{Resolver: resolver}, AuthorizeRead: resolver.AuthorizeReadProject,
-		Explorers: domain, Revisions: dependencies.Revisions, ViewBuilder: dependencies.ViewBuilder, Lifecycle: config,
+		Explorers: domain, Application: application, Revisions: dependencies.Revisions, ViewBuilder: dependencies.ViewBuilder,
 	})
 
 	toWireRef := func(id string) loomapi.SelectionResourceRef {
@@ -845,7 +846,7 @@ func viewBuilderTestApp(t *testing.T, store *viewBuilderHTTPStore, writeFault, r
 	if err != nil {
 		t.Fatal(err)
 	}
-	handlers := newExplorerHTTPHandlers(viewBuilderTestAuthorizer{writeFault}, func(context.Context, *authscope.Principal, string) error { return readFault }, service, store)
+	handlers := newExplorerHTTPHandlers(t, viewBuilderTestAuthorizer{writeFault}, func(context.Context, *authscope.Principal, string) error { return readFault }, service, store)
 	app := fiber.New()
 	loomapi.RegisterHandlersWithOptions(app, loomapi.NewStrictHandler(strictExplorerHandlers(handlers), nil), loomapi.FiberServerOptions{})
 	return app
@@ -947,7 +948,7 @@ func TestViewBuilderScopedEditorCapability(t *testing.T) {
 	if err := resolver.AuthorizeWrite(ctx, principal, "project-a", "project-a"); err != nil {
 		t.Fatalf("editor grant invalid: %v", err)
 	}
-	handlers := newExplorerHTTPHandlers(authscope.ScopeAuthorizer{Resolver: resolver}, resolver.AuthorizeReadProject, service, store)
+	handlers := newExplorerHTTPHandlers(t, authscope.ScopeAuthorizer{Resolver: resolver}, resolver.AuthorizeReadProject, service, store)
 	state, err := handlers.authorizedViewBuilderState(ctx, "project-a", "")
 	if err != nil {
 		t.Fatal(err)
@@ -985,7 +986,7 @@ func TestViewBuilderHTTPGetUsesAuthResourcePathForCanEdit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handlers := newExplorerHTTPHandlers(
+	handlers := newExplorerHTTPHandlers(t,
 		authscope.ScopeAuthorizer{Resolver: resolver},
 		func(context.Context, *authscope.Principal, string) error { return nil },
 		service, store,
