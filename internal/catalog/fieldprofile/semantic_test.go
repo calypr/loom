@@ -6,12 +6,13 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/semantic"
+	"github.com/calypr/loom/internal/testkit/semanticfixtures"
 )
 
 func TestSemanticInventoryEmitsBeyondBoundedFieldSummary(t *testing.T) {
 	components := make([]any, 1000)
 	for i := range components {
-		components[i] = inventoryTestComponent(fmt.Sprintf("code-%04d", i), "v1", "label")
+		components[i] = semanticfixtures.InventoryComponent(fmt.Sprintf("code-%04d", i), "v1", "label")
 	}
 	payload := map[string]any{"resourceType": "Observation", "component": components}
 	profiler := NewProfilerForGeneration("project", "generation", "scope-a", "Observation", nil)
@@ -63,7 +64,7 @@ func TestSemanticInventoryEmitsBeyondBoundedFieldSummary(t *testing.T) {
 func TestRetainedSemanticEmitterEmitsBeyondSummaryCapWithoutRetainingScopeMaps(t *testing.T) {
 	components := make([]any, 1000)
 	for i := range components {
-		components[i] = inventoryTestComponent(fmt.Sprintf("retained-%04d", i), "v1", "same label")
+		components[i] = semanticfixtures.InventoryComponent(fmt.Sprintf("retained-%04d", i), "v1", "same label")
 	}
 	emitter := semantic.NewEmitter("project", "generation")
 	contributions := make([]semantic.Contribution, 0, len(components))
@@ -296,24 +297,12 @@ func TestSemanticInventoryPageDigestBindsFrameBindingFilter(t *testing.T) {
 	}
 }
 
-func inventoryTestComponent(code, version, display string) map[string]any {
-	return map[string]any{
-		"code": map[string]any{"coding": []any{map[string]any{
-			"system":  "urn:inventory",
-			"version": version,
-			"code":    code,
-			"display": display,
-		}}},
-		"valueQuantity": map[string]any{"value": 1.0, "unit": "mg"},
-	}
-}
-
 func inventoryTestObservation(version, display string) semantic.Observation {
 	profiler := NewProfilerForGeneration("project", "generation", "scope-a", "Observation", nil)
 	var observation semantic.Observation
 	profiler.ObservePayloadWithInventory(map[string]any{
 		"resourceType": "Observation",
-		"component":    []any{inventoryTestComponent("glucose", version, display)},
+		"component":    []any{semanticfixtures.InventoryComponent("glucose", version, display)},
 	}, map[string]float64{}, "Observation.ndjson#1", func(contribution semantic.Contribution) {
 		observation = contribution.Observation
 	})

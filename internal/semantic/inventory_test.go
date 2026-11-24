@@ -1,6 +1,10 @@
 package semantic
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/calypr/loom/internal/testkit/semanticfixtures"
+)
 
 func TestSemanticInventoryEmitterReusesSemanticInventoryBuildIDAcrossPayloads(t *testing.T) {
 	const project = "build-id-cache-emitter-project"
@@ -27,8 +31,8 @@ func TestSemanticInventoryEmitterReusesSemanticInventoryBuildIDAcrossPayloads(t 
 			map[string]any{
 				"resourceType": "Observation",
 				"component": []any{
-					inventoryTestComponent(sourceID+"-a", "v1", "label"),
-					inventoryTestComponent(sourceID+"-b", "v1", "label"),
+					semanticfixtures.InventoryComponent(sourceID+"-a", "v1", "label"),
+					semanticfixtures.InventoryComponent(sourceID+"-b", "v1", "label"),
 				},
 			},
 			"Observation", "scope-a", sourceID,
@@ -62,7 +66,7 @@ func TestZeroValueSemanticInventoryEmitterKeepsComputedBuildIdentity(t *testing.
 	err := emitter.ObservePayload(
 		map[string]any{
 			"resourceType": "Observation",
-			"component":    []any{inventoryTestComponent("zero-value", "v1", "label")},
+			"component":    []any{semanticfixtures.InventoryComponent("zero-value", "v1", "label")},
 		},
 		"Observation", "scope-a", "retained:Observation/zero",
 		func(contribution Contribution) {
@@ -80,17 +84,5 @@ func TestZeroValueSemanticInventoryEmitterKeepsComputedBuildIdentity(t *testing.
 		contribution.Key != "aa11bab5442cdf505c1fe8c6e86286469b5798c33165b7d93a26bdcb01f8ee5b" ||
 		contribution.Ordinal != 0 || contribution.SourceKind != SourceRetained {
 		t.Fatalf("zero-value emitter contribution identity = build %q key %q ordinal %d source kind %q", contribution.BuildID, contribution.Key, contribution.Ordinal, contribution.SourceKind)
-	}
-}
-
-func inventoryTestComponent(code, version, display string) map[string]any {
-	return map[string]any{
-		"code": map[string]any{"coding": []any{map[string]any{
-			"system":  "urn:inventory",
-			"version": version,
-			"code":    code,
-			"display": display,
-		}}},
-		"valueQuantity": map[string]any{"value": 1.0, "unit": "mg"},
 	}
 }

@@ -96,30 +96,6 @@ func WalkMemberValues(
 	return walkMemberTree(index, root, decodedMemberObject(payload), visit, memberWalkOptions{})
 }
 
-func WalkMemberValuesWithResourceTypes(
-	index *schema.Index,
-	root schema.DefinitionName,
-	payload map[string]any,
-	allowed []schema.ResourceType,
-	visit func(MemberFact) error,
-) ([]WalkDiagnostic, error) {
-	if payload == nil {
-		return nil, fmt.Errorf("walk FHIR members for %q: expected an object", root)
-	}
-	allowedTypes, err := validateAllowedResourceTypes(root, allowed)
-	if err != nil {
-		return nil, err
-	}
-	return walkMemberTree(index, root, decodedMemberObject(payload), visit, memberWalkOptions{
-		allowedResourceTypes: allowedTypes,
-		limits: &memberWalkLimits{
-			maxFacts:       WalkMembersWithResourceTypesMaxFacts,
-			maxDiagnostics: WalkMembersWithResourceTypesMaxDiagnostics,
-			maxDepth:       WalkMembersWithResourceTypesMaxDepth,
-		},
-	})
-}
-
 func WalkMembersWithResourceTypes(
 	index *schema.Index,
 	root schema.DefinitionName,

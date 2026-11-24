@@ -12,6 +12,7 @@ import (
 
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"github.com/calypr/loom/internal/semantic"
+	"github.com/calypr/loom/internal/testkit/semanticfixtures"
 )
 
 func NewShapePlanCache() *ShapePlanCache {
@@ -747,8 +748,8 @@ func TestProfilerReusesSemanticInventoryBuildIDAcrossContributions(t *testing.T)
 			map[string]any{
 				"resourceType": "Observation",
 				"component": []any{
-					inventoryTestComponent(sourceID+"-a", "v1", "label"),
-					inventoryTestComponent(sourceID+"-b", "v1", "label"),
+					semanticfixtures.InventoryComponent(sourceID+"-a", "v1", "label"),
+					semanticfixtures.InventoryComponent(sourceID+"-b", "v1", "label"),
 				},
 			},
 			map[string]float64{},
