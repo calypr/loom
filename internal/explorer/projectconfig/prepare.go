@@ -155,7 +155,7 @@ func validatePreparedExecution(resolved execution.Resolved, published publicatio
 	if strings.TrimSpace(published.ID) == "" || strings.TrimSpace(published.Project) == "" || strings.TrimSpace(published.DatasetGeneration) == "" {
 		return errors.New("published execution identity is incomplete")
 	}
-	if published.State.Canonical() != publication.BundlePublished {
+	if !published.State.Successful() {
 		return fmt.Errorf("execution %q is not published", published.ID)
 	}
 	if published.CreatedAt.IsZero() || published.PublishedAt == nil || published.PublishedAt.IsZero() {
@@ -594,7 +594,7 @@ func projectConfigDatasetOutputs(bundle recipe.Bundle, executionValue publicatio
 		executionOutput := outputsByName[output.Name]
 		selector := executionOutput.Selector
 		outputs = append(outputs, viewer.DatasetOutput{
-			Name: output.Name, State: string(executionOutput.State.Canonical()), Queryable: true,
+			Name: output.Name, State: string(publication.DecodeBundleState(executionOutput.State)), Queryable: true,
 			Selector: &selector, Columns: append([]publication.PhysicalColumn(nil), physical[output.Name]...),
 		})
 	}

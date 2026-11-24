@@ -41,7 +41,7 @@ func (s cgpVerifier) VerifyPublication(ctx context.Context, project, generation 
 	}
 	return dataset.PublicationVerification{
 		Selector: selector, ExecutionID: execution.ID, Generation: execution.DatasetGeneration,
-		State: string(execution.State.Canonical()), Queryable: execution.State.Successful() && output.Queryable(),
+		State: string(dataframepublication.DecodeBundleState(execution.State)), Queryable: execution.State.Successful() && output.Queryable(),
 		VerifiedAt: verifiedAt, PhysicalTable: output.PhysicalTable,
 	}, nil
 }

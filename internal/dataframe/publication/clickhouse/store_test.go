@@ -380,7 +380,7 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 		t.Fatalf("E2 GetExecution: %v", err)
 	}
 	e2ID := e2Exec.ID
-	if e2Exec.State.Canonical() != pubpublication.BundlePublished {
+	if !e2Exec.State.Successful() {
 		t.Fatalf("E2 precondition: state %q, want PUBLISHED", e2Exec.State)
 	}
 	if !h.tablePresent(ctx, e2Table) {
@@ -499,7 +499,7 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 	if !dropDropped {
 		t.Fatalf("INCONCLUSIVE: production Reconcile did not drop the never-pointer-named stale control %q (state=%q marker=%q) — the sweep may have been a no-op, which would make any E2 survival vacuous", dropExec.ID, dropState, dropErrField)
 	}
-	if dropErrField != uprReconcileMark || pubpublication.BundleState(dropState).Canonical() != pubpublication.BundleFailed {
+	if dropErrField != uprReconcileMark || pubpublication.DecodeBundleState(pubpublication.BundleState(dropState)) != pubpublication.BundleFailed {
 		t.Fatalf("INCONCLUSIVE: the stale control %q was not demoted with the reconcile marker (state=%q marker=%q) — the drop path did not run as production", dropExec.ID, dropState, dropErrField)
 	}
 	if !dropClaimed || !strings.HasPrefix(dropOwner, "reconciler-") {
@@ -1217,7 +1217,7 @@ func TestReconcileDanglesActiveReleaseBindingAgainstArango(t *testing.T) {
 
 	primaryTableDropped := ch.didDrop(specActive.table)
 	primaryDemotedByReconcile := activeErr == rdlReconcileMarker ||
-		(pubpublication.BundleState(activeState).Canonical() == pubpublication.BundleFailed)
+		(pubpublication.DecodeBundleState(pubpublication.BundleState(activeState)) == pubpublication.BundleFailed)
 
 	if primaryTableDropped || primaryDemotedByReconcile {
 
@@ -1261,12 +1261,12 @@ func TestReconcileDanglesActiveReleaseBindingAgainstArango(t *testing.T) {
 	t.Logf("E2 OBSERVED PREVENTED: reconcile enumerated+claimed (owner=%s) and re-read the pointer %q naming %q %d time(s), and its production guard branch skipped cleanup; active=%q post state=%q reconcileErrorField=%q table=%q dropped=%v; CurrentProjectDatasets post-fault =1=%s err=%v; single=%q err=%v",
 		mustOwner(t, catalog, specActive.key), pubActive.PointerName(), pubActive.ID, catalog.pointerReadCount(pubActive.PointerName()), pubActive.ID, activeState, activeErr, specActive.table, ch.didDrop(specActive.table), rdlMaterializationDigest(healedList), healedErr, singleAfter.ID, singleErr)
 
-	if !ch.didDrop(specStale.table) || staleErr != rdlReconcileMarker || pubpublication.BundleState(staleState).Canonical() != pubpublication.BundleFailed {
+	if !ch.didDrop(specStale.table) || staleErr != rdlReconcileMarker || pubpublication.DecodeBundleState(pubpublication.BundleState(staleState)) != pubpublication.BundleFailed {
 		t.Fatalf("LIVE-MACHINERY control broken: reconcile did not reclaim the unpointered/unbound stale control (staleState=%q staleErr=%q dropped=%v) — the sweep was not genuinely live, so the PREVENTED verdict above would be vacuous", staleState, staleErr, dropped)
 	}
 	t.Logf("E3 OBSERVED live machinery: the unpointered stale RUNNING control %s was reclaimed (state=%q marker=%q tableDropped=%v)", stale.ID, staleState, staleErr, ch.didDrop(specStale.table))
 
-	if ch.didDrop(specShadow.table) || shadowErr == rdlReconcileMarker || pubpublication.BundleState(shadowState).Canonical() != pubpublication.BundleRunning {
+	if ch.didDrop(specShadow.table) || shadowErr == rdlReconcileMarker || pubpublication.DecodeBundleState(pubpublication.BundleState(shadowState)) != pubpublication.BundleRunning {
 		t.Errorf("REGRESSION (F-B12): the unpointered ACTIVE-release-bound execution %s was reclaimed by Reconcile (state=%q marker=%q tableDropped=%v) — the post-claim active-release binding veto must deny this drop; the ACTIVE release still binds it (archived FAILED-ON-PURPOSE red: this drop destroyed advertised data and failed CurrentProjectDatasets wholesale)", shadow.ID, shadowState, shadowErr, ch.didDrop(specShadow.table))
 	}
 	rdlSetExecutionState(t, client, ctx, shadow.ID, "PUBLISHED")
@@ -1444,4 +1444,53 @@ func TestReconcileSkipsPointerNamedExecutionAgainstArango(t *testing.T) {
 	t.Cleanup(func() {
 		_ = registry.ReleaseBundleLease(context.Background(), exec.Key, "reconciler")
 	})
+}
+
+type retryStateCatalog struct {
+	pubpublication.BundleCatalog
+	execution pubpublication.BundleExecution
+	claims    int
+}
+
+func (c *retryStateCatalog) FindExecutionByKey(context.Context, string) (pubpublication.BundleExecution, error) {
+	return c.execution, nil
+}
+
+func (c *retryStateCatalog) AcquireBundleLease(context.Context, string, string, time.Time) (bool, error) {
+	c.claims++
+	return false, nil
+}
+
+func TestBeginBundleClassifiesLegacyRetryState(t *testing.T) {
+	now := time.Now().UTC()
+	active, expired := now.Add(time.Hour), now.Add(-time.Hour)
+	for _, tc := range []struct {
+		name      string
+		state     pubpublication.BundleState
+		expires   *time.Time
+		published bool
+		claims    int
+	}{
+		{name: "already published", state: "READY", published: true},
+		{name: "active running lease", state: "LOADING", expires: &active},
+		{name: "expired running lease", state: "LOADING", expires: &expired, claims: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			catalog := &retryStateCatalog{execution: pubpublication.BundleExecution{
+				ID: "legacy-execution", State: tc.state, LeaseExpiresAt: tc.expires,
+			}}
+			service := &ClickHouseBundleStore{catalog: catalog, keyLocks: make(map[string]*bundleKeyLock)}
+			tx, err := service.beginBundle(context.Background(), pubpublication.BundleIdentity{Name: "legacy-recipe"})
+			if tc.published {
+				if err != nil || tx == nil || !tx.Idempotent() || tx.execution.ID != catalog.execution.ID {
+					t.Fatalf("begin published execution = (%+v, %v)", tx, err)
+				}
+			} else if !errors.Is(err, ErrBundleInFlight) {
+				t.Fatalf("begin in-flight execution error = %v, want %v", err, ErrBundleInFlight)
+			}
+			if catalog.claims != tc.claims {
+				t.Fatalf("cleanup lease claims = %d, want %d", catalog.claims, tc.claims)
+			}
+		})
+	}
 }

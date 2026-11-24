@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -166,16 +167,12 @@ func TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango(t *testing.T) {
 			RecipeDigest:       "sha256:case-legacy-recipe", SchemaDigest: "sha256:case-legacy-schema",
 			ReceiptID: "receipt-case-legacy", ScopeDigest: "scope-legacy", EngineVersion: "engine-legacy",
 		},
-		State: publication.BundleReady,
+		State: "READY",
 		Outputs: []publication.BundleOutputRecord{{
 			Name: selector.Output, PhysicalTable: "ch_nlb_case_legacy", RowCount: 3, ByteCount: 300,
-			State: publication.BundleReady,
+			State: "READY",
 		}},
 		CreatedAt: t1, UpdatedAt: t2, ReadyAt: &t2,
-	}
-	canonicalLegacy := legacy.CanonicalizeLegacy()
-	if canonicalLegacy.State != publication.BundlePublished || canonicalLegacy.PublishedAt == nil || !canonicalLegacy.PublishedAt.Equal(t2) || !canonicalLegacy.Outputs[0].Queryable() || canonicalLegacy.Outputs[0].Selector != selector {
-		t.Fatalf("legacy codec shape does not canonicalize to a queryable published execution: %+v", canonicalLegacy)
 	}
 	legacyDoc, err := json.Marshal(legacy)
 	if err != nil {
@@ -189,6 +186,45 @@ func TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango(t *testing.T) {
 	persistedLegacy["_key"] = legacy.ID
 	if err := client.ExecuteAQL(ctx, `INSERT @doc INTO @@collection`, map[string]interface{}{"@collection": BundleExecutionsCollection, "doc": persistedLegacy}); err != nil {
 		t.Fatalf("insert legacy-shaped doc: %v", err)
+	}
+
+	assertLegacy := func(execution publication.BundleExecution) {
+		t.Helper()
+		if execution.ID != legacy.ID || execution.State != publication.BundlePublished || execution.PublishedAt == nil || !execution.PublishedAt.Equal(t2) {
+			t.Fatalf("legacy execution did not decode as published: %+v", execution)
+		}
+		if len(execution.Outputs) != 1 || execution.Outputs[0].State != publication.BundlePublished || !execution.Outputs[0].Queryable() || execution.Outputs[0].Selector != selector {
+			t.Fatalf("legacy output did not decode as queryable: %+v", execution.Outputs)
+		}
+	}
+	byID, err := registry.GetExecution(ctx, legacy.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLegacy(byID)
+	byKey, err := registry.FindExecutionByKey(ctx, legacy.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLegacy(byKey)
+
+	before := t2.Add(time.Minute)
+	list, err := registry.ListExecutions(ctx, publication.BundlePublished, before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paged []publication.BundleExecution
+	if err := registry.VisitExecutionPages(ctx, publication.BundlePublished, before, 1, func(page []publication.BundleExecution) error {
+		paged = append(paged, page...)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, executions := range [][]publication.BundleExecution{list, paged} {
+		if len(executions) != 2 {
+			t.Fatalf("published execution reads returned %d rows, want 2: %+v", len(executions), executions)
+		}
+		assertLegacy(executions[1])
 	}
 
 	execution, output, err := registry.FindExecutionBySelector(ctx, project, generation, selector)
@@ -217,6 +253,61 @@ func TestFindExecutionBySelectorLegacyCaseAsymmetryAgainstArango(t *testing.T) {
 	}
 }
 
+func TestExecutionStateFiltersIncludeLegacyDocumentsAgainstArango(t *testing.T) {
+	ctx, client, registry := nameBindingOpen(t, 60*time.Second)
+	cases := []struct {
+		state  publication.BundleState
+		stored []string
+	}{
+		{publication.BundleQueued, []string{"QUEUED", "PENDING"}},
+		{publication.BundleRunning, []string{"RUNNING", "PREFLIGHT", "LOADING"}},
+		{publication.BundleValidating, []string{"VALIDATING"}},
+		{publication.BundlePublished, []string{"PUBLISHED", "READY"}},
+		{publication.BundleFailed, []string{"FAILED"}},
+	}
+	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	for _, tc := range cases {
+		for _, state := range tc.stored {
+			if err := client.ExecuteAQL(ctx, `INSERT {_key: @state, id: @state, state: @state, updatedAt: @now} INTO @@collection`, map[string]interface{}{
+				"@collection": BundleExecutionsCollection, "state": state, "now": now,
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.state), func(t *testing.T) {
+			before := now.Add(time.Minute)
+			list, err := registry.ListExecutions(ctx, tc.state, before)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var paged []publication.BundleExecution
+			if err := registry.VisitExecutionPages(ctx, tc.state, before, 1, func(page []publication.BundleExecution) error {
+				paged = append(paged, page...)
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			for _, executions := range [][]publication.BundleExecution{list, paged} {
+				var ids []string
+				for _, execution := range executions {
+					if execution.State != tc.state {
+						t.Fatalf("execution %q state = %q, want %q", execution.ID, execution.State, tc.state)
+					}
+					ids = append(ids, execution.ID)
+				}
+				slices.Sort(ids)
+				want := slices.Clone(tc.stored)
+				slices.Sort(want)
+				if !slices.Equal(ids, want) {
+					t.Fatalf("state filter read execution IDs %v, want %v", ids, want)
+				}
+			}
+		})
+	}
+}
+
 type nameBindingReplicatedVerificationStore struct {
 	executions publication.ExactExecutionCatalog
 }
@@ -235,7 +326,7 @@ func (s nameBindingReplicatedVerificationStore) VerifyPublication(ctx context.Co
 	}
 	return dataset.PublicationVerification{
 		Selector: selector, ExecutionID: execution.ID, Generation: execution.DatasetGeneration,
-		State: string(execution.State.Canonical()), Queryable: execution.State.Successful() && output.Queryable(),
+		State: string(publication.DecodeBundleState(execution.State)), Queryable: execution.State.Successful() && output.Queryable(),
 		VerifiedAt: verifiedAt, PhysicalTable: output.PhysicalTable,
 	}, nil
 }

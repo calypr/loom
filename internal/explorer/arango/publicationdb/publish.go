@@ -347,7 +347,7 @@ func readProjectConfigExecution(ctx context.Context, tx store.RowQueryer, id str
 }
 
 func validateProjectConfigExecution(request explorer.ProjectConfigPublishRequest, execution publicationdata.BundleExecution) error {
-	if execution.ID == "" || execution.ID != expectedProjectConfigExecutionID(request) || execution.State.Canonical() != publicationdata.BundlePublished {
+	if execution.ID == "" || execution.ID != expectedProjectConfigExecutionID(request) || !execution.State.Successful() {
 		return fmt.Errorf("project config execution is missing, mismatched, or not published")
 	}
 	if projectid.Canonical(execution.Project) != projectid.Canonical(request.Release.Project) || execution.DatasetGeneration != request.Release.Generation || execution.Name != request.RecipeName {

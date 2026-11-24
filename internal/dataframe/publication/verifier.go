@@ -30,7 +30,7 @@ func (s publicationVerificationStore) VerifyPublication(ctx context.Context, pro
 	}
 	return dataset.PublicationVerification{
 		Selector: selector, ExecutionID: execution.ID, Generation: execution.DatasetGeneration,
-		State: string(execution.State.Canonical()), Queryable: execution.State.Successful() && output.Queryable(),
+		State: string(DecodeBundleState(execution.State)), Queryable: execution.State.Successful() && output.Queryable(),
 		VerifiedAt: verifiedAt, PhysicalTable: output.PhysicalTable,
 	}, nil
 }

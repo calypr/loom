@@ -94,7 +94,7 @@ func (a *SourcePublicationAdapter) MaterializeAndSelect(
 	if err != nil {
 		return "", 0, err
 	}
-	if executionRecord.State.Canonical() != publication.BundlePublished ||
+	if !executionRecord.State.Successful() ||
 		executionRecord.ReceiptID != operationID ||
 		executionRecord.Project != project ||
 		executionRecord.DatasetGeneration != generation {

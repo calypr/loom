@@ -216,10 +216,10 @@ func TestActivateGenerationRejectsInvalidDataframeRelease(t *testing.T) {
 			execution.DatasetGeneration = "generation-b"
 		}},
 		{name: "bundle not ready", mutate: func(execution *dataframepublication.BundleExecution, _ *dataframepublication.BundlePointer) {
-			execution.State = dataframepublication.BundleLoading
+			execution.State = "LOADING"
 		}},
 		{name: "output not ready", mutate: func(execution *dataframepublication.BundleExecution, _ *dataframepublication.BundlePointer) {
-			execution.Outputs[1].State = dataframepublication.BundleLoading
+			execution.Outputs[1].State = "LOADING"
 		}},
 		{name: "pointer mismatch", mutate: func(_ *dataframepublication.BundleExecution, pointer *dataframepublication.BundlePointer) {
 			pointer.ExecutionID = "another-release"

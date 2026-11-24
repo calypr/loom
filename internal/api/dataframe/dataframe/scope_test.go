@@ -73,7 +73,7 @@ func mscBundle(id string, declared []string) publication.BundleExecution {
 		State: publication.BundlePublished,
 		Outputs: []publication.BundleOutputRecord{{
 			Name:     mscOutputName,
-			State:    publication.BundleReady,
+			State:    "READY",
 			RowCount: 424242,
 		}},
 	}
@@ -126,7 +126,7 @@ func mscAssertAuthorizedBody(t *testing.T, fields map[string]any, id string) {
 		"recipeDigest":         mscRecipeDigest,
 		"schemaDigest":         mscSchemaDigest,
 		"resolvedSchemaDigest": mscSchemaDigest,
-		"state":                string(publication.BundleReady),
+		"state":                "READY",
 	}
 	for key, expected := range want {
 		got, ok := fields[key]

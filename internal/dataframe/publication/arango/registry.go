@@ -5,14 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/arangodb/go-driver/v2/arangodb/shared"
-	"github.com/calypr/loom/internal/dataframe/publication"
+	"fmt"
 	"strings"
 	"time"
-)
 
-import (
-	"fmt"
+	"github.com/arangodb/go-driver/v2/arangodb/shared"
+	"github.com/calypr/loom/internal/dataframe/publication"
 
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
@@ -93,27 +91,21 @@ RETURN {saved: true}`, r.batchSize, map[string]interface{}{
 }
 
 func (r *Registry) GetExecution(ctx context.Context, id string) (publication.BundleExecution, error) {
-	execution, err := r.loadExecution(ctx, `FOR doc IN @@collection FILTER doc._key == @key RETURN doc`, map[string]interface{}{"@collection": BundleExecutionsCollection, "key": id})
-	return execution.CanonicalizeLegacy(), err
+	return r.loadExecution(ctx, `FOR doc IN @@collection FILTER doc._key == @key RETURN doc`, map[string]interface{}{"@collection": BundleExecutionsCollection, "key": id})
 }
 
 func (r *Registry) FindExecutionByKey(ctx context.Context, key string) (publication.BundleExecution, error) {
-	execution, err := r.loadExecution(ctx, `FOR doc IN @@collection FILTER doc.key == @key SORT doc.createdAt DESC LIMIT 1 RETURN doc`, map[string]interface{}{"@collection": BundleExecutionsCollection, "key": key})
-	return execution.CanonicalizeLegacy(), err
+	return r.loadExecution(ctx, `FOR doc IN @@collection FILTER doc.key == @key SORT doc.createdAt DESC LIMIT 1 RETURN doc`, map[string]interface{}{"@collection": BundleExecutionsCollection, "key": key})
 }
 
 func (r *Registry) ListExecutions(ctx context.Context, state publication.BundleState, before time.Time) ([]publication.BundleExecution, error) {
 	out := []publication.BundleExecution{}
 	err := r.client.QueryRows(ctx, `FOR doc IN @@collection FILTER doc.state IN @states AND doc.updatedAt < @before SORT doc.updatedAt ASC RETURN doc`, r.batchSize, map[string]interface{}{"@collection": BundleExecutionsCollection, "states": executionStates(state), "before": before}, func(row map[string]any) error {
-		data, err := json.Marshal(row)
+		execution, err := decodeExecution(row)
 		if err != nil {
 			return err
 		}
-		var execution publication.BundleExecution
-		if err := json.Unmarshal(data, &execution); err != nil {
-			return err
-		}
-		out = append(out, execution.CanonicalizeLegacy())
+		out = append(out, execution)
 		return nil
 	})
 	return out, err
@@ -145,15 +137,11 @@ RETURN doc`, r.batchSize, map[string]interface{}{
 			"afterKey":       afterKey,
 			"limit":          pageSize,
 		}, func(row map[string]any) error {
-			data, err := json.Marshal(row)
+			execution, err := decodeExecution(row)
 			if err != nil {
 				return err
 			}
-			var execution publication.BundleExecution
-			if err := json.Unmarshal(data, &execution); err != nil {
-				return err
-			}
-			page = append(page, execution.CanonicalizeLegacy())
+			page = append(page, execution)
 			if key, ok := row["_key"].(string); ok {
 				lastKey = key
 			} else {
@@ -197,7 +185,6 @@ SORT NOT_NULL(doc.publishedAt, doc.readyAt) DESC, doc.readyAt DESC, doc.updatedA
 	if err != nil {
 		return publication.BundleExecution{}, publication.BundleOutputRecord{}, err
 	}
-	execution = execution.CanonicalizeLegacy()
 	for _, output := range execution.Outputs {
 		if output.Name == selector.Output {
 			return execution, output, nil
@@ -209,12 +196,8 @@ SORT NOT_NULL(doc.publishedAt, doc.readyAt) DESC, doc.readyAt DESC, doc.updatedA
 func (r *Registry) loadExecution(ctx context.Context, query string, vars map[string]interface{}) (publication.BundleExecution, error) {
 	var found *publication.BundleExecution
 	err := r.client.QueryRows(ctx, query, r.batchSize, vars, func(row map[string]any) error {
-		data, err := json.Marshal(row)
+		execution, err := decodeExecution(row)
 		if err != nil {
-			return err
-		}
-		var execution publication.BundleExecution
-		if err := json.Unmarshal(data, &execution); err != nil {
 			return err
 		}
 		found = &execution
@@ -227,6 +210,18 @@ func (r *Registry) loadExecution(ctx context.Context, query string, vars map[str
 		return publication.BundleExecution{}, publication.ErrBundleNotFound
 	}
 	return *found, nil
+}
+
+func decodeExecution(row map[string]any) (publication.BundleExecution, error) {
+	data, err := json.Marshal(row)
+	if err != nil {
+		return publication.BundleExecution{}, err
+	}
+	var execution publication.BundleExecution
+	if err := json.Unmarshal(data, &execution); err != nil {
+		return publication.BundleExecution{}, err
+	}
+	return execution.CanonicalizeLegacy(), nil
 }
 
 func (r *Registry) GetPointer(ctx context.Context, name string) (publication.BundlePointer, error) {
@@ -475,14 +470,15 @@ RETURN {released: true}`, r.batchSize, map[string]interface{}{"@collection": Exe
 }
 
 func executionStates(state publication.BundleState) []publication.BundleState {
-	states := []publication.BundleState{state.Canonical()}
-	switch state.Canonical() {
+	state = publication.DecodeBundleState(state)
+	states := []publication.BundleState{state}
+	switch state {
 	case publication.BundleQueued:
-		states = append(states, publication.BundlePending)
+		states = append(states, "PENDING")
 	case publication.BundleRunning:
-		states = append(states, publication.BundlePreflight, publication.BundleLoading)
+		states = append(states, "PREFLIGHT", "LOADING")
 	case publication.BundlePublished:
-		states = append(states, publication.BundleReady)
+		states = append(states, "READY")
 	}
 	return states
 }

@@ -3,9 +3,10 @@ package clickhouse
 import (
 	"context"
 	"errors"
-	"github.com/calypr/loom/internal/testkit/arangotest"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/testkit/arangotest"
 
 	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
 	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
@@ -135,7 +136,7 @@ func TestAbortDropsServerPublishedBundleAgainstArango(t *testing.T) {
 		t.Fatalf("real GetPointer after abort: %v", pointerErr)
 	}
 	pointerAdvertises := pointerErr == nil && pointer.ExecutionID == executionID
-	rowPublished := row.State.Canonical() == pubpublication.BundlePublished
+	rowPublished := row.State.Successful()
 
 	if pointerAdvertises && tableGone {
 		t.Fatalf("CONFIRMED against real Arango (candidate F-B2): clickHouseBundleTx.Abort dropped the physical tables of the bundle the pointer advertises. Real state after Abort: row %q state=%q, pointer %q names executionId=%q, created tables=%v, dropped tables=%v; publish ACK was lost after verified server commit; commitErr=%v abortErr=%v. ClaimExecutionCleanup granted the claim with no pointer or published-state recheck.",

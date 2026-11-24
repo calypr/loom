@@ -24,27 +24,35 @@ const (
 	BundleValidating BundleState = "VALIDATING"
 	BundlePublished  BundleState = "PUBLISHED"
 	BundleFailed     BundleState = "FAILED"
-
-	BundlePending   BundleState = "PENDING"
-	BundlePreflight BundleState = "PREFLIGHT"
-	BundleLoading   BundleState = "LOADING"
-	BundleReady     BundleState = "READY"
 )
 
-func (s BundleState) Canonical() BundleState {
+func DecodeBundleState(s BundleState) BundleState {
 	switch s {
-	case BundlePending:
+	case "PENDING":
 		return BundleQueued
-	case BundlePreflight, BundleLoading:
+	case "PREFLIGHT", "LOADING":
 		return BundleRunning
-	case BundleReady:
+	case "READY":
 		return BundlePublished
 	default:
 		return s
 	}
 }
 
-func (s BundleState) Successful() bool { return s.Canonical() == BundlePublished }
+func (s BundleState) Successful() bool { return DecodeBundleState(s) == BundlePublished }
+
+func (s BundleState) InFlight() bool {
+	switch DecodeBundleState(s) {
+	case BundleQueued, BundleRunning, BundleValidating:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s BundleState) Known() bool {
+	return s.InFlight() || s.Successful() || s == BundleFailed
+}
 
 type BundleIdentity struct {
 	Name               string   `json:"name"`
@@ -177,9 +185,9 @@ type BundleExecution struct {
 }
 
 func (e BundleExecution) CanonicalizeLegacy() BundleExecution {
-	e.State = e.State.Canonical()
+	e.State = DecodeBundleState(e.State)
 	for i := range e.Outputs {
-		e.Outputs[i].State = e.Outputs[i].State.Canonical()
+		e.Outputs[i].State = DecodeBundleState(e.Outputs[i].State)
 		if e.Outputs[i].Selector.Recipe == "" && e.TranslationVersion != "" {
 			e.Outputs[i].Selector = e.Selector(e.Outputs[i].Name)
 		}

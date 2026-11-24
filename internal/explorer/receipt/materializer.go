@@ -60,7 +60,7 @@ func NewMaterializer(recipeEngine *dataframeexecution.Engine, target publication
 		outputs := make([]ports.ExecutionOutput, 0, len(published.Outputs))
 		for _, output := range published.Outputs {
 			count := int(output.RowCount)
-			outputs = append(outputs, ports.ExecutionOutput{Name: output.Name, State: string(output.State.Canonical()), RowCount: &count, Columns: append([]publication.PhysicalColumn(nil), output.Columns...)})
+			outputs = append(outputs, ports.ExecutionOutput{Name: output.Name, State: string(publication.DecodeBundleState(output.State)), RowCount: &count, Columns: append([]publication.PhysicalColumn(nil), output.Columns...)})
 		}
 		if logger != nil {
 			logger.Info("Explorer receipt materialization complete", "project", bindings.Project, "execution", published.ID)
@@ -69,7 +69,7 @@ func NewMaterializer(recipeEngine *dataframeexecution.Engine, target publication
 			ID: published.ID, Name: receipt.Bundle.Name, Project: published.Project,
 			RecipeDigest: published.RecipeDigest, ResolvedSchemaDigest: published.SchemaDigest,
 			SourceGeneration: published.DatasetGeneration, ScopeDigest: published.ScopeDigest,
-			State: string(published.State.Canonical()), Outputs: outputs,
+			State: string(publication.DecodeBundleState(published.State)), Outputs: outputs,
 			QualityReports: publication.CloneQualityReports(published.QualityReports),
 		}, nil
 	}

@@ -40,7 +40,7 @@ func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Ti
 }
 
 func (s *ClickHouseBundleStore) reconcileExecution(ctx context.Context, execution publication.BundleExecution, reconcilerID string) error {
-	superseded := execution.State.Canonical() == publication.BundlePublished
+	superseded := execution.State.Successful()
 	if superseded {
 
 		if s.activeReleases == nil {

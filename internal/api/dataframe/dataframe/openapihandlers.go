@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/calypr/loom/internal/api/dataframe/recipeexec"
 	"net/http"
+
+	"github.com/calypr/loom/internal/api/dataframe/recipeexec"
 
 	httpapi "github.com/calypr/loom/internal/api/http"
 
@@ -308,7 +309,7 @@ func recipeExecutionNotFoundResponse() loomapi.GetRecipeExecution404JSONResponse
 
 func recipeExecutionHTTPState(state publication.BundleState) string {
 	if state == publication.BundlePublished {
-		return string(publication.BundleReady)
+		return "READY"
 	}
 	return string(state)
 }

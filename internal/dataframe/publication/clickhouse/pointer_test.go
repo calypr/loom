@@ -401,7 +401,7 @@ func TestPublishPartialPointerNeverAdvertisedAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatalf("control GetExecution %s: %v", controlID, err)
 	}
-	if controlExec.State.Canonical() != pubpublication.BundlePublished {
+	if !controlExec.State.Successful() {
 		t.Fatalf("control precondition: exec CONTROL state %q, want PUBLISHED", controlExec.State)
 	}
 	controlPointer, err := h.registry.GetPointer(ctx, control.pointer)
@@ -443,7 +443,7 @@ func TestPublishPartialPointerNeverAdvertisedAgainstArango(t *testing.T) {
 	}
 	viaGet := mustGetExecution(t, h, ctx, faultID, "GetExecution")
 	viaKey := mustGetExecution(t, h, ctx, faulty.key, "FindExecutionByKey")
-	if viaGet.State.Canonical() != pubpublication.BundlePublished || viaKey.State.Canonical() != pubpublication.BundlePublished {
+	if !viaGet.State.Successful() || !viaKey.State.Successful() {
 		t.Fatalf("fault precondition: partial Application left the row state GetExecution=%q FindExecutionByKey=%q, want PUBLISHED on both", viaGet.State, viaKey.State)
 	}
 	faultPointer, pointerErr := h.registry.GetPointer(ctx, faulty.pointer)

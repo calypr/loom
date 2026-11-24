@@ -191,8 +191,8 @@ func TestPublicationVerificationUsesExactSelectorAndQueryableEvidence(t *testing
 	verifiedAt := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
 	selector := dataset.DataframeSelector{Recipe: "core", TranslationVersion: "v1", Output: "Patient"}
 	exact := &exactExecutionFixture{
-		execution: BundleExecution{ID: "execution-a", BundleIdentity: BundleIdentity{DatasetGeneration: "commit-a"}, State: BundleReady},
-		output:    BundleOutputRecord{Selector: selector, Name: "Patient", State: BundleReady, VerifiedAt: &verifiedAt, PhysicalTable: "patient_a"},
+		execution: BundleExecution{ID: "execution-a", BundleIdentity: BundleIdentity{DatasetGeneration: "commit-a"}, State: "READY"},
+		output:    BundleOutputRecord{Selector: selector, Name: "Patient", State: "READY", VerifiedAt: &verifiedAt, PhysicalTable: "patient_a"},
 	}
 	result, err := (publicationVerificationStore{executions: exact}).VerifyPublication(context.Background(), "project-a", "commit-a", selector)
 	if err != nil {
