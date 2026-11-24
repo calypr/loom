@@ -1,4 +1,4 @@
-package execution_test
+package execution
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 
 	"github.com/calypr/loom/internal/testkit/recipefixtures"
 
-	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
@@ -23,10 +22,10 @@ func (r *blankProjectRegistryFailures) LoadRecipeVersion(context.Context, string
 	return recipe.Entry{}, errors.New("recipe registry consulted for blank project")
 }
 
-func blankProjectEngine(t *testing.T) (*dataframeexecution.Engine, *blankProjectRegistryFailures) {
+func blankProjectEngine(t *testing.T) (*Engine, *blankProjectRegistryFailures) {
 	t.Helper()
 	registry := &blankProjectRegistryFailures{}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{
+	engine, err := New(Config{
 		Registry: registry,
 		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
 			return errors.New("query executor consulted for blank project")
@@ -40,29 +39,36 @@ func blankProjectEngine(t *testing.T) (*dataframeexecution.Engine, *blankProject
 
 func TestRecipeControlBlankProjectGuardTypesThrowsAtEscapeSite(t *testing.T) {
 	engine, registry := blankProjectEngine(t)
-	control := dataframeexecution.Control{Engine: engine}
 	for _, leg := range []struct {
 		name string
 		call func(context.Context, string, recipe.RuntimeBindings) error
 	}{
 		{"run", func(ctx context.Context, name string, b recipe.RuntimeBindings) error {
-			_, err := control.Run(ctx, name, b)
+			resolved, err := engine.Resolve(ctx, name, b)
+			if err != nil {
+				return err
+			}
+			_, err = engine.Run(ctx, resolved)
 			return err
 		}},
 		{"preview", func(ctx context.Context, name string, b recipe.RuntimeBindings) error {
-			_, err := control.Preview(ctx, name, b)
+			resolved, err := engine.Resolve(ctx, name, b)
+			if err != nil {
+				return err
+			}
+			_, err = engine.Preview(ctx, resolved, b.PreviewLimit)
 			return err
 		}},
 		{"resolve", func(ctx context.Context, name string, b recipe.RuntimeBindings) error {
-			_, err := control.Resolve(ctx, name, b)
+			_, err := engine.Resolve(ctx, name, b)
 			return err
 		}},
 		{"validate", func(ctx context.Context, name string, b recipe.RuntimeBindings) error {
-			_, err := control.Validate(ctx, name, b)
+			_, err := engine.entry(ctx, name, b)
 			return err
 		}},
 		{"explain", func(ctx context.Context, name string, b recipe.RuntimeBindings) error {
-			_, err := control.Explain(ctx, name, b)
+			_, err := engine.Resolve(ctx, name, b)
 			return err
 		}},
 	} {

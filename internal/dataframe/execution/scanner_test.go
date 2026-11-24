@@ -61,20 +61,20 @@ func TestChooseGroupPreviewScanReusesSmallestCompatibleCoveringIndex(t *testing.
 		t.Fatal("covering candidate should skip the sequential-scan assessment")
 		return 0, nil
 	}
-	stream.stream = func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+	stream.source.(*arangoSource).stream = func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
 		t.Fatal("covering candidate should skip the scoped source count")
 		return nil
 	}
-	if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
+	if err := engine.chooseGroupPreviewScan(context.Background(), &query, stream.source.(*arangoSource)); err != nil {
 		t.Fatal(err)
 	}
 	if indexCalls != 1 || explainCalls != 1 {
 		t.Fatalf("metadata/explain calls = %d/%d, want one each", indexCalls, explainCalls)
 	}
-	if query.Query == originalQuery || query.Query != stream.query || query.PreviewCoveringIndex.Name != indexes[1].Name ||
+	if query.Query == originalQuery || query.Query != stream.source.(*arangoSource).query || query.PreviewCoveringIndex.Name != indexes[1].Name ||
 		!reflect.DeepEqual(query.PreviewCoveringIndex.Fields, smallFields) || !reflect.DeepEqual(query.BindVars, originalBinds) ||
-		!reflect.DeepEqual(query.BindVars, stream.bindVars) {
-		t.Fatalf("selected compatible query was not applied consistently: query=%q stream=%q spec=%+v", query.Query, stream.query, query.PreviewCoveringIndex)
+		!reflect.DeepEqual(query.BindVars, stream.source.(*arangoSource).bindVars) {
+		t.Fatalf("selected compatible query was not applied consistently: query=%q stream=%q spec=%+v", query.Query, stream.source.(*arangoSource).query, query.PreviewCoveringIndex)
 	}
 }
 
@@ -97,14 +97,14 @@ func TestChooseGroupPreviewScanKeepsSequentialFallbackWhenNoCompatibleIndexExist
 		return groupExplainWithCoverage(false, false, required.Collection), nil
 	}
 	engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
-	stream.stream = func(_ context.Context, queryText string, batchSize int, _ map[string]any, visit func(map[string]any) error) error {
+	stream.source.(*arangoSource).stream = func(_ context.Context, queryText string, batchSize int, _ map[string]any, visit func(map[string]any) error) error {
 		scopeCountCalls++
 		if queryText != query.PreviewGroupScan.ScopeCountQuery || batchSize != 1 {
 			t.Fatalf("scope-count query = %q batch=%d", queryText, batchSize)
 		}
 		return visit(map[string]any{"count": float64(950)})
 	}
-	if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
+	if err := engine.chooseGroupPreviewScan(context.Background(), &query, stream.source.(*arangoSource)); err != nil {
 		t.Fatal(err)
 	}
 	if query.Query != query.PreviewGroupScan.SequentialQuery || explainCalls != 1 || scopeCountCalls != 1 {
@@ -139,14 +139,14 @@ func TestChooseGroupPreviewScanRequiresExplainToProveCoveringIndex(t *testing.T)
 				return test.plan, nil
 			}
 			engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
-			stream.stream = func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			stream.source.(*arangoSource).stream = func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 				return visit(map[string]any{"count": float64(500)})
 			}
-			if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
+			if err := engine.chooseGroupPreviewScan(context.Background(), &query, stream.source.(*arangoSource)); err != nil {
 				t.Fatal(err)
 			}
-			if query.Query != originalQuery || stream.query != originalQuery || explainCalls != 2 {
-				t.Fatalf("unproven candidate changed canonical query: query=%q stream=%q explains=%d", query.Query, stream.query, explainCalls)
+			if query.Query != originalQuery || stream.source.(*arangoSource).query != originalQuery || explainCalls != 2 {
+				t.Fatalf("unproven candidate changed canonical query: query=%q stream=%q explains=%d", query.Query, stream.source.(*arangoSource).query, explainCalls)
 			}
 		})
 	}
@@ -178,7 +178,7 @@ func TestChooseGroupPreviewScanDoesNotReplaceSequentialChoiceWithProjectionIndex
 		return groupExplainWithCoverage(false, false, query.PreviewGroupProjection.Collection), nil
 	}
 	engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
-	stream.stream = func(_ context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	stream.source.(*arangoSource).stream = func(_ context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 		if queryText != query.PreviewGroupProjection.ScopeCountQuery {
 			t.Fatalf("unexpected query %q", queryText)
 		}
@@ -188,7 +188,7 @@ func TestChooseGroupPreviewScanDoesNotReplaceSequentialChoiceWithProjectionIndex
 		t.Fatal("sequential scan choice must skip projection assessment")
 		return "", nil
 	}
-	if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
+	if err := engine.chooseGroupPreviewScan(context.Background(), &query, stream.source.(*arangoSource)); err != nil {
 		t.Fatal(err)
 	}
 	if indexCalls != 0 || query.Query != "sequential-query" || query.Query == ordinaryQuery {
@@ -279,7 +279,7 @@ func compiledGroupPreviewScanFixture(t *testing.T, bindings recipe.RuntimeBindin
 		t.Fatal(err)
 	}
 	resolved := compileGroupPreviewCacheTestOutput(t, engine, bindings)
-	stream, query, err := engine.outputStreams().streamForOutput(resolved, "group_preview", 25)
+	stream, query, err := engine.streamExecutor.streamForOutput(resolved, "group_preview", 25)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +324,7 @@ func TestChooseGroupPreviewScanUsesSequentialOnlyForBroadNonCoveringIndex(t *tes
 		}
 		return 1000, nil
 	}
-	stream.stream = func(_ context.Context, queryText string, batchSize int, _ map[string]any, visit func(map[string]any) error) error {
+	stream.source.(*arangoSource).stream = func(_ context.Context, queryText string, batchSize int, _ map[string]any, visit func(map[string]any) error) error {
 		scopeCountCalls++
 		if queryText != "scope-count-query" || batchSize != 1 {
 			t.Fatalf("scope query = %q batch size = %d", queryText, batchSize)
@@ -336,15 +336,15 @@ func TestChooseGroupPreviewScanUsesSequentialOnlyForBroadNonCoveringIndex(t *tes
 	if !ok {
 		t.Fatal("original preview cache key was not created")
 	}
-	if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
+	if err := engine.chooseGroupPreviewScan(context.Background(), &query, stream.source.(*arangoSource)); err != nil {
 		t.Fatal(err)
 	}
 	after, _, ok := newGroupPreviewRowsKey(query.Query, query.BindVars, "Specimen", "revision-1", 25)
 	if !ok || before == after {
 		t.Fatal("selected AQL must produce a distinct cache key")
 	}
-	if query.Query != "sequential-query" || stream.query != query.Query || query.BindVars["scan"] != "sequential" || stream.bindVars["scan"] != "sequential" {
-		t.Fatalf("sequential query was not applied consistently: query=%q stream=%q binds=%v streamBinds=%v", query.Query, stream.query, query.BindVars, stream.bindVars)
+	if query.Query != "sequential-query" || stream.source.(*arangoSource).query != query.Query || query.BindVars["scan"] != "sequential" || stream.source.(*arangoSource).bindVars["scan"] != "sequential" {
+		t.Fatalf("sequential query was not applied consistently: query=%q stream=%q binds=%v streamBinds=%v", query.Query, stream.source.(*arangoSource).query, query.BindVars, stream.source.(*arangoSource).bindVars)
 	}
 	if explainCalls != 1 || scopeCountCalls != 1 || collectionCountCalls != 1 {
 		t.Fatalf("calls: explain=%d scoped=%d collection=%d", explainCalls, scopeCountCalls, collectionCountCalls)
@@ -440,7 +440,7 @@ func TestChooseGroupPreviewScanFallsBackWhenNotProvenBroadAndNoncovering(t *test
 			engine, query, stream := groupPreviewScanFixture()
 			engine.previewExplainQuery = nonCoveringGroupExplain
 			engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
-			stream.stream = func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			stream.source.(*arangoSource).stream = func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 				value := any(float64(950))
 				if test.name == "selective source" {
 					value = float64(899)
@@ -453,7 +453,7 @@ func TestChooseGroupPreviewScanFallsBackWhenNotProvenBroadAndNoncovering(t *test
 			if test.setup != nil {
 				test.setup(engine)
 			}
-			if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
+			if err := engine.chooseGroupPreviewScan(context.Background(), &query, stream.source.(*arangoSource)); err != nil {
 				t.Fatal(err)
 			}
 			if got := query.Query == "sequential-query"; got != test.wantSequential {
@@ -473,7 +473,7 @@ func TestChooseGroupPreviewScanPropagatesRequestCancellation(t *testing.T) {
 			cancel()
 			return arango.ExplainResult{}, context.Canceled
 		}
-		if err := engine.chooseGroupPreviewScan(ctx, &query, &stream); !errors.Is(err, context.Canceled) {
+		if err := engine.chooseGroupPreviewScan(ctx, &query, stream.source.(*arangoSource)); !errors.Is(err, context.Canceled) {
 			t.Fatalf("error = %v, want canceled request", err)
 		}
 		if query.Query != "normal-query" {
@@ -489,11 +489,11 @@ func TestChooseGroupPreviewScanPropagatesRequestCancellation(t *testing.T) {
 			t.Fatal("collection count called after scoped-count cancellation")
 			return 0, nil
 		}
-		stream.stream = func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		stream.source.(*arangoSource).stream = func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
 			cancel()
 			return nil
 		}
-		if err := engine.chooseGroupPreviewScan(ctx, &query, &stream); !errors.Is(err, context.Canceled) {
+		if err := engine.chooseGroupPreviewScan(ctx, &query, stream.source.(*arangoSource)); !errors.Is(err, context.Canceled) {
 			t.Fatalf("error = %v, want canceled request", err)
 		}
 		if query.Query != "normal-query" {
@@ -510,7 +510,7 @@ func TestChooseGroupPreviewScanKeepsNoneligiblePlansOnCanonicalQuery(t *testing.
 		called = true
 		return arango.ExplainResult{}, nil
 	}
-	if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
+	if err := engine.chooseGroupPreviewScan(context.Background(), &query, stream.source.(*arangoSource)); err != nil {
 		t.Fatal(err)
 	}
 	if called || query.Query != "normal-query" {
@@ -520,15 +520,21 @@ func TestChooseGroupPreviewScanKeepsNoneligiblePlansOnCanonicalQuery(t *testing.
 
 func groupPreviewScanFixture() (*Engine, model.CompiledQuery, OutputStream) {
 	return &Engine{}, model.CompiledQuery{
-		Query: "normal-query", BindVars: map[string]any{"scan": "normal"},
-		PreviewGroupScan: &model.PreviewGroupScanSpec{
-			Collection: "Specimen", SequentialQuery: "sequential-query",
-			SequentialBindVars: map[string]any{"scan": "sequential"},
-			ScopeCountQuery:    "scope-count-query", ScopeCountBindVars: map[string]any{"scope": true},
-		},
-	}, OutputStream{query: "normal-query", bindVars: map[string]any{"scan": "normal"}, stream: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
-		return nil
-	}}
+			Query: "normal-query", BindVars: map[string]any{"scan": "normal"},
+			PreviewGroupScan: &model.PreviewGroupScanSpec{
+				Collection: "Specimen", SequentialQuery: "sequential-query",
+				SequentialBindVars: map[string]any{"scan": "sequential"},
+				ScopeCountQuery:    "scope-count-query", ScopeCountBindVars: map[string]any{"scope": true},
+			},
+		}, OutputStream{
+			source: &arangoSource{
+				query:    "normal-query",
+				bindVars: map[string]any{"scan": "normal"},
+				stream: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+					return nil
+				},
+			},
+		}
 }
 
 func nonCoveringGroupExplain(context.Context, string, map[string]any) (arango.ExplainResult, error) {
@@ -560,7 +566,7 @@ func semanticGroupProjectionExecutionFixture(t *testing.T, previewRows QueryRows
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, query, err := engine.outputStreams().streamForOutput(resolved, "semantic_group_projection", 600)
+	stream, query, err := engine.streamExecutor.streamForOutput(resolved, "semantic_group_projection", 600)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -717,7 +723,7 @@ func TestChooseGroupProjectionFactorizationContinuesAfterCoveringIndexSelection(
 	index, assessmentQuery, _, factoredQuery, _ := configureSemanticGroupProjectionIndex(t, engine, query)
 	engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-covered", nil }
 	sampleCalls := 0
-	stream.stream = func(_ context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	stream.source.(*arangoSource).stream = func(_ context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 		switch queryText {
 		case query.PreviewGroupProjection.ScopeCountQuery:
 			return visit(map[string]any{"count": int64(1000)})
@@ -729,7 +735,7 @@ func TestChooseGroupProjectionFactorizationContinuesAfterCoveringIndexSelection(
 			return nil
 		}
 	}
-	if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
+	if err := engine.chooseGroupPreviewScan(context.Background(), &query, stream.source.(*arangoSource)); err != nil {
 		t.Fatal(err)
 	}
 	if query.PreviewCoveringIndex != nil || query.Query != factoredQuery || sampleCalls != 1 || index.Name == "" {
@@ -750,7 +756,7 @@ func TestChooseGroupProjectionFactorizationRejectsHighEntropyAndAllEmptySamples(
 			_, assessmentQuery, _, _, _ := configureSemanticGroupProjectionIndex(t, engine, query)
 			engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-1", nil }
 			ordinaryQuery := query.Query
-			stream.stream = func(_ context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			stream.source.(*arangoSource).stream = func(_ context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 				switch queryText {
 				case query.PreviewGroupProjection.ScopeCountQuery:
 					return visit(map[string]any{"count": int64(1000)})
@@ -761,11 +767,11 @@ func TestChooseGroupProjectionFactorizationRejectsHighEntropyAndAllEmptySamples(
 					return nil
 				}
 			}
-			if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
+			if err := engine.chooseGroupPreviewScan(context.Background(), &query, stream.source.(*arangoSource)); err != nil {
 				t.Fatal(err)
 			}
-			if query.Query != ordinaryQuery || stream.queryMemoryLimit != 0 {
-				t.Fatalf("ineligible sample changed plan or enabled cap: query changed=%t cap=%d", query.Query != ordinaryQuery, stream.queryMemoryLimit)
+			if query.Query != ordinaryQuery || stream.source.(*arangoSource).queryMemoryLimit != 0 {
+				t.Fatalf("ineligible sample changed plan or enabled cap: query changed=%t cap=%d", query.Query != ordinaryQuery, stream.source.(*arangoSource).queryMemoryLimit)
 			}
 		})
 	}
@@ -775,7 +781,7 @@ func TestChooseGroupProjectionFactorizationKeepsPrefixEstimateAdvisory(t *testin
 	engine, resolved, query, stream := semanticGroupProjectionExecutionFixture(t, nil)
 	_, assessmentQuery, _, factoredQuery, _ := configureSemanticGroupProjectionIndex(t, engine, query)
 	engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-unique-tail", nil }
-	stream.stream = func(_ context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	stream.source.(*arangoSource).stream = func(_ context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 		switch queryText {
 		case query.PreviewGroupProjection.ScopeCountQuery:
 			return visit(map[string]any{"count": int64(1024)})
@@ -787,7 +793,7 @@ func TestChooseGroupProjectionFactorizationKeepsPrefixEstimateAdvisory(t *testin
 			return nil
 		}
 	}
-	if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
+	if err := engine.chooseGroupPreviewScan(context.Background(), &query, stream.source.(*arangoSource)); err != nil {
 		t.Fatal(err)
 	}
 	if query.Query != factoredQuery {
@@ -840,11 +846,11 @@ func TestChooseGroupProjectionFactorizationFallsBackOnUnknownEvidenceAndDeadline
 		_, _, _, _, _ = configureSemanticGroupProjectionIndex(t, engine, query)
 		engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "", errors.New("revision unavailable") }
 		ordinaryQuery := query.Query
-		stream.stream = func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		stream.source.(*arangoSource).stream = func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
 			t.Fatal("sample ran without source revision evidence")
 			return nil
 		}
-		if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
+		if err := engine.chooseGroupPreviewScan(context.Background(), &query, stream.source.(*arangoSource)); err != nil {
 			t.Fatal(err)
 		}
 		if query.Query != ordinaryQuery {
@@ -857,13 +863,13 @@ func TestChooseGroupProjectionFactorizationFallsBackOnUnknownEvidenceAndDeadline
 		_, _, _, _, _ = configureSemanticGroupProjectionIndex(t, engine, query)
 		engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-1", nil }
 		ordinaryQuery := query.Query
-		stream.stream = func(_ context.Context, queryText string, _ int, _ map[string]any, _ func(map[string]any) error) error {
+		stream.source.(*arangoSource).stream = func(_ context.Context, queryText string, _ int, _ map[string]any, _ func(map[string]any) error) error {
 			if queryText != query.PreviewGroupProjection.ScopeCountQuery {
 				t.Fatalf("query=%q, want exact scope count", queryText)
 			}
 			return nil
 		}
-		if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
+		if err := engine.chooseGroupPreviewScan(context.Background(), &query, stream.source.(*arangoSource)); err != nil {
 			t.Fatal(err)
 		}
 		if query.Query != ordinaryQuery {
@@ -886,11 +892,11 @@ func TestChooseGroupProjectionFactorizationFallsBackOnUnknownEvidenceAndDeadline
 			return "", nil
 		}
 		ordinaryQuery := query.Query
-		stream.stream = func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		stream.source.(*arangoSource).stream = func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
 			t.Fatal("scope count or sample ran without a resolved scan plan")
 			return nil
 		}
-		if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
+		if err := engine.chooseGroupPreviewScan(context.Background(), &query, stream.source.(*arangoSource)); err != nil {
 			t.Fatal(err)
 		}
 		if query.Query != ordinaryQuery {
@@ -903,7 +909,7 @@ func TestChooseGroupProjectionFactorizationFallsBackOnUnknownEvidenceAndDeadline
 		_, assessmentQuery, _, _, _ := configureSemanticGroupProjectionIndex(t, engine, query)
 		engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-deadline", nil }
 		ordinaryQuery := query.Query
-		stream.stream = func(ctx context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		stream.source.(*arangoSource).stream = func(ctx context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 			if queryText == query.PreviewGroupProjection.ScopeCountQuery {
 				return visit(map[string]any{"count": int64(1000)})
 			}
@@ -913,7 +919,7 @@ func TestChooseGroupProjectionFactorizationFallsBackOnUnknownEvidenceAndDeadline
 			<-ctx.Done()
 			return ctx.Err()
 		}
-		if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
+		if err := engine.chooseGroupPreviewScan(context.Background(), &query, stream.source.(*arangoSource)); err != nil {
 			t.Fatal(err)
 		}
 		if query.Query != ordinaryQuery {

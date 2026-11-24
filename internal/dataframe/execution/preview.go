@@ -71,30 +71,16 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	if visit == nil {
 		return PreviewSummary{}, previewAdmissionError(dataframeerrors.CodeInvalidRequest, "preview visitor is required", nil)
 	}
-	preview := previewExecutor{
-		streamForOutput:           e.outputStreams().streamForOutput,
-		preparePreviewIndex:       e.preparePreviewIndex,
-		previewQueryRows:          e.previewQueryRows,
-		withPreviewReadSnapshot:   e.withPreviewReadSnapshot,
-		chooseGroupPreviewScan:    e.chooseGroupPreviewScan,
-		previewCollectionRevision: e.previewCollectionRevision,
-		groupPreviewRowsCache:     &e.groupPreviewRowsCache,
-		scheduleIndexPrewarm: func(ctx context.Context, spec model.PreviewCoveringIndexSpec) {
-			schedulePreviewIndexPrewarm(ctx, e, spec)
-		},
-	}
-	return preview.execute(ctx, resolved, request, visit, limit)
+	return e.previewExecutor.execute(ctx, resolved, request, visit, limit)
 }
 
 type previewExecutor struct {
-	streamForOutput           func(Resolved, string, int) (OutputStream, model.CompiledQuery, error)
-	preparePreviewIndex       func(context.Context, model.PreviewCoveringIndexSpec) error
-	previewQueryRows          QueryRows
-	withPreviewReadSnapshot   WithPreviewReadSnapshot
-	chooseGroupPreviewScan    func(context.Context, *model.CompiledQuery, *OutputStream) error
-	previewCollectionRevision func(context.Context, string) (string, error)
-	groupPreviewRowsCache     *groupPreviewRowsCache
-	scheduleIndexPrewarm      func(context.Context, model.PreviewCoveringIndexSpec)
+	streamForOutput         func(Resolved, string, int) (OutputStream, model.CompiledQuery, error)
+	preparePreviewIndex     func(context.Context, model.PreviewCoveringIndexSpec) error
+	previewQueryRows        QueryRows
+	withPreviewReadSnapshot WithPreviewReadSnapshot
+	groupPlanner            *groupPreviewPlanner
+	scheduleIndexPrewarm    func(context.Context, model.PreviewCoveringIndexSpec)
 }
 
 func (preview previewExecutor) execute(ctx context.Context, resolved Resolved, request PreviewRequest, visit func(map[string]any) error, limit int) (PreviewSummary, error) {
@@ -109,7 +95,12 @@ func (preview previewExecutor) execute(ctx context.Context, resolved Resolved, r
 	if err := contextError(ctx); err != nil {
 		return PreviewSummary{}, err
 	}
-	if err := validatePreviewPlan(query, limit, stream.physicalEngine); err != nil {
+	source, _ := stream.source.(*arangoSource)
+	var engine ir.PhysicalEngine
+	if _, ok := stream.source.(*clickHouseSource); ok {
+		engine = ir.PhysicalEngineClickHouse
+	}
+	if err := validatePreviewPlan(query, limit, engine); err != nil {
 		return PreviewSummary{}, err
 	}
 	if query.PreviewCoveringIndex != nil && !query.PreviewCoveringIndex.PrepareAfterPreview && preview.preparePreviewIndex != nil {
@@ -120,11 +111,13 @@ func (preview previewExecutor) execute(ctx context.Context, resolved Resolved, r
 			return PreviewSummary{}, err
 		}
 	}
-	if stream.physicalEngine != ir.PhysicalEngineClickHouse && preview.previewQueryRows != nil {
-		stream.stream = preview.previewQueryRows
+	if source != nil {
+		if preview.previewQueryRows != nil {
+			source.stream = preview.previewQueryRows
+		}
+		source.withPreviewReadSnapshot = preview.withPreviewReadSnapshot
 	}
-	stream.withPreviewReadSnapshot = preview.withPreviewReadSnapshot
-	if err := preview.chooseGroupPreviewScan(ctx, &query, &stream); err != nil {
+	if err := preview.groupPlanner.chooseGroupPreviewScan(ctx, &query, source); err != nil {
 		return PreviewSummary{}, err
 	}
 	loweringDuration := time.Since(loweringStarted)
@@ -132,8 +125,8 @@ func (preview previewExecutor) execute(ctx context.Context, resolved Resolved, r
 	var previewCacheKeyWeight int
 	var previewCacheEnabled bool
 	var previewCacheHitRows []map[string]any
-	if query.PreviewCoveringIndex != nil && (query.PreviewCoveringIndex.PrepareAfterPreview || query.PreviewGroupScan != nil) && preview.previewCollectionRevision != nil {
-		revision, revisionErr := preview.previewCollectionRevision(ctx, query.PreviewCoveringIndex.Collection)
+	if query.PreviewCoveringIndex != nil && (query.PreviewCoveringIndex.PrepareAfterPreview || query.PreviewGroupScan != nil) && preview.groupPlanner.previewCollectionRevision != nil {
+		revision, revisionErr := preview.groupPlanner.previewCollectionRevision(ctx, query.PreviewCoveringIndex.Collection)
 		if err := contextError(ctx); err != nil {
 			return PreviewSummary{}, err
 		}
@@ -142,18 +135,18 @@ func (preview previewExecutor) execute(ctx context.Context, resolved Resolved, r
 			if keyOK {
 				previewCacheKey = key
 				previewCacheKeyWeight = keyWeight
-				if encodedRows, ok := preview.groupPreviewRowsCache.get(key); ok {
+				if encodedRows, ok := preview.groupPlanner.groupPreviewRowsCache.get(key); ok {
 					if rows, decoded := decodeGroupPreviewRows(encodedRows); decoded {
 						previewCacheHitRows = rows
 					} else {
-						preview.groupPreviewRowsCache.delete(key)
+						preview.groupPlanner.groupPreviewRowsCache.delete(key)
 					}
 				}
 				previewCacheEnabled = true
 			}
 		}
 	}
-	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: !stream.sampledAggregate, PartialValidation: query.PartialValidation}
+	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: source == nil || !source.sampledAggregate, PartialValidation: query.PartialValidation}
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name == request.Output {
 			summary.RowLineageCapability = rowlineage.RowLineageCapabilityForOutput(output)
@@ -225,7 +218,7 @@ func (preview previewExecutor) execute(ctx context.Context, resolved Resolved, r
 		return summary, normalizePreviewError(visitorErr, false)
 	}
 	if queryErr != nil && !errors.Is(queryErr, errPreviewLimit) {
-		preview.rejectGroupProjectionDecisionAfterResourceLimit(stream, queryErr)
+		preview.rejectGroupProjectionDecisionAfterResourceLimit(source, queryErr)
 		return summary, normalizePreviewError(queryErr, true)
 	}
 	if errors.Is(queryErr, errPreviewLimit) {
@@ -235,17 +228,17 @@ func (preview previewExecutor) execute(ctx context.Context, resolved Resolved, r
 	if err := contextError(ctx); err != nil {
 		return summary, err
 	}
-	if err := preview.confirmGroupProjectionDecision(ctx, stream); err != nil {
+	if err := preview.confirmGroupProjectionDecision(ctx, source); err != nil {
 		return summary, err
 	}
 	if previewCacheEnabled && previewCacheHitRows == nil && capture.cacheable &&
 		(visitorErr == nil) && (queryErr == nil || errors.Is(queryErr, errPreviewLimit)) {
-		revision, revisionErr := preview.previewCollectionRevision(ctx, previewCacheKey.collection)
+		revision, revisionErr := preview.groupPlanner.previewCollectionRevision(ctx, previewCacheKey.collection)
 		if err := contextError(ctx); err != nil {
 			return summary, err
 		}
 		if revisionErr == nil && revision == previewCacheKey.revision {
-			preview.groupPreviewRowsCache.put(previewCacheKey, capture.rows)
+			preview.groupPlanner.groupPreviewRowsCache.put(previewCacheKey, capture.rows)
 		}
 	}
 	if query.PreviewCoveringIndex != nil && query.PreviewCoveringIndex.PrepareAfterPreview {
@@ -254,26 +247,26 @@ func (preview previewExecutor) execute(ctx context.Context, resolved Resolved, r
 	return summary, nil
 }
 
-func (preview previewExecutor) rejectGroupProjectionDecisionAfterResourceLimit(stream OutputStream, queryErr error) {
-	if queryErr == nil || stream.projectionDecisionKey == nil || stream.projectionDecision == nil || !arango.IsQueryResourceLimitExceeded(queryErr) {
+func (preview previewExecutor) rejectGroupProjectionDecisionAfterResourceLimit(stream *arangoSource, queryErr error) {
+	if queryErr == nil || stream == nil || stream.projectionDecisionKey == nil || stream.projectionDecision == nil || !arango.IsQueryResourceLimitExceeded(queryErr) {
 		return
 	}
 	decision := *stream.projectionDecision
 	decision.Factorized = false
-	preview.groupPreviewRowsCache.putDecision(*stream.projectionDecisionKey, decision)
+	preview.groupPlanner.groupPreviewRowsCache.putDecision(*stream.projectionDecisionKey, decision)
 }
 
-func (preview previewExecutor) confirmGroupProjectionDecision(ctx context.Context, stream OutputStream) error {
-	if stream.projectionDecisionKey == nil || stream.projectionDecision == nil || preview.previewCollectionRevision == nil {
+func (preview previewExecutor) confirmGroupProjectionDecision(ctx context.Context, stream *arangoSource) error {
+	if stream == nil || stream.projectionDecisionKey == nil || stream.projectionDecision == nil || preview.groupPlanner.previewCollectionRevision == nil {
 		return nil
 	}
 	key := *stream.projectionDecisionKey
-	revision, err := preview.previewCollectionRevision(ctx, key.collection)
+	revision, err := preview.groupPlanner.previewCollectionRevision(ctx, key.collection)
 	if ctxErr := contextError(ctx); ctxErr != nil {
 		return ctxErr
 	}
 	if err == nil && revision == key.revision {
-		preview.groupPreviewRowsCache.putDecision(key, *stream.projectionDecision)
+		preview.groupPlanner.groupPreviewRowsCache.putDecision(key, *stream.projectionDecision)
 	}
 	return nil
 }

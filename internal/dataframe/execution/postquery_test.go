@@ -153,12 +153,14 @@ func TestOutputStreamRejectsMalformedRowFromUnenumeratedDynamicFamily(t *testing
 				"category_keys":   {"stage": {ColumnName: "category_stage", ValueType: "string"}},
 				"identifier_keys": {"count": {ColumnName: "identifier_count", ValueType: "integer"}},
 			},
-			stream: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
-				if err := visit(rows[index]); err != nil {
-					return err
-				}
-				index++
-				return nil
+			source: &arangoSource{
+				stream: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+					if err := visit(rows[index]); err != nil {
+						return err
+					}
+					index++
+					return nil
+				},
 			},
 		}
 	}

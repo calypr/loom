@@ -240,11 +240,11 @@ func TestCohortPreviewDoesNotInventSingleSourceIdentityOrPageItsInput(t *testing
 			if !foundCohortStage {
 				t.Fatal("cohort output has no typed COHORT_GROUP stage")
 			}
-			stream, query, err := engine.outputStreams().streamForOutput(resolved, "Cohort", 25)
+			stream, query, err := engine.streamExecutor.streamForOutput(resolved, "Cohort", 25)
 			if err != nil {
 				t.Fatalf("compile cohort preview plan: %v", err)
 			}
-			if stream.page != nil {
+			if stream.source.(*arangoSource).page != nil {
 				t.Fatal("cohort preview paged roots before completing the group aggregation")
 			}
 			if strings.Contains(query.Query, "__loom_source_resource_id") {
@@ -460,11 +460,11 @@ func TestCodedGroupPreviewRunsAgainstWholeInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, query, err := engine.outputStreams().streamForOutput(resolved, "body_structures", 25)
+	stream, query, err := engine.streamExecutor.streamForOutput(resolved, "body_structures", 25)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stream.page != nil {
+	if stream.source.(*arangoSource).page != nil {
 		t.Fatal("CODED_GROUP must scan the complete input before counting distinct source records")
 	}
 	groupAt := strings.Index(query.Query, "COLLECT __loom_construction_coded_group_system")
@@ -481,11 +481,11 @@ func TestCodedGroupPreviewRunsAgainstWholeInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sampled, _, err := engine.outputStreams().streamForOutput(sampledResolved, "body_structures", 25)
+	sampled, _, err := engine.streamExecutor.streamForOutput(sampledResolved, "body_structures", 25)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sampled.page == nil || !sampled.sampledAggregate {
+	if sampled.source.(*arangoSource).page == nil || !sampled.source.(*arangoSource).sampledAggregate {
 		t.Fatal("builder aggregate preview was not bounded to the first root page")
 	}
 }
@@ -519,7 +519,7 @@ func TestPreviewOutputUsesPreviewExecutorWithoutChangingOrdinaryStreams(t *testi
 	if previewCalls != 1 || ordinaryCalls != 0 {
 		t.Fatalf("after preview: preview calls=%d ordinary calls=%d", previewCalls, ordinaryCalls)
 	}
-	stream, _, err := e.outputStreams().streamForOutput(resolved, "Patient", 1)
+	stream, _, err := e.streamExecutor.streamForOutput(resolved, "Patient", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1161,10 +1161,10 @@ func TestResolveBundleUsesResolverButResolvedPreviewAndMaterializeDoNot(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(normalStreams) != len(directStreams) || normalStreams[0].query != directStreams[0].query {
+	if len(normalStreams) != len(directStreams) || normalStreams[0].source.(*arangoSource).query != directStreams[0].source.(*arangoSource).query {
 		t.Fatalf("resolved output differs from catalog-resolved output")
 	}
-	if _, err := e.PreviewResolvedBundle(context.Background(), bundle, bindings); err != nil {
+	if _, err := e.Preview(context.Background(), direct, bindings.PreviewLimit); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.MaterializeResolvedBundle(context.Background(), bundle, bindings, nil); err != nil {
@@ -1204,8 +1204,13 @@ func TestRelatedPreviewPagingUsesConfiguredRootPageSize(t *testing.T) {
 	keys := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
 	var sizes []int
 	var visited []string
-	stream := OutputStream{rootPageRows: 4, page: &compiler.CompiledOutputPage{}}
-	stream.stream = func(_ context.Context, _ string, _ int, binds map[string]any, visit func(map[string]any) error) error {
+	stream := OutputStream{
+		source: &arangoSource{
+			rootPageRows: 4,
+			page:         &compiler.CompiledOutputPage{},
+		},
+	}
+	stream.source.(*arangoSource).stream = func(_ context.Context, _ string, _ int, binds map[string]any, visit func(map[string]any) error) error {
 		if after, ok := binds[compiler.RootPageAfterKeyBind].(string); ok {
 			size := binds[compiler.RootPageSizeBind].(int)
 			sizes = append(sizes, size)
@@ -1243,21 +1248,23 @@ func TestRelatedPreviewPagingUsesConfiguredRootPageSize(t *testing.T) {
 func TestSampledAggregateStreamStopsAfterFirstRootPage(t *testing.T) {
 	rootKeyCalls := 0
 	stream := OutputStream{
-		sampledAggregate: true,
-		rootPageRows:     1,
-		batchSize:        10,
-		page: &compiler.CompiledOutputPage{
-			RootKeysQuery:    "root-keys",
-			RootKeysBindVars: map[string]any{},
-			RowsQuery:        "rows",
-			RowsBindVars:     map[string]any{},
-		},
-		stream: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
-			if query == "root-keys" {
-				rootKeyCalls++
-				return visit(map[string]any{"_key": "root-1"})
-			}
-			return visit(map[string]any{"count": 1})
+		source: &arangoSource{
+			sampledAggregate: true,
+			rootPageRows:     1,
+			batchSize:        10,
+			page: &compiler.CompiledOutputPage{
+				RootKeysQuery:    "root-keys",
+				RootKeysBindVars: map[string]any{},
+				RowsQuery:        "rows",
+				RowsBindVars:     map[string]any{},
+			},
+			stream: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+				if query == "root-keys" {
+					rootKeyCalls++
+					return visit(map[string]any{"_key": "root-1"})
+				}
+				return visit(map[string]any{"count": 1})
+			},
 		},
 	}
 	if err := stream.streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {

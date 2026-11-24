@@ -1,21 +1,6 @@
 package execution
 
-import (
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/store/arango"
-)
-
-type PhysicalExplanation struct {
-	Outputs []PhysicalOutputExplanation
-}
-
-type PhysicalOutputExplanation struct {
-	Name            string
-	PlanFingerprint string
-	Columns         []string
-	Diagnostics     ir.CompilerPlanDiagnostics
-	Live            *ExplainAssessment
-}
+import "github.com/calypr/loom/internal/store/arango"
 
 type ExplainAssessment struct {
 	Plans                 []ExplainPlanEstimate
