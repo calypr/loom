@@ -3,6 +3,8 @@ package workspace
 import (
 	"fmt"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 const maxStoredTableShapeDerivedDefinitions = 64
@@ -167,7 +169,7 @@ func (s *storedTableShape) Validate(columns []Column) error {
 				if seenGroups[column] {
 					return fmt.Errorf("groupKeys contains duplicate column %q", column)
 				}
-				if scalar, known := constructionPivotTypeIsScalar(columnByName[column].LogicalType); known && !scalar {
+				if scalar, known := recipe.ConstructionPivotTypeIsScalar(columnByName[column].LogicalType); known && !scalar {
 					return fmt.Errorf("pivot group key %q type %q is not a scalar", column, columnByName[column].LogicalType)
 				}
 				seenGroups[column] = true
@@ -182,7 +184,7 @@ func (s *storedTableShape) Validate(columns []Column) error {
 				{field: "categoryColumn", column: pivot.CategoryColumn},
 				{field: "valueColumn", column: pivot.ValueColumn},
 			} {
-				if scalar, known := constructionPivotTypeIsScalar(columnByName[reference.column].LogicalType); known && !scalar {
+				if scalar, known := recipe.ConstructionPivotTypeIsScalar(columnByName[reference.column].LogicalType); known && !scalar {
 					return fmt.Errorf("pivot %s column %q type %q is not a scalar", reference.field, reference.column, columnByName[reference.column].LogicalType)
 				}
 			}
@@ -197,10 +199,10 @@ func (s *storedTableShape) Validate(columns []Column) error {
 			if pivot.CategoryColumn == pivot.ValueColumn {
 				return fmt.Errorf("pivot category and value columns must differ")
 			}
-			categoryKind, categoryKindKnown := constructionPivotScalarKind(columnByName[pivot.CategoryColumn].LogicalType)
+			categoryKind, categoryKindKnown := recipe.ConstructionPivotScalarKind(columnByName[pivot.CategoryColumn].LogicalType)
 			if pivot.DuplicatePolicy == "SUM" {
 				valueColumn := columnByName[pivot.ValueColumn]
-				if valueKind, known := constructionPivotScalarKind(valueColumn.LogicalType); known && valueKind != "INTEGER" && valueKind != "DECIMAL" {
+				if valueKind, known := recipe.ConstructionPivotScalarKind(valueColumn.LogicalType); known && valueKind != "INTEGER" && valueKind != "DECIMAL" {
 					return fmt.Errorf("pivot duplicatePolicy SUM requires an INTEGER or DECIMAL value column, got %q", valueColumn.LogicalType)
 				}
 			}

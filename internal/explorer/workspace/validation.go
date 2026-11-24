@@ -1213,37 +1213,6 @@ func stageColumnIndex(columns []StageColumn) (map[string]StageColumn, error) {
 	return index, nil
 }
 
-func constructionPivotScalarKind(typeName string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(typeName)) {
-	case "string", "code", "uuid", "date", "date_time", "date-time", "datetime":
-		return "STRING", true
-	case "integer":
-		return "INTEGER", true
-	case "decimal":
-		return "DECIMAL", true
-	case "boolean":
-		return "BOOLEAN", true
-	default:
-		return "", false
-	}
-}
-
-func constructionPivotTypeIsScalar(typeName string) (scalar, known bool) {
-	normalized := strings.ToLower(strings.TrimSpace(typeName))
-	if normalized == "" || normalized == "infer" {
-		return true, false
-	}
-	if _, ok := constructionPivotScalarKind(normalized); ok {
-		return true, true
-	}
-	switch normalized {
-	case "array", "object", "record", "json", "list", "map":
-		return false, true
-	default:
-		return true, false
-	}
-}
-
 func validateConstructionPivot(step ConstructionStep, input map[string]StageColumn) error {
 	pivot := step.Operation.Pivot
 	if !sameOperationID(step.ID, pivot.ConstructionID) {
@@ -1264,7 +1233,7 @@ func validateConstructionPivot(step ConstructionStep, input map[string]StageColu
 		if !exists {
 			return missingConstructionColumn("groupKeyIds", id)
 		}
-		if scalar, known := constructionPivotTypeIsScalar(column.Type); known && !scalar {
+		if scalar, known := recipe.ConstructionPivotTypeIsScalar(column.Type); known && !scalar {
 			return fmt.Errorf("pivot group key %q type %q is not a scalar", id, column.Type)
 		}
 		groupIDs[id] = true
@@ -1284,7 +1253,7 @@ func validateConstructionPivot(step ConstructionStep, input map[string]StageColu
 		if groupIDs[id] {
 			return fmt.Errorf("pivot %s cannot also be a group key", field)
 		}
-		if scalar, known := constructionPivotTypeIsScalar(column.Type); known && !scalar {
+		if scalar, known := recipe.ConstructionPivotTypeIsScalar(column.Type); known && !scalar {
 			return fmt.Errorf("pivot %s column %q type %q is not a scalar", field, id, column.Type)
 		}
 	}
@@ -1300,7 +1269,7 @@ func validateConstructionPivot(step ConstructionStep, input map[string]StageColu
 	if !oneOf(string(pivot.DuplicatePolicy), "ERROR", "SUM", "MIN", "MAX") {
 		return fmt.Errorf("pivot duplicatePolicy must be ERROR, SUM, MIN, or MAX")
 	}
-	if categoryKind, known := constructionPivotScalarKind(input[pivot.CategoryColumnID].Type); known {
+	if categoryKind, known := recipe.ConstructionPivotScalarKind(input[pivot.CategoryColumnID].Type); known {
 		for index, category := range pivot.Categories {
 			if category.Key.Kind == TableScalarNull || category.Key.Kind == TableScalarMissing {
 				continue
@@ -1312,7 +1281,7 @@ func validateConstructionPivot(step ConstructionStep, input map[string]StageColu
 	}
 	if pivot.DuplicatePolicy == ConstructionPivotDuplicateSum {
 		valueColumn := input[pivot.ValueColumnID]
-		if valueKind, known := constructionPivotScalarKind(valueColumn.Type); known && valueKind != "INTEGER" && valueKind != "DECIMAL" {
+		if valueKind, known := recipe.ConstructionPivotScalarKind(valueColumn.Type); known && valueKind != "INTEGER" && valueKind != "DECIMAL" {
 			return fmt.Errorf("pivot duplicatePolicy SUM requires an INTEGER or DECIMAL value column, got %q", valueColumn.Type)
 		}
 	}
@@ -1326,10 +1295,10 @@ func validateConstructionPivot(step ConstructionStep, input map[string]StageColu
 		if pivot.Discovery.MaxCategories <= 0 || pivot.Discovery.MaxCategories > maxPivotCategories {
 			return fmt.Errorf("pivot discovery maxCategories must be 1..%d", maxPivotCategories)
 		}
-		if _, known := constructionPivotScalarKind(input[pivot.CategoryColumnID].Type); !known {
+		if _, known := recipe.ConstructionPivotScalarKind(input[pivot.CategoryColumnID].Type); !known {
 			return fmt.Errorf("pivot discovery category column %q type %q is not a supported scalar pair", pivot.CategoryColumnID, input[pivot.CategoryColumnID].Type)
 		}
-		if _, known := constructionPivotScalarKind(input[pivot.ValueColumnID].Type); !known {
+		if _, known := recipe.ConstructionPivotScalarKind(input[pivot.ValueColumnID].Type); !known {
 			return fmt.Errorf("pivot discovery value column %q type %q is not a supported scalar pair", pivot.ValueColumnID, input[pivot.ValueColumnID].Type)
 		}
 		return validateDeclaredOutputIDs(step.Outputs, pivot.GroupKeyIDs)

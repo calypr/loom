@@ -302,7 +302,7 @@ type ConstructionCodedPivotCategory struct {
 	OutputColumnID string `json:"outputColumnId"`
 }
 
-func constructionPivotScalarKind(typeName string) (string, bool) {
+func ConstructionPivotScalarKind(typeName string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(typeName)) {
 	case "string", "code", "uuid", "date", "date_time", "date-time", "datetime":
 		return "STRING", true
@@ -317,12 +317,12 @@ func constructionPivotScalarKind(typeName string) (string, bool) {
 	}
 }
 
-func constructionPivotTypeIsScalar(typeName string) (scalar, known bool) {
+func ConstructionPivotTypeIsScalar(typeName string) (scalar, known bool) {
 	normalized := strings.ToLower(strings.TrimSpace(typeName))
 	if normalized == "" || normalized == "infer" {
 		return true, false
 	}
-	if _, ok := constructionPivotScalarKind(normalized); ok {
+	if _, ok := ConstructionPivotScalarKind(normalized); ok {
 		return true, true
 	}
 	switch normalized {

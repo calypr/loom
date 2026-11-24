@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
@@ -261,51 +262,33 @@ func (o *ConstructionOperation) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-type ConstructionCombine struct {
-	Kind             ConstructionCombineKind             `json:"kind"`
-	Keys             []ConstructionCombineKey            `json:"keys,omitempty"`
-	Projections      []ConstructionCombineProjection     `json:"projections"`
-	JoinType         ConstructionCombineJoinType         `json:"joinType,omitempty"`
-	RightMatchPolicy ConstructionCombineRightMatchPolicy `json:"rightMatchPolicy,omitempty"`
-	MembershipMode   ConstructionCombineMembershipMode   `json:"membershipMode,omitempty"`
-}
+type ConstructionCombine recipe.ConstructionCombine
 
-type ConstructionCombineKind string
+type ConstructionCombineKind = recipe.ConstructionCombineKind
 
-const (
-	ConstructionCombineKeyJoin    ConstructionCombineKind = "KEY_JOIN"
-	ConstructionCombineAppend     ConstructionCombineKind = "APPEND"
-	ConstructionCombineMembership ConstructionCombineKind = "MEMBERSHIP"
-)
+type ConstructionCombineJoinType = recipe.ConstructionCombineJoinType
 
-type ConstructionCombineJoinType string
+type ConstructionCombineRightMatchPolicy = recipe.ConstructionCombineRightMatchPolicy
+
+type ConstructionCombineMembershipMode = recipe.ConstructionCombineMembershipMode
+
+type ConstructionCombineKey = recipe.ConstructionCombineKey
+
+type ConstructionCombineProjection = recipe.ConstructionCombineProjection
 
 const (
-	ConstructionCombineInnerJoin ConstructionCombineJoinType = "INNER"
-	ConstructionCombineLeftJoin  ConstructionCombineJoinType = "LEFT"
+	ConstructionCombineKeyJoin    = recipe.ConstructionCombineKeyJoin
+	ConstructionCombineAppend     = recipe.ConstructionCombineAppend
+	ConstructionCombineMembership = recipe.ConstructionCombineMembership
+
+	ConstructionCombineInnerJoin = recipe.ConstructionCombineInnerJoin
+	ConstructionCombineLeftJoin  = recipe.ConstructionCombineLeftJoin
+
+	ConstructionCombinePreserveAllMatches = recipe.ConstructionCombinePreserveAllMatches
+
+	ConstructionCombineIncludeMatches = recipe.ConstructionCombineIncludeMatches
+	ConstructionCombineExcludeMatches = recipe.ConstructionCombineExcludeMatches
 )
-
-type ConstructionCombineRightMatchPolicy string
-
-const ConstructionCombinePreserveAllMatches ConstructionCombineRightMatchPolicy = "PRESERVE_ALL"
-
-type ConstructionCombineMembershipMode string
-
-const (
-	ConstructionCombineIncludeMatches ConstructionCombineMembershipMode = "INCLUDE"
-	ConstructionCombineExcludeMatches ConstructionCombineMembershipMode = "EXCLUDE"
-)
-
-type ConstructionCombineKey struct {
-	LeftColumnID  string `json:"leftColumnId"`
-	RightColumnID string `json:"rightColumnId"`
-}
-
-type ConstructionCombineProjection struct {
-	OutputColumnID string `json:"outputColumnId"`
-	InputIndex     int    `json:"inputIndex"`
-	InputColumnID  string `json:"inputColumnId"`
-}
 
 type ConstructionPivot struct {
 	ConstructionID   string                      `json:"constructionId"`

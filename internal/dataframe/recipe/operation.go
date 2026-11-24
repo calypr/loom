@@ -141,7 +141,7 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 			return fmt.Errorf("%s pivot category or value column is not in the input schema", path)
 		}
 		for _, id := range pivot.GroupKeyIDs {
-			if scalar, known := constructionPivotTypeIsScalar(inputByID[id].Type); known && !scalar {
+			if scalar, known := ConstructionPivotTypeIsScalar(inputByID[id].Type); known && !scalar {
 				return fmt.Errorf("%s pivot group key %q type %q is not a scalar", path, id, inputByID[id].Type)
 			}
 		}
@@ -149,16 +149,16 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 			{field: "categoryColumnId", id: pivot.CategoryColumnID},
 			{field: "valueColumnId", id: pivot.ValueColumnID},
 		} {
-			if scalar, known := constructionPivotTypeIsScalar(inputByID[reference.id].Type); known && !scalar {
+			if scalar, known := ConstructionPivotTypeIsScalar(inputByID[reference.id].Type); known && !scalar {
 				return fmt.Errorf("%s pivot %s column %q type %q is not a scalar", path, reference.field, reference.id, inputByID[reference.id].Type)
 			}
 		}
 		if !validPivotDuplicatePolicy(pivot.DuplicatePolicy) || !validPivotMissingPolicy(pivot.MissingCellPolicy) || !validPivotUnlistedPolicy(pivot.UnlistedCategoryPolicy) {
 			return fmt.Errorf("%s pivot policies are incomplete or unsupported", path)
 		}
-		categoryKind, categoryKindKnown := constructionPivotScalarKind(inputByID[pivot.CategoryColumnID].Type)
+		categoryKind, categoryKindKnown := ConstructionPivotScalarKind(inputByID[pivot.CategoryColumnID].Type)
 		if pivot.DuplicatePolicy == PivotDuplicateSum {
-			valueKind, valueKindKnown := constructionPivotScalarKind(inputByID[pivot.ValueColumnID].Type)
+			valueKind, valueKindKnown := ConstructionPivotScalarKind(inputByID[pivot.ValueColumnID].Type)
 			if valueKindKnown && valueKind != "INTEGER" && valueKind != "DECIMAL" {
 				return fmt.Errorf("%s pivot duplicatePolicy SUM requires an INTEGER or DECIMAL value column, got %q", path, inputByID[pivot.ValueColumnID].Type)
 			}

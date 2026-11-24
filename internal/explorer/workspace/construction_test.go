@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/lineage"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -38,6 +39,27 @@ func terminalCombineDocument() Document {
 		},
 	}}}
 	return document
+}
+
+func TestConstructionCombineJSONMatchesRecipe(t *testing.T) {
+	combine := ConstructionCombine{
+		Kind:             ConstructionCombineKeyJoin,
+		Keys:             []ConstructionCombineKey{{LeftColumnID: "patient", RightColumnID: "subject"}},
+		Projections:      []ConstructionCombineProjection{{OutputColumnID: "patient", InputIndex: 0, InputColumnID: "patient"}},
+		JoinType:         ConstructionCombineLeftJoin,
+		RightMatchPolicy: ConstructionCombinePreserveAllMatches,
+	}
+	workspaceJSON, err := json.Marshal(combine)
+	if err != nil {
+		t.Fatalf("marshal workspace combine: %v", err)
+	}
+	recipeJSON, err := json.Marshal(recipe.ConstructionCombine(combine))
+	if err != nil {
+		t.Fatalf("marshal recipe combine: %v", err)
+	}
+	if !bytes.Equal(workspaceJSON, recipeJSON) {
+		t.Fatalf("combine JSON differs: workspace=%s recipe=%s", workspaceJSON, recipeJSON)
+	}
 }
 
 func TestConstructionCombineValidatesAndRoundTripsExactPins(t *testing.T) {
