@@ -116,7 +116,7 @@ func (s *Service) PreviewInterpretationCandidate(ctx context.Context, request in
 	}
 	authorized, err := s.config.Capability.ForExecution(ctx, request.Project, request.SnapshotToken)
 	if err != nil {
-		return interpretation.PreviewInterpretationCandidateResult{}, authoringcore.ReceiptCapabilityFailure("interpretation-preview", "the candidate receipt's capability snapshot is no longer authorized or retained", err)
+		return interpretation.PreviewInterpretationCandidateResult{}, support.ReceiptCapabilityFailure("interpretation-preview", "the candidate receipt's capability snapshot is no longer authorized or retained", err)
 	}
 	if authorized.Snapshot.Token != request.SnapshotToken || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(authorized.Snapshot.Identity.Project) != projectid.Canonical(request.Project) || authorized.Snapshot.Identity.Generation != snapshot.Identity.Generation || authorized.Snapshot.Identity.ShapeDigest != snapshot.Identity.ShapeDigest {
 		return interpretation.PreviewInterpretationCandidateResult{}, support.Conflict("interpretation-preview", "RECEIPT_STALE", "the candidate receipt's capability snapshot is no longer authorized or retained", nil, nil)
