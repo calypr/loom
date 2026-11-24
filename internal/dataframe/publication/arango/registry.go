@@ -383,7 +383,7 @@ UPDATE {pins: APPEND(retained, [{ownerId: @owner, expiresAt: @expiresAt}]), upda
 		if !shared.IsArangoErrorWithErrorNum(err, shared.ErrArangoConflict) || attempt == executionReadPinMaxAttempts-1 {
 			return false, err
 		}
-		if err := waitForExecutionReadPinRetry(ctx, time.Duration(attempt+1)*executionReadPinRetryDelay); err != nil {
+		if err := arangostore.WaitForConflictRetry(ctx, time.Duration(attempt+1)*executionReadPinRetryDelay); err != nil {
 			return false, fmt.Errorf("retry execution read pin acquisition: %w", err)
 		}
 	}
@@ -481,17 +481,6 @@ func executionStates(state publication.BundleState) []publication.BundleState {
 		states = append(states, "READY")
 	}
 	return states
-}
-
-func waitForExecutionReadPinRetry(ctx context.Context, delay time.Duration) error {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
 }
 
 func executionStateKey(executionID string) string {

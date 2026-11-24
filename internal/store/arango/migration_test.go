@@ -491,12 +491,12 @@ func TestPreviewSupersededPublicMigrationVersionedAgainstArango(t *testing.T) {
 			if got := wp19Rows(t, ctx, client, collection.Name()); !reflect.DeepEqual(got, beforeDocuments) {
 				t.Fatal("apply changed user documents or revisions")
 			}
-			wantCollections := append(append([]string{}, beforeNames...), previewSupersedesMigrationLedger)
+			wantCollections := append(append([]string{}, beforeNames...), "loom_schema_migrations")
 			sort.Strings(wantCollections)
 			if got := wp19CollectionNames(t, ctx, client); !reflect.DeepEqual(got, wantCollections) {
 				t.Fatalf("apply changed collections beyond ledger: got=%v want=%v", got, wantCollections)
 			}
-			markers := wp19Rows(t, ctx, client, previewSupersedesMigrationLedger)
+			markers := wp19Rows(t, ctx, client, SchemaMigrationsCollection)
 			if len(markers) != 1 || markers[0]["_key"] != previewSupersedesMigrationVersion || markers[0]["version"] != previewSupersedesMigrationVersion || markers[0]["_rev"] == nil {
 				t.Fatalf("expected exactly one versioned ledger marker with revision: %v", markers)
 			}
@@ -508,7 +508,7 @@ func TestPreviewSupersededPublicMigrationVersionedAgainstArango(t *testing.T) {
 			if !rerun.LedgerPresent || rerun.LegacyCandidateCount != 0 {
 				t.Fatalf("rerun=%+v", rerun)
 			}
-			markersAfter := wp19Rows(t, ctx, client, previewSupersedesMigrationLedger)
+			markersAfter := wp19Rows(t, ctx, client, SchemaMigrationsCollection)
 			if !reflect.DeepEqual(markersAfter, markers) || len(markersAfter) != 1 || fmt.Sprint(markersAfter[0]["_rev"]) != markerRevision {
 				t.Fatalf("rerun rewrote or duplicated ledger: before=%v after=%v", markers, markersAfter)
 			}

@@ -15,8 +15,6 @@ const workspaceProjectionCollection = db.WorkspaceProjectionsCollection
 
 const workspaceMigrationVersion = "wp18_workspace_v1"
 
-const workspaceMigrationLedger = "loom_schema_migrations"
-
 func workspaceProjectionCollectionSpec() store.CollectionSpec {
 	return store.CollectionSpec{Name: workspaceProjectionCollection}
 }
@@ -36,7 +34,7 @@ FOR projection IN @@projections
   (projection._key == @encodingKey AND POSITION(versions,@encodingVersion)))
  SORT projection._key == @constructionKey ? 0 : 1
  LIMIT 1 RETURN {projection:JSON_STRINGIFY(projection), constructionComplete:constructionComplete}`, 1,
-		map[string]any{"@ledger": workspaceMigrationLedger, "encodingVersion": workspaceMigrationVersion,
+		map[string]any{"@ledger": store.SchemaMigrationsCollection, "encodingVersion": workspaceMigrationVersion,
 			"constructionVersion": tableShapeWorkspaceMigrationVersion, "@projections": workspaceProjectionCollection,
 			"encodingKey": source.Key(), "constructionKey": tableShapeConstructionTarget.projectionKey(source)}, func(row map[string]any) error {
 			value, err := db.DecodeMigrationJSON[workspacepkg.Projection](row["projection"])

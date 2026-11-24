@@ -85,7 +85,7 @@ func migrateWorkspaces(ctx context.Context, client *store.Client, dryRun bool, t
 		}
 		return plan.report, nil
 	}
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{workspaceProjectionCollectionSpec(), {Name: workspaceMigrationLedger}}}); err != nil {
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{workspaceProjectionCollectionSpec(), {Name: store.SchemaMigrationsCollection}}}); err != nil {
 		return plan.report, err
 	}
 	for _, projection := range plan.projections {
@@ -137,12 +137,12 @@ UPDATE d WITH {workspace:@workspace, intentDigest:@digest} IN @@c RETURN NEW`, 1
 		return plan.report, fmt.Errorf("workspace migration did not converge")
 	}
 	marker := map[string]any{"_key": target.version(), "version": target.version(), "completedAt": time.Now().UTC()}
-	if err := client.QueryRows(ctx, `INSERT @doc INTO @@c OPTIONS {overwriteMode:"ignore"} RETURN NEW`, 1, map[string]any{"@c": workspaceMigrationLedger, "doc": marker}, func(map[string]any) error { return nil }); err != nil {
+	if err := client.QueryRows(ctx, `INSERT @doc INTO @@c OPTIONS {overwriteMode:"ignore"} RETURN NEW`, 1, map[string]any{"@c": store.SchemaMigrationsCollection, "doc": marker}, func(map[string]any) error { return nil }); err != nil {
 		return plan.report, err
 	}
 	sealed := false
 	if err := client.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1,
-		map[string]any{"@c": workspaceMigrationLedger, "key": target.version()}, func(row map[string]any) error {
+		map[string]any{"@c": store.SchemaMigrationsCollection, "key": target.version()}, func(row map[string]any) error {
 			sealed = row["version"] == target.version()
 			return nil
 		}); err != nil {
@@ -187,7 +187,7 @@ func insertWorkspaceProjectionFor(ctx context.Context, query store.RowQueryer, p
 
 func migrationVersionRecorded(ctx context.Context, query store.RowQueryer, version string) (bool, error) {
 	recorded := false
-	err := query.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": workspaceMigrationLedger, "key": version}, func(row map[string]any) error {
+	err := query.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key RETURN d`, 1, map[string]any{"@c": store.SchemaMigrationsCollection, "key": version}, func(row map[string]any) error {
 		if row["version"] != version {
 			return fmt.Errorf("workspace migration version record is invalid")
 		}
@@ -204,7 +204,7 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 		return plan, err
 	}
 	if target == tableShapeConstructionTarget {
-		if !slices.Contains(names, workspaceMigrationLedger) {
+		if !slices.Contains(names, store.SchemaMigrationsCollection) {
 			return plan, fmt.Errorf("run %s before %s", workspaceMigrationVersion, target.version())
 		}
 		predecessor, err := migrationVersionRecorded(ctx, client, workspaceMigrationVersion)
@@ -432,7 +432,7 @@ func (s *Store) planStoredWorkspaces(ctx context.Context, client *store.Client, 
 			plan.report.RepositoryConfigs++
 		}
 	}
-	if slices.Contains(names, workspaceMigrationLedger) {
+	if slices.Contains(names, store.SchemaMigrationsCollection) {
 		recorded, err := migrationVersionRecorded(ctx, client, target.version())
 		if err != nil {
 			return plan, err

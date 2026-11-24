@@ -51,6 +51,12 @@ func viewerProjectionIntegrity(component string, cause error) error {
 	return &ViewerProjectionIntegrityError{Component: component, Cause: cause}
 }
 
+func revisionPublication(revision *Revision) viewer.PublicationMetadata {
+	publication := revision.Publication
+	publication.State = firstNonEmptyString(publication.State, string(revision.Status), viewer.ExplorerRuntimeV1NotPublished)
+	return publication
+}
+
 func BuildViewerProjection(revision *Revision) (*viewer.ExplorerRuntimeV1, error) {
 	return buildViewerProjection(revision, nil)
 }
@@ -86,11 +92,9 @@ func buildViewerProjection(revision *Revision, saved *explorerconfig.ProjectConf
 	contractColumns := inputs.contractColumns
 	contractOrder := inputs.contractOrder
 
-	status := firstNonEmptyString(revision.Publication.State, string(revision.Status), viewer.ExplorerRuntimeV1NotPublished)
-	publicationState := revision.Publication
-	publicationState.State = firstNonEmptyString(publicationState.State, status)
+	publicationState := revisionPublication(revision)
 	runtime := &viewer.ExplorerRuntimeV1{
-		Status:         status,
+		Status:         publicationState.State,
 		Generation:     firstNonEmptyString(revision.Dataset.Generation, revision.SourceGeneration, revision.Publication.Generation),
 		Publication:    publicationState,
 		Schema:         viewer.ExplorerRuntimeSchemaV1{Digest: firstNonEmptyString(revision.Dataset.SchemaDigest, revision.ResolvedSchemaDigest), Version: explorerconfig.ConfigV2APIVersion},

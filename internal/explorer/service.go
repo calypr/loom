@@ -95,9 +95,8 @@ func (s *Service) LoadExplorerState(ctx context.Context, project, id string) (vi
 	state.Generated.Materializations = append([]viewer.Materialization(nil), revision.Materializations...)
 	state.Generated.Dataset = revision.Dataset
 	state.Generated.Dataset.Outputs = append([]viewer.DatasetOutput(nil), revision.Dataset.Outputs...)
-	state.Generated.Publication = revision.Publication
+	state.Generated.Publication = revisionPublication(revision)
 	state.Generated.QualityReports = publication.CloneQualityReports(revision.QualityReports)
-	state.Generated.Publication.State = firstNonEmptyString(revision.Publication.State, string(revision.Status), viewer.ExplorerRuntimeV1NotPublished)
 	state.Generated.Publication.RevisionID = revision.ID
 	state.Generated.Diagnostics = append([]viewer.Diagnostic(nil), revision.Diagnostics...)
 	state.Runtime, err = buildViewerProjection(revision, owner.ProjectConfig)

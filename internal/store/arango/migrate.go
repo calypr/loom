@@ -59,7 +59,7 @@ func (preview PreviewIndexes) MigratePreviewSupersededIndexes(ctx context.Contex
 
 func (preview PreviewIndexes) recordPreviewSupersedesMigration(ctx context.Context, candidates []PreviewSupersededIndex) error {
 	c := preview.client
-	ledger, err := c.ensureCollection(ctx, previewSupersedesMigrationLedger, false)
+	ledger, err := c.ensureCollection(ctx, SchemaMigrationsCollection, false)
 	if err != nil {
 		return fmt.Errorf("open migration ledger: %w", err)
 	}
