@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 type TraversalLoweringRequest struct {
@@ -101,7 +102,7 @@ func BuildPhysicalTraversal(request TraversalLoweringRequest) (TraversalLowering
 			labelBind:          request.EdgeLabel,
 			sourceTypeBind:     request.FromType,
 			typeBind:           request.ToType,
-			edgeCollectionBind: "fhir_edge",
+			edgeCollectionBind: fhirschema.EdgeCollection,
 		},
 	}, nil
 }

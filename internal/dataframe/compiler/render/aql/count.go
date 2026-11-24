@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func renderRelatedEligibilityCountRows(plan ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, options physicalRenderOptions) (RenderedPhysicalPlan, bool, error) {
@@ -492,7 +493,7 @@ func relatedCountRoute(plan ir.PhysicalPlan, stage ir.PhysicalConstructionStage,
 		label, labelOK := plan.BindVars[traversal.EdgeLabelBindKey].(string)
 		edgeCollection, edgeCollectionOK := plan.BindVars[traversal.EdgeCollectionBindKey].(string)
 		if !sourceOK || !targetOK || !labelOK || !edgeCollectionOK || sourceType != currentType || traversal.SourceVariable != currentVariable ||
-			targetType == "" || label == "" || edgeCollection != "fhir_edge" || traversal.EdgeVariable == "" ||
+			targetType == "" || label == "" || edgeCollection != fhirschema.EdgeCollection || traversal.EdgeVariable == "" ||
 			traversal.Strategy != ir.PhysicalTraversalEndpointLookup {
 			return nil, false
 		}

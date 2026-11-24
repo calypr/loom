@@ -461,6 +461,9 @@ func physicalKindValues(t *testing.T, directory, typeName string) map[string]boo
 					if _, scalar := typ.Type.(*ast.Ident); scalar {
 						declarations = append(declarations, &ast.GenDecl{Tok: token.TYPE, Specs: []ast.Spec{typ}})
 					}
+					if typ.Name.Name == "PhysicalCombineOutputColumn" {
+						declarations = append(declarations, &ast.GenDecl{Tok: token.TYPE, Specs: []ast.Spec{typ}})
+					}
 				}
 			}
 		}

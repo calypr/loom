@@ -18,9 +18,10 @@ func lowerConstructionRelatedField(
 	inputByID map[string]CompiledOutputColumn,
 	outputByID map[string]recipe.StageColumn,
 	inputSchema []CompiledOutputColumn,
-	inputRow string,
+	context constructionLoweringContext,
 	trackPresence bool,
 ) (ir.PhysicalStageRelatedField, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
+	inputRow := context.inputRow
 	anchor, found := activeRelatedRecordColumn(inputSchema)
 	if !found || anchor.RelatedRecordAnchor == nil {
 		return ir.PhysicalStageRelatedField{}, nil, nil, fmt.Errorf("related field requires an active exact terminal record identity")

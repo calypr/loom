@@ -388,15 +388,7 @@ type ResolvedClickHousePrivateArtifact struct {
 	Columns       []ResolvedClickHouseColumn
 }
 
-type ResolvedClickHouseColumn struct {
-	ID             string
-	Name           string
-	SemanticPath   string
-	LogicalType    string
-	ClickHouseType string
-	Nullable       bool
-	Repeated       bool
-}
+type ResolvedClickHouseColumn = PhysicalCombineOutputColumn
 
 func ClickHouseCombineScalarBaseType(value string, kind PhysicalCombineKind) (string, bool) {
 	physical := strings.TrimSpace(value)

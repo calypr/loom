@@ -9,6 +9,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func appendRequiredTraversalMatchFilters(physical *ir.PhysicalPlan, root recipeplan.SemanticNode) error {
@@ -96,7 +97,7 @@ func buildRequiredTraversalExists(physical *ir.PhysicalPlan, matchIndex int, roo
 		edgeCollectionBind := prefix + "_edge_collection"
 		physical.BindVars[labelBind] = node.EdgeLabel
 		physical.BindVars[typeBind] = node.ResourceType
-		physical.BindVars[edgeCollectionBind] = "fhir_edge"
+		physical.BindVars[edgeCollectionBind] = fhirschema.EdgeCollection
 
 		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
 			Kind:   ir.PhysicalTraversalOp,

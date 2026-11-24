@@ -7,6 +7,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func (r *physicalPlanRenderer) renderConstructionExpandStage(stage ir.PhysicalConstructionStage) ([]string, error) {
@@ -407,7 +408,7 @@ func validateRelatedCategoryDescriptor(plan ir.PhysicalPlan, scan ir.PhysicalRel
 			}
 			if route.EdgeID == "" || route.FromNodeID == "" || route.ToNodeID == "" || route.FromResourceType == "" || route.ToResourceType == "" || route.Relationship == "" ||
 				plan.BindVars[traversal.SourceTypeBindKey] != route.FromResourceType || plan.BindVars[traversal.TargetTypeBindKey] != route.ToResourceType ||
-				plan.BindVars[traversal.EdgeLabelBindKey] != route.Relationship || plan.BindVars[traversal.EdgeCollectionBindKey] != "fhir_edge" ||
+				plan.BindVars[traversal.EdgeLabelBindKey] != route.Relationship || plan.BindVars[traversal.EdgeCollectionBindKey] != fhirschema.EdgeCollection ||
 				traversal.Direction != relatedCategoryTraversalDirection(route.StorageDirection) || traversal.EdgeTargetTypeField != traversal.Direction.TargetTypeField() {
 				return fmt.Errorf("related category traversal does not match its authored route")
 			}

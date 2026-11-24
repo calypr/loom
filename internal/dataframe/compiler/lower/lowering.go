@@ -15,16 +15,13 @@ func (lowerer *constructionLowerer) lowerGroupStage(step recipe.ConstructionStep
 	inputByID := work.inputByID
 	outputByID := work.outputByID
 	inputSchema := work.input.schema
-	inputIdentity := work.input.identity
-	inputStageID := work.input.stageID
 	rootResourceType := work.input.rootResourceType
 	index := work.input.index
 	rootContributorProvenance := work.input.rootContributorProvenance
 	retainRootContributors := work.input.retainRootContributors
 	group := step.Operation.Group
 	physicalGroup, projections, compiled, err := lowerer.lowerConstructionGroup(
-		*group, step.RowValues, step.Outputs, inputByID, inputIdentity,
-		inputStageID, rootResourceType, outputByID, index, &work.physical,
+		*group, step.RowValues, step.Outputs, inputByID, outputByID, &work.physical, work.loweringContext(),
 	)
 	if err != nil {
 		return err
@@ -87,11 +84,9 @@ func (lowerer *constructionLowerer) lowerCodedGroupStage(step recipe.Constructio
 func (lowerer *constructionLowerer) lowerRelatedSourceStage(step recipe.ConstructionStep, work *constructionStageLowering) error {
 	inputByID := work.inputByID
 	outputByID := work.outputByID
-	inputRow := work.physical.InputRowVariable
 	inputSchema := work.input.schema
 	inputIdentity := work.input.identity
 	rootResourceType := work.input.rootResourceType
-	index := work.input.index
 	related := step.Operation.RelatedSource
 	if related == nil {
 		return fmt.Errorf("related source payload is required")
@@ -100,7 +95,7 @@ func (lowerer *constructionLowerer) lowerRelatedSourceStage(step recipe.Construc
 	if rowValuePolicy == "" {
 		rowValuePolicy = recipe.ConstructionRowValueAll
 	}
-	projections, compiled, err := lowerer.lowerConstructionRelatedSource(step, *related, inputByID, outputByID, inputRow, inputIdentity, rootResourceType, index)
+	projections, compiled, err := lowerer.lowerConstructionRelatedSource(step, *related, inputByID, outputByID, work.loweringContext())
 	if err != nil {
 		return err
 	}
@@ -123,18 +118,11 @@ func (lowerer *constructionLowerer) lowerRelatedSourceStage(step recipe.Construc
 
 func (lowerer *constructionLowerer) lowerRelatedExpandStage(step recipe.ConstructionStep, work *constructionStageLowering) error {
 	inputByID := work.inputByID
-	inputRow := work.physical.InputRowVariable
-	inputIdentity := work.input.identity
-	rootResourceType := work.input.rootResourceType
-	index := work.input.index
 	related := step.Operation.RelatedExpand
 	if related == nil {
 		return fmt.Errorf("related expansion payload is required")
 	}
-	physicalExpand, projections, compiled, err := lowerer.lowerConstructionRelatedExpand(
-		step, *related, inputByID, inputRow, inputIdentity,
-		rootResourceType, index,
-	)
+	physicalExpand, projections, compiled, err := lowerer.lowerConstructionRelatedExpand(step, *related, inputByID, work.loweringContext())
 	if err != nil {
 		return err
 	}
@@ -146,18 +134,12 @@ func (lowerer *constructionLowerer) lowerRelatedExpandStage(step recipe.Construc
 
 func (lowerer *constructionLowerer) lowerRelatedEligibilityStage(step recipe.ConstructionStep, work *constructionStageLowering) error {
 	inputByID := work.inputByID
-	inputRow := work.physical.InputRowVariable
 	inputIdentity := work.input.identity
-	rootResourceType := work.input.rootResourceType
-	index := work.input.index
 	related := step.Operation.RelatedEligibility
 	if related == nil {
 		return fmt.Errorf("related eligibility payload is required")
 	}
-	physicalFilter, derivedLets, projections, compiled, err := lowerer.lowerConstructionRelatedEligibility(
-		step, *related, inputByID, inputRow, inputIdentity,
-		rootResourceType, index,
-	)
+	physicalFilter, derivedLets, projections, compiled, err := lowerer.lowerConstructionRelatedEligibility(step, *related, inputByID, work.loweringContext())
 	if err != nil {
 		return err
 	}
@@ -170,7 +152,6 @@ func (lowerer *constructionLowerer) lowerRelatedEligibilityStage(step recipe.Con
 func (lowerer *constructionLowerer) lowerRelatedFieldStage(step recipe.ConstructionStep, work *constructionStageLowering) error {
 	inputByID := work.inputByID
 	outputByID := work.outputByID
-	inputRow := work.physical.InputRowVariable
 	inputSchema := work.input.schema
 	inputIdentity := work.input.identity
 	presenceCategoryIDs := work.input.presenceCategoryIDs
@@ -178,7 +159,7 @@ func (lowerer *constructionLowerer) lowerRelatedFieldStage(step recipe.Construct
 	if related == nil {
 		return fmt.Errorf("related field payload is required")
 	}
-	physicalRelatedField, projections, compiled, err := lowerConstructionRelatedField(step, *related, inputByID, outputByID, inputSchema, inputRow, presenceCategoryIDs[related.OutputColumnID])
+	physicalRelatedField, projections, compiled, err := lowerConstructionRelatedField(step, *related, inputByID, outputByID, inputSchema, work.loweringContext(), presenceCategoryIDs[related.OutputColumnID])
 	if err != nil {
 		return err
 	}
@@ -349,9 +330,9 @@ func (lowerer *constructionLowerer) lowerExpandStage(step recipe.ConstructionSte
 }
 
 func (lowerer *constructionLowerer) lowerDeriveStage(step recipe.ConstructionStep, work *constructionStageLowering) error {
+	inputRow := work.physical.InputRowVariable
 	inputByID := work.inputByID
 	outputByID := work.outputByID
-	inputRow := work.physical.InputRowVariable
 	inputProjections := work.physical.InputProjections
 	inputSchema := work.input.schema
 	inputIdentity := work.input.identity
@@ -403,8 +384,8 @@ func (lowerer *constructionLowerer) lowerDeriveStage(step recipe.ConstructionSte
 }
 
 func (lowerer *constructionLowerer) lowerFilterStage(step recipe.ConstructionStep, work *constructionStageLowering) error {
-	inputByID := work.inputByID
 	inputRow := work.physical.InputRowVariable
+	inputByID := work.inputByID
 	inputIdentity := work.input.identity
 	filter := step.Operation.Filter
 	inputColumn, ok := inputByID[filter.ColumnID]

@@ -17,12 +17,25 @@ import (
 
 type constructionStageLowering struct {
 	input       constructionStageInput
+	context     constructionLoweringContext
 	inputByID   map[string]CompiledOutputColumn
 	outputByID  map[string]recipe.StageColumn
 	publicInput []CompiledOutputColumn
 	physical    ir.PhysicalConstructionStage
 	schema      []CompiledOutputColumn
 	identity    string
+}
+
+type constructionLoweringContext struct {
+	inputRow         string
+	inputIdentity    string
+	inputStageID     string
+	rootResourceType string
+	stepIndex        int
+}
+
+func (work *constructionStageLowering) loweringContext() constructionLoweringContext {
+	return work.context
 }
 
 func (lowerer *constructionLowerer) lowerConstructionStep(step recipe.ConstructionStep, input constructionStageInput) (constructionStageResult, error) {
@@ -47,6 +60,10 @@ func (lowerer *constructionLowerer) lowerConstructionStep(step recipe.Constructi
 	work := constructionStageLowering{
 		input: input, inputByID: inputByID, outputByID: outputByID,
 		publicInput: publicCompiledSchema(inputSchema), physical: base,
+		context: constructionLoweringContext{
+			inputRow: inputRow, inputIdentity: inputIdentity, inputStageID: inputStageID,
+			rootResourceType: rootResourceType, stepIndex: index,
+		},
 	}
 	var err error
 	switch step.Operation.Kind {
@@ -123,7 +140,7 @@ func (lowerer *constructionLowerer) lowerConstructionStep(step recipe.Constructi
 		}
 	}
 	if base.Kind != ir.PhysicalStageRelatedExpandOp && preservesActiveRelatedRecord(base.Kind) {
-		if rootAnchor, ok := retainedRootResourceAnchor(inputSchema, rootResourceType); ok && rootAnchor.Name != outputIdentity {
+		if rootAnchor, ok := rootContributorRootKey(inputSchema, rootResourceType); ok && rootAnchor.Name != outputIdentity {
 			rootAnchor.Identity = false
 			outputSchema = append(outputSchema, rootAnchor)
 			base.OutputProjections = append(base.OutputProjections, ir.PhysicalProjection{
@@ -201,9 +218,10 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedSource(
 	related recipe.ConstructionRelatedSource,
 	inputByID map[string]CompiledOutputColumn,
 	outputByID map[string]recipe.StageColumn,
-	inputRow, inputIdentity, rootResourceType string,
-	index int,
+	context constructionLoweringContext,
 ) ([]ir.PhysicalProjection, []CompiledOutputColumn, error) {
+	inputRow, inputIdentity := context.inputRow, context.inputIdentity
+	rootResourceType, index := context.rootResourceType, context.stepIndex
 	if related.AnchorColumnID != inputIdentity || rootResourceType == "" || rootResourceType != lowerer.plan.Source.ResourceType {
 		reason := "row_identity_changed"
 		if rootResourceType == "" || rootResourceType != lowerer.plan.Source.ResourceType {

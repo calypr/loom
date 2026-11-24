@@ -86,16 +86,6 @@ func rootContributorSet(schema []CompiledOutputColumn, rootResourceType string) 
 	return CompiledOutputColumn{}, false
 }
 
-func rootContributorRootKey(schema []CompiledOutputColumn, rootResourceType string) (CompiledOutputColumn, bool) {
-	for _, column := range schema {
-		if column.Internal && column.Name == "_key" && column.RootContributorResourceType == rootResourceType &&
-			column.Kind == string(expression.KindString) && column.Cardinality == string(expression.RequiredOne) {
-			return column, true
-		}
-	}
-	return CompiledOutputColumn{}, false
-}
-
 func hasCompilerOwnedRootContributor(schema []CompiledOutputColumn) bool {
 	for _, column := range schema {
 		if column.RootContributorResourceType == "" {
@@ -265,7 +255,7 @@ func withConstructionCapability(capabilities []StageOperationCapability, replace
 
 func relatedExpandAnchors(schema []CompiledOutputColumn, rootResourceType string, rootContributorsAvailable bool) []CompiledRelatedExpandAnchor {
 	anchors := make([]CompiledRelatedExpandAnchor, 0, 3)
-	_, retainedRootKey := retainedRootResourceAnchor(schema, rootResourceType)
+	_, retainedRootKey := rootContributorRootKey(schema, rootResourceType)
 	if retainedRootKey && rootResourceType != "" {
 		anchors = append(anchors, CompiledRelatedExpandAnchor{
 			AnchorColumnID: "_key", Kind: "root", ResourceType: rootResourceType,
@@ -289,7 +279,7 @@ func relatedExpandAnchors(schema []CompiledOutputColumn, rootResourceType string
 	return anchors
 }
 
-func retainedRootResourceAnchor(schema []CompiledOutputColumn, rootResourceType string) (CompiledOutputColumn, bool) {
+func rootContributorRootKey(schema []CompiledOutputColumn, rootResourceType string) (CompiledOutputColumn, bool) {
 	for _, column := range schema {
 		if column.Internal && column.Name == "_key" && column.RootContributorResourceType == rootResourceType && column.Kind == string(expression.KindString) &&
 			column.Cardinality == string(expression.RequiredOne) {

@@ -3,6 +3,8 @@ package ir
 import (
 	"fmt"
 	"strings"
+
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func validateGenericNavigationTraversal(plan PhysicalPlan, traversal PhysicalTraversal) error {
@@ -20,8 +22,8 @@ func validateGenericNavigationTraversal(plan PhysicalPlan, traversal PhysicalTra
 		return fmt.Errorf("generic navigation traversal requires edge variable, edge label bind, and target type bind")
 	}
 	collection, ok := plan.BindVars[traversal.EdgeCollectionBindKey].(string)
-	if !ok || collection != "fhir_edge" {
-		return fmt.Errorf("generic navigation traversal must use fhir_edge through its collection bind")
+	if !ok || collection != fhirschema.EdgeCollection {
+		return fmt.Errorf("generic navigation traversal must use %s through its collection bind", fhirschema.EdgeCollection)
 	}
 	strategy := traversal.Strategy
 	if strategy == "" {
