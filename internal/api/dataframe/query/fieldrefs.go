@@ -2,9 +2,10 @@ package queryapi
 
 import (
 	"fmt"
-	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"regexp"
 	"strings"
+
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
@@ -164,28 +165,6 @@ func fieldSelectorFromSpec(spec fhirschema.FieldSelectorSpec) FieldSelector {
 		Where:      where,
 		ValuePath:  spec.ValuePath,
 	}
-}
-
-func composeSelector(sourcePath string, wherePath string, whereOp string, whereValue string, valuePath string) string {
-	sourcePath = strings.TrimSpace(sourcePath)
-	valuePath = strings.TrimSpace(valuePath)
-	if valuePath == "" {
-		return ""
-	}
-	path := valuePath
-	if sourcePath != "" {
-		path = sourcePath + "." + valuePath
-	}
-	wherePath = strings.TrimSpace(wherePath)
-	whereOp = strings.TrimSpace(strings.ToUpper(whereOp))
-	whereValue = strings.TrimSpace(whereValue)
-	if wherePath == "" || whereOp == "" || whereValue == "" {
-		return path
-	}
-	if whereOp == "CONTAINS" {
-		return fmt.Sprintf(`%s where %s contains %q`, path, wherePath, whereValue)
-	}
-	return path
 }
 
 func selectorStepText(step fhirschema.SelectorStep) string {

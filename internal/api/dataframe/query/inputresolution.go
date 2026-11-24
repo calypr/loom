@@ -5,17 +5,17 @@ import (
 	"fmt"
 	"strings"
 
-	httpapi "github.com/calypr/loom/internal/api/http"
-	"github.com/calypr/loom/internal/catalog/fieldcatalog"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 
-	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
+	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/projectid"
 )
 
-func (s *Service) prepareRunInput(ctx context.Context, input dataframemodel.FhirDataframeInput) (dataframemodel.FhirDataframeInput, authscope.ReadScope, string, error) {
+func (s *Service) prepareRunInput(ctx context.Context, input recipe.FhirDataframeInput) (recipe.FhirDataframeInput, authscope.ReadScope, string, error) {
 	input.Project = projectid.Canonical(input.Project)
 	if input.Project == "" {
 		return input, authscope.ReadScope{}, "", dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
@@ -69,14 +69,14 @@ type scopedInputResolver struct {
 
 type nodeInput struct {
 	resourceType string
-	fields       []*dataframemodel.FhirFieldSelectInput
-	filters      []*dataframemodel.FhirFilterInput
-	pivots       []*dataframemodel.FhirPivotInput
-	aggregates   []*dataframemodel.FhirAggregateInput
-	slices       []*dataframemodel.FhirRepresentativeSliceInput
+	fields       []*recipe.FhirFieldSelectInput
+	filters      []*recipe.FhirFilterInput
+	pivots       []*recipe.FhirPivotInput
+	aggregates   []*recipe.FhirAggregateInput
+	slices       []*recipe.FhirRepresentativeSliceInput
 }
 
-func (r scopedInputResolver) resolveTraversalInputRefs(ctx context.Context, step *dataframemodel.FhirTraversalStepInput) error {
+func (r scopedInputResolver) resolveTraversalInputRefs(ctx context.Context, step *recipe.FhirTraversalStepInput) error {
 	if step == nil {
 		return nil
 	}
@@ -119,7 +119,7 @@ func (r scopedInputResolver) resolveNodeInputRefs(ctx context.Context, input nod
 			field.Selector = selectorInputFromExpression(selectorText)
 		}
 		if len(field.FallbackFieldRefs) > 0 {
-			fallbacks := make([]*dataframemodel.FhirFieldSelectorInput, 0, len(field.FallbackFieldRefs))
+			fallbacks := make([]*recipe.FhirFieldSelectorInput, 0, len(field.FallbackFieldRefs))
 			for _, ref := range field.FallbackFieldRefs {
 				selectorText, err := resolveFieldRef(input.resourceType, discovered, ref)
 				if err != nil {
@@ -203,7 +203,7 @@ func (r scopedInputResolver) resolveNodeInputRefs(ctx context.Context, input nod
 				field.Selector = selectorInputFromExpression(selectorText)
 			}
 			if len(field.FallbackFieldRefs) > 0 {
-				fallbacks := make([]*dataframemodel.FhirFieldSelectorInput, 0, len(field.FallbackFieldRefs))
+				fallbacks := make([]*recipe.FhirFieldSelectorInput, 0, len(field.FallbackFieldRefs))
 				for _, ref := range field.FallbackFieldRefs {
 					selectorText, err := resolveFieldRef(input.resourceType, discovered, ref)
 					if err != nil {
@@ -283,13 +283,13 @@ func (s *Service) resolveReadScopeForGeneration(ctx context.Context, principal *
 	}, nil
 }
 
-func selectorInputFromExpression(expression string) *dataframemodel.FhirFieldSelectorInput {
+func selectorInputFromExpression(expression string) *recipe.FhirFieldSelectorInput {
 	parts := decomposeSelector(expression)
-	var where *dataframemodel.FhirFieldPredicateInput
+	var where *recipe.FhirFieldPredicateInput
 	if parts.Where != nil {
-		where = &dataframemodel.FhirFieldPredicateInput{
+		where = &recipe.FhirFieldPredicateInput{
 			Path:  parts.Where.Path,
-			Op:    dataframemodel.FhirFieldPredicateOperation(parts.Where.Op),
+			Op:    recipe.FhirFieldPredicateOperation(parts.Where.Op),
 			Value: parts.Where.Value,
 		}
 	}
@@ -299,7 +299,7 @@ func selectorInputFromExpression(expression string) *dataframemodel.FhirFieldSel
 		sourcePath = &trimmed
 	}
 
-	return &dataframemodel.FhirFieldSelectorInput{
+	return &recipe.FhirFieldSelectorInput{
 		SourcePath: sourcePath,
 		Where:      where,
 		ValuePath:  parts.ValuePath,

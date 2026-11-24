@@ -5,42 +5,40 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/catalog/fieldcatalog"
-
-	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
-func TestRecipeBundleFromInputMapsRichGraphQLShape(t *testing.T) {
+func TestPreviewInputBuildsRecipeBundle(t *testing.T) {
 	gender := "gender"
 	wantGender := "female"
-	input := dataframemodel.FhirDataframeInput{
+	input := recipe.FhirDataframeInput{
 		Project:          "P1",
 		RootResourceType: "Patient",
-		RootFields: []*dataframemodel.FhirFieldSelectInput{{
+		RootFields: []*recipe.FhirFieldSelectInput{{
 			Name: "gender", FieldRef: &gender,
-			Selector: &dataframemodel.FhirFieldSelectorInput{ValuePath: "gender"},
+			Selector: &recipe.FhirFieldSelectorInput{ValuePath: "gender"},
 		}},
-		RootFilters: []*dataframemodel.FhirFilterInput{{
-			Select: "gender", Operator: dataframemodel.FhirFilterOperatorEquals,
-			Values: []*dataframemodel.FhirFilterValueInput{{Kind: dataframemodel.FhirFilterValueKindString, String: &wantGender}},
+		RootFilters: []*recipe.FhirFilterInput{{
+			Select: "gender", Operator: recipe.FhirFilterOperatorEquals,
+			Values: []*recipe.FhirFilterValueInput{{Kind: recipe.FhirFilterValueKindString, String: &wantGender}},
 		}},
-		RootAggregates: []*dataframemodel.FhirAggregateInput{{
-			Name: "condition_count", Operation: dataframemodel.FhirAggregateOperationCount,
+		RootAggregates: []*recipe.FhirAggregateInput{{
+			Name: "condition_count", Operation: recipe.FhirAggregateOperationCount,
 		}},
-		Traverse: []*dataframemodel.FhirTraversalStepInput{{
+		Traverse: []*recipe.FhirTraversalStepInput{{
 			EdgeLabel: "subject_Patient", ToResourceType: "Condition", Alias: "condition",
-			MatchMode: func() *dataframemodel.FhirTraversalMatchMode {
-				value := dataframemodel.FhirTraversalMatchModeRequired
+			MatchMode: func() *recipe.FhirTraversalMatchMode {
+				value := recipe.FhirTraversalMatchModeRequired
 				return &value
 			}(),
-			Filters: []*dataframemodel.FhirFilterInput{{
-				Select: "id", Operator: dataframemodel.FhirFilterOperatorExists,
+			Filters: []*recipe.FhirFilterInput{{
+				Select: "id", Operator: recipe.FhirFilterOperatorExists,
 			}},
-			Aggregates: []*dataframemodel.FhirAggregateInput{{Name: "count", Operation: dataframemodel.FhirAggregateOperationCount}},
+			Aggregates: []*recipe.FhirAggregateInput{{Name: "count", Operation: recipe.FhirAggregateOperationCount}},
 		}},
 	}
-	bundle, err := RecipeBundleFromInput(input)
+	bundle, err := input.Bundle()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,39 +56,39 @@ func TestRecipeBundleFromInputMapsRichGraphQLShape(t *testing.T) {
 	}
 }
 
-func TestRecipeBundleFromInputRejectsIncompleteAggregatePredicate(t *testing.T) {
+func TestPreviewInputRejectsIncompleteAggregatePredicate(t *testing.T) {
 	path := "gender"
-	input := dataframemodel.FhirDataframeInput{
+	input := recipe.FhirDataframeInput{
 		Project: "P1", RootResourceType: "Patient",
-		RootAggregates: []*dataframemodel.FhirAggregateInput{{
-			Name: "count", Operation: dataframemodel.FhirAggregateOperationCount,
+		RootAggregates: []*recipe.FhirAggregateInput{{
+			Name: "count", Operation: recipe.FhirAggregateOperationCount,
 			PredicatePath: &path,
 		}},
 	}
-	if _, err := RecipeBundleFromInput(input); err == nil {
+	if _, err := input.Bundle(); err == nil {
 		t.Fatal("expected incomplete aggregate predicate to fail")
 	}
 }
 
-func TestRecipeBundleFromInputMapsCatalogResolutionContracts(t *testing.T) {
+func TestPreviewInputMapsCatalogResolutionContracts(t *testing.T) {
 	family := "observation_code_value"
 	path := "code.coding[].code"
-	input := dataframemodel.FhirDataframeInput{
+	input := recipe.FhirDataframeInput{
 		Project: "P1", RootResourceType: "Patient",
-		RootCatalogProjections: []*dataframemodel.FhirCatalogProjectionInput{{
+		RootCatalogProjections: []*recipe.FhirCatalogProjectionInput{{
 			Name: "populated", IncludePaths: []string{"identifier.*"}, Kinds: []string{"scalar"},
-			Naming: dataframemodel.FhirColumnNamingPath, ValueMode: dataframemodel.FhirValueModeFirst, MaxColumns: 32,
+			Naming: recipe.FhirColumnNamingPath, ValueMode: recipe.FhirValueModeFirst, MaxColumns: 32,
 		}},
-		RootPivots: []*dataframemodel.FhirPivotInput{{
-			Name: "observations", ColumnSelector: &dataframemodel.FhirFieldSelectorInput{ValuePath: "code"}, ValueSelector: &dataframemodel.FhirFieldSelectorInput{ValuePath: "value"},
-			Discovery: &dataframemodel.FhirPivotDiscoveryInput{Family: &family, Path: &path, MaxColumns: 16},
+		RootPivots: []*recipe.FhirPivotInput{{
+			Name: "observations", ColumnSelector: &recipe.FhirFieldSelectorInput{ValuePath: "code"}, ValueSelector: &recipe.FhirFieldSelectorInput{ValuePath: "value"},
+			Discovery: &recipe.FhirPivotDiscoveryInput{Family: &family, Path: &path, MaxColumns: 16},
 		}},
-		Traverse: []*dataframemodel.FhirTraversalStepInput{{
+		Traverse: []*recipe.FhirTraversalStepInput{{
 			EdgeLabel: "subject_Patient", ToResourceType: "Observation", Alias: "observation",
-			CatalogProjections: []*dataframemodel.FhirCatalogProjectionInput{{Name: "observation_fields", IncludePaths: []string{"value*"}, Naming: dataframemodel.FhirColumnNamingPathSuffix, ValueMode: dataframemodel.FhirValueModeFirst, MaxColumns: 8}},
+			CatalogProjections: []*recipe.FhirCatalogProjectionInput{{Name: "observation_fields", IncludePaths: []string{"value*"}, Naming: recipe.FhirColumnNamingPathSuffix, ValueMode: recipe.FhirValueModeFirst, MaxColumns: 8}},
 		}},
 	}
-	bundle, err := RecipeBundleFromInput(input)
+	bundle, err := input.Bundle()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,12 +104,12 @@ func TestRecipeBundleFromInputMapsCatalogResolutionContracts(t *testing.T) {
 	}
 }
 
-func TestGraphQLRecipeResolutionUsesScopedCatalogBeforeSemanticTyping(t *testing.T) {
-	input := dataframemodel.FhirDataframeInput{
+func TestPreviewRecipeResolutionUsesScopedCatalogBeforeSemanticTyping(t *testing.T) {
+	input := recipe.FhirDataframeInput{
 		Project: "P1", RootResourceType: "Patient",
-		RootCatalogProjections: []*dataframemodel.FhirCatalogProjectionInput{{Name: "populated", IncludePaths: []string{"gender"}, Kinds: []string{"scalar"}, Naming: dataframemodel.FhirColumnNamingPath, ValueMode: dataframemodel.FhirValueModeFirst, MaxColumns: 4}},
+		RootCatalogProjections: []*recipe.FhirCatalogProjectionInput{{Name: "populated", IncludePaths: []string{"gender"}, Kinds: []string{"scalar"}, Naming: recipe.FhirColumnNamingPath, ValueMode: recipe.FhirValueModeFirst, MaxColumns: 4}},
 	}
-	bundle, err := RecipeBundleFromInput(input)
+	bundle, err := input.Bundle()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,6 +123,6 @@ func TestGraphQLRecipeResolutionUsesScopedCatalogBeforeSemanticTyping(t *testing
 		t.Fatal(err)
 	}
 	if got.Project != "P1" || got.DatasetGeneration != "g" || len(got.AuthResourcePaths) != 1 || len(resolved.Outputs[0].Fields) != 1 || resolved.Outputs[0].Fields[0].Name != "gender" {
-		t.Fatalf("scoped GraphQL resolution = options:%#v bundle:%#v", got, resolved)
+		t.Fatalf("scoped preview resolution = options:%#v bundle:%#v", got, resolved)
 	}
 }

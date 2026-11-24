@@ -1,4 +1,4 @@
-package dataframe
+package recipe
 
 import (
 	"encoding/json"
@@ -456,11 +456,4 @@ func (e *FhirValueMode) UnmarshalJSON(data []byte) error {
 	}
 	*e = decoded
 	return nil
-}
-
-type FhirDataframeResult struct {
-	Columns     []string                   `json:"columns"`
-	Rows        json.RawMessage            `json:"rows"`
-	RowCount    int                        `json:"rowCount"`
-	Diagnostics *DataframeQueryDiagnostics `json:"diagnostics"`
 }

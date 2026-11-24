@@ -41,7 +41,6 @@ type RowLineageUnsupportedError = rowlineage.RowLineageUnsupportedError
 var BindGroupRelatedOccurrenceSource = lower.BindGroupRelatedOccurrenceSource
 var CompileResolvedRecipePlan = lower.CompileResolvedRecipePlan
 var CompileResolvedRecipePlanWithPolicy = compilerpkg.CompileResolvedRecipePlanWithPolicy
-var CompileResolvedGraphQueryWithPolicy = compilerpkg.CompileResolvedGraphQueryWithPolicy
 
 type CompiledGroupFieldOwner = lower.CompiledGroupFieldOwner
 type CompiledGroupFieldSourceContext = lower.CompiledGroupFieldSourceContext
