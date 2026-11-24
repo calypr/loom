@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -45,7 +47,7 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output recipeplan.OutputPlan, dyna
 				cardinality, nullable = expression.Many, false
 			}
 			columns = append(columns, CompiledOutputColumn{
-				ID: field.ColumnID, Name: field.Name, Label: constructionFirstNonEmpty(field.Label, field.Name),
+				ID: field.ColumnID, Name: field.Name, Label: loomtext.FirstNonBlank(field.Label, field.Name),
 				SemanticPath: recipeSemanticPath(output.RootResourceType, output.Root.ResourceType, field.FieldRef, field.Expr.Expression),
 				Kind:         string(field.Expr.Type.Kind), Cardinality: string(cardinality), Nullable: nullable,
 			})

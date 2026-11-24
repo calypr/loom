@@ -1,11 +1,14 @@
 package explorerapi
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"mime"
 	"net/http"
 	"time"
+
+	loomtext "github.com/calypr/loom/internal/foundation/text"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/viewer"
@@ -141,7 +144,7 @@ func (h *Handlers) publishReceipt(ctx context.Context, project, explorerID, auth
 	}
 	outputs := make([]loomapi.PublicationOutput, 0, len(value.Revision.Materializations))
 	for _, materialization := range value.Revision.Materializations {
-		outputs = append(outputs, loomapi.PublicationOutput{OutputId: firstNonEmpty(materialization.OutputID, materialization.Output), State: "READY", MaterializationId: materialization.MaterializationID})
+		outputs = append(outputs, loomapi.PublicationOutput{OutputId: cmp.Or(loomtext.FirstNonBlank(materialization.OutputID, materialization.Output), "Explorer"), State: "READY", MaterializationId: materialization.MaterializationID})
 	}
 	return loomapi.PublishResponse{ApiVersion: loomapi.LoomCalyprOrgexplorerAuthoringv2, Kind: loomapi.ExplorerBuilderPublication, ReceiptId: value.Receipt.ID, RevisionId: value.Revision.ID, State: string(value.Revision.Status), Outputs: outputs, Diagnostics: []loomapi.Diagnostic{}}, nil
 }

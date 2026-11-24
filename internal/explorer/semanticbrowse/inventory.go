@@ -14,6 +14,8 @@ import (
 	"strings"
 	"unicode"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	"github.com/calypr/loom/internal/explorer/authoringcore"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	semanticarango "github.com/calypr/loom/internal/semantic/arango"
@@ -472,7 +474,7 @@ func semanticCategoryConstructionChoiceForRoute(
 		ValueSelector:         family.Value.Selector,
 		ValueFallbacks:        append([]string(nil), family.Value.FallbackSelectors...),
 		FallbackOnBlankString: family.Value.FallbackOnBlankString,
-		LogicalType:           support.FirstNonEmpty(family.LogicalType, family.Value.Type),
+		LogicalType:           loomtext.FirstTrimmed(family.LogicalType, family.Value.Type),
 		RuleHint:              semantic.RuleHintCodedCategoryV1, RuleVersion: family.RuleVersion,
 		SchemaVersion: family.SchemaVersion,
 	}

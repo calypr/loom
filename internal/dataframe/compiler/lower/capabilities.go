@@ -2,7 +2,6 @@ package lower
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
@@ -491,13 +490,4 @@ func allocateConstructionVariable(used map[string]bool, kind string, index int) 
 
 func cloneCompiledSchema(schema []CompiledOutputColumn) []CompiledOutputColumn {
 	return CloneCompiledOutputSchema(schema)
-}
-
-func constructionFirstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
 }

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -145,7 +147,7 @@ func lowerConstructionCodedGroup(
 	}
 	for _, output := range metadata {
 		compiled = append(compiled, CompiledOutputColumn{
-			ID: output.id, Name: output.name, Label: constructionFirstNonEmpty(output.label, output.name),
+			ID: output.id, Name: output.name, Label: loomtext.FirstNonBlank(output.label, output.name),
 			SemanticPath: "construction_coded_group:" + group.ConstructionID + ":" + group.Source.CodingPath,
 			Kind:         output.kind, Cardinality: output.cardinal, Nullable: output.nullable,
 		})

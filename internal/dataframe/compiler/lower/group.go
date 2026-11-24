@@ -3,6 +3,8 @@ package lower
 import (
 	"fmt"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -22,7 +24,7 @@ func lowerConstructionGroupAggregates(group recipe.ConstructionGroup, input map[
 			Variable: allocateConstructionVariable(usedVariables, "group_aggregate", stepIndex),
 		}
 		column := CompiledOutputColumn{
-			ID: output.ID, Name: output.Name, Label: constructionFirstNonEmpty(output.Label, output.Name),
+			ID: output.ID, Name: output.Name, Label: loomtext.FirstNonBlank(output.Label, output.Name),
 			SemanticPath: "construction_group:" + group.ConstructionID,
 			Cardinality:  string(expression.RequiredOne),
 		}
@@ -150,7 +152,7 @@ func lowerConstructionRowValues(
 			Variable: allocateConstructionVariable(usedVariables, "row_value", stepIndex),
 		})
 		compiled = append(compiled, CompiledOutputColumn{
-			ID: output.ID, Name: output.Name, Label: constructionFirstNonEmpty(output.Label, output.Name),
+			ID: output.ID, Name: output.Name, Label: loomtext.FirstNonBlank(output.Label, output.Name),
 			SemanticPath: "construction_row_value:" + constructionID + ":" + inputColumn.SemanticPath,
 			Kind:         inputColumn.Kind, Cardinality: cardinality, Nullable: nullable,
 		})
@@ -254,7 +256,7 @@ func lowerConstructionExpand(
 	projectionByOutputID := make(map[string]ir.PhysicalProjection, len(declarations))
 	itemColumn := inputColumn
 	itemColumn.ID, itemColumn.Name = itemOutput.ID, itemOutput.Name
-	itemColumn.Label = constructionFirstNonEmpty(itemOutput.Label, itemOutput.Name)
+	itemColumn.Label = loomtext.FirstNonBlank(itemOutput.Label, itemOutput.Name)
 	itemColumn.Cardinality = string(expression.RequiredOne)
 	if policy == recipe.ExpansionPreserveParent {
 		itemColumn.Cardinality = string(expression.OptionalOne)
@@ -272,7 +274,7 @@ func lowerConstructionExpand(
 		}
 		ordinal := CompiledOutputColumn{
 			ID: ordinalOutput.ID, Name: ordinalOutput.Name,
-			Label:        constructionFirstNonEmpty(ordinalOutput.Label, ordinalOutput.Name),
+			Label:        loomtext.FirstNonBlank(ordinalOutput.Label, ordinalOutput.Name),
 			SemanticPath: "construction_expand:" + expand.ConstructionID + ":ordinal",
 			Kind:         string(expression.KindInteger), Cardinality: ordinalCardinality,
 			Nullable: policy == recipe.ExpansionPreserveParent,
@@ -289,7 +291,7 @@ func lowerConstructionExpand(
 			return ir.PhysicalStageExpand{}, nil, nil, fmt.Errorf("expand output column ID %q is not an item, ordinal, or preserved input", declaration.ID)
 		}
 		prior.ID, prior.Name = declaration.ID, declaration.Name
-		prior.Label = constructionFirstNonEmpty(declaration.Label, prior.Label, declaration.Name)
+		prior.Label = loomtext.FirstNonBlank(declaration.Label, prior.Label, declaration.Name)
 		metadataByOutputID[declaration.ID] = prior
 		columnBind := nextTableReshapeBindKey(plan.BindVars, "construction_expand_column")
 		plan.BindVars[columnBind] = input[declaration.ID].Name
@@ -307,7 +309,7 @@ func lowerConstructionExpand(
 		if !ok {
 			return ir.PhysicalStageExpand{}, nil, nil, fmt.Errorf("expand output schema contains unexpected column ID %q", declaration.ID)
 		}
-		column.Label = constructionFirstNonEmpty(declaration.Label, column.Label, declaration.Name)
+		column.Label = loomtext.FirstNonBlank(declaration.Label, column.Label, declaration.Name)
 		column.Name = declaration.Name
 		projection := projectionByOutputID[declaration.ID]
 		projection.Name = declaration.Name

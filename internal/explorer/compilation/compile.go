@@ -955,15 +955,6 @@ func shortHash(value string) string {
 	return hex.EncodeToString(sum[:])[:16]
 }
 
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
 func contextErr(ctx context.Context) error {
 	if ctx == nil {
 		return nil

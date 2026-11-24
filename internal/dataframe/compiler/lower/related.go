@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -56,7 +58,7 @@ func lowerConstructionRelatedField(
 				return ir.PhysicalStageRelatedField{}, nil, nil, fmt.Errorf("related field cannot expose hidden input column %q", output.ID)
 			}
 			prior.Name = output.Name
-			prior.Label = constructionFirstNonEmpty(output.Label, prior.Label, output.Name)
+			prior.Label = loomtext.FirstNonBlank(output.Label, prior.Label, output.Name)
 			compiled = append(compiled, prior)
 			projections = append(projections, ir.PhysicalProjection{
 				Name: output.Name, Value: ir.PhysicalValue{Variable: inputRow, Path: []string{inputByID[output.ID].Name}},
@@ -67,7 +69,7 @@ func lowerConstructionRelatedField(
 			return ir.PhysicalStageRelatedField{}, nil, nil, fmt.Errorf("related field output schema contains unexpected column ID %q", output.ID)
 		}
 		compiled = append(compiled, CompiledOutputColumn{
-			ID: output.ID, Name: output.Name, Label: constructionFirstNonEmpty(output.Label, output.Name),
+			ID: output.ID, Name: output.Name, Label: loomtext.FirstNonBlank(output.Label, output.Name),
 			SemanticPath: "related_field:" + source.CandidateID, Kind: source.LogicalType,
 			Cardinality: string(expression.OptionalOne), Nullable: true,
 		})

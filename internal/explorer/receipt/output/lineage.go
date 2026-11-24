@@ -2,6 +2,7 @@ package output
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -208,19 +209,10 @@ func mergeReconciledContractQuality(contract *receiptmodel.PublicOutputContract,
 		contract.StructuralSuitability = "array"
 	}
 	for _, reason := range emitted.LossReasons {
-		if !ContainsOutputContractString(contract.LossReasons, reason) {
+		if !slices.Contains(contract.LossReasons, reason) {
 			contract.LossReasons = append(contract.LossReasons, reason)
 		}
 	}
-}
-
-func ContainsOutputContractString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 func cloneOutputUnitNormalization(value *viewer.PublicUnitNormalization) *viewer.PublicUnitNormalization {

@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -598,7 +600,7 @@ func (s *Service) constructionGroupFieldChoices(
 			if choiceErr != nil {
 				continue
 			}
-			label := firstNonEmpty(facts.Title, proved.Label, constructionGroupFieldLabel(fieldPath))
+			label := loomtext.FirstTrimmed(facts.Title, proved.Label, constructionGroupFieldLabel(fieldPath))
 			response := ConstructionGroupFieldChoice{
 				Kind: "FIELD_SOURCE", FieldSource: &ws.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: choice.ChoiceID},
 				ValueKind: "SCALAR", Label: label, ScopeLabel: groupFieldScopeLabel(owner, context.SourceExpansion),

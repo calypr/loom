@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -128,7 +130,7 @@ func lowerConstructionCodedPivot(
 			cardinality = string(expression.OptionalOne)
 		}
 		compiled = append(compiled, CompiledOutputColumn{
-			ID: declaration.ID, Name: declaration.Name, Label: constructionFirstNonEmpty(declaration.Label, declaration.Name),
+			ID: declaration.ID, Name: declaration.Name, Label: loomtext.FirstNonBlank(declaration.Label, declaration.Name),
 			SemanticPath: "construction_coded_pivot:" + pivot.ConstructionID + ":" + pivot.Source.BindingID + ":" + category.System + ":" + category.Code,
 			Kind:         logicalType, Cardinality: cardinality, Nullable: nullable,
 		})
@@ -176,7 +178,7 @@ func reconcileConstructionCodedPivotSchema(declarations []recipe.StageColumn, co
 			return nil, fmt.Errorf("CODED_PIVOT output ID %q collides with its input", declaration.ID)
 		}
 		column.ID = declaration.ID
-		column.Label = constructionFirstNonEmpty(declaration.Label, column.Label, declaration.Name)
+		column.Label = loomtext.FirstNonBlank(declaration.Label, column.Label, declaration.Name)
 		result = append(result, column)
 	}
 	return result, nil

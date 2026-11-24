@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/lineage"
@@ -54,7 +56,7 @@ func resolveConstructionSourceSchema(plan *ir.PhysicalPlan, declarations []recip
 			return nil, fmt.Errorf("construction source column %q has no public physical projection", declaration.Name)
 		}
 		compiled.ID, compiled.Name = declaration.ID, declaration.Name
-		compiled.Label = constructionFirstNonEmpty(declaration.Label, compiled.Label, declaration.Name)
+		compiled.Label = loomtext.FirstNonBlank(declaration.Label, compiled.Label, declaration.Name)
 		compiled.SourceChild = lineage.CloneSourceChild(declaration.SourceChild)
 		resolved = append(resolved, compiled)
 		seenIDs[declaration.ID], seenNames[declaration.Name] = true, true

@@ -4,8 +4,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
+
+	loomtext "github.com/calypr/loom/internal/foundation/text"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
@@ -38,7 +39,7 @@ func RenderCompositeClickHouseCombine(plan ir.PhysicalClickHouseCombine, prefix 
 	if strings.TrimSpace(artifact.ArtifactID) == "" || !identifierPattern.MatchString(artifact.PhysicalTable) || !strings.HasPrefix(artifact.PhysicalTable, "loom_private_") {
 		return RenderedCombine{}, fmt.Errorf("private ClickHouse artifact identity or physical table is invalid")
 	}
-	if expected.StageID != prefix.StageID || expected.Project != project || expected.AuthScopeMode != prefix.AuthScopeMode || !sameStrings(expected.AuthResourcePaths, prefix.AuthResourcePaths) {
+	if expected.StageID != prefix.StageID || expected.Project != project || expected.AuthScopeMode != prefix.AuthScopeMode || !loomtext.EqualUnordered(expected.AuthResourcePaths, prefix.AuthResourcePaths) {
 		return RenderedCombine{}, fmt.Errorf("private ClickHouse artifact identity differs from the compiled prefix authorization binding")
 	}
 	privateRefFound := false
@@ -158,7 +159,7 @@ func validateResolvedInputs(plan ir.PhysicalClickHouseCombine, inputs []ir.Resol
 				return fmt.Errorf("resolved ClickHouse private input %d table differs from its artifact manifest", index)
 			}
 			if input.DatasetGeneration != expected.DatasetGeneration || input.SchemaDigest != expected.SchemaDigest || input.ScopeDigest != expected.ScopeDigest ||
-				input.Unrestricted != (expected.AuthScopeMode == "unrestricted") || !sameStrings(input.AuthResourcePaths, expected.AuthResourcePaths) {
+				input.Unrestricted != (expected.AuthScopeMode == "unrestricted") || !loomtext.EqualUnordered(input.AuthResourcePaths, expected.AuthResourcePaths) {
 				return fmt.Errorf("resolved ClickHouse private input %d metadata differs from its exact artifact identity", index)
 			}
 		} else {
@@ -187,7 +188,7 @@ func validateResolvedInputs(plan ir.PhysicalClickHouseCombine, inputs []ir.Resol
 		if firstScope == nil {
 			copy := input
 			firstScope = &copy
-		} else if input.Unrestricted != firstScope.Unrestricted || !sameStrings(input.AuthResourcePaths, firstScope.AuthResourcePaths) {
+		} else if input.Unrestricted != firstScope.Unrestricted || !loomtext.EqualUnordered(input.AuthResourcePaths, firstScope.AuthResourcePaths) {
 			return fmt.Errorf("ClickHouse combine inputs must resolve to the same authorization scope")
 		}
 	}
@@ -259,7 +260,7 @@ func validateArtifactIdentity(expected, actual ir.ClickHouseArtifactIdentity) er
 		actual.DatasetGeneration != expected.DatasetGeneration || actual.RecipeDigest != expected.RecipeDigest ||
 		actual.PlanDigest != expected.PlanDigest || actual.SchemaDigest != expected.SchemaDigest ||
 		actual.ScopeDigest != expected.ScopeDigest || actual.AuthScopeMode != expected.AuthScopeMode ||
-		!sameStrings(actual.AuthResourcePaths, expected.AuthResourcePaths) {
+		!loomtext.EqualUnordered(actual.AuthResourcePaths, expected.AuthResourcePaths) {
 		return fmt.Errorf("private ClickHouse artifact manifest does not match the exact compiled prefix identity")
 	}
 	return nil
@@ -595,18 +596,3 @@ func appendScalarType(value string) (string, bool, bool) {
 }
 
 func quoteIdentifier(value string) string { return "`" + value + "`" }
-
-func sameStrings(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	leftCopy, rightCopy := append([]string(nil), left...), append([]string(nil), right...)
-	sort.Strings(leftCopy)
-	sort.Strings(rightCopy)
-	for index := range leftCopy {
-		if leftCopy[index] != rightCopy[index] {
-			return false
-		}
-	}
-	return true
-}

@@ -6,8 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
+
+	loomtext "github.com/calypr/loom/internal/foundation/text"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/viewer"
@@ -181,7 +182,7 @@ func validatePreparedExecution(resolved execution.Resolved, published publicatio
 	if resolved.Semantic.ScopeDigest == "" || resolved.Compiled.ScopeDigest != resolved.Semantic.ScopeDigest || published.ScopeDigest != resolved.Semantic.ScopeDigest {
 		return errors.New("execution authorization scope does not match resolved recipe")
 	}
-	if string(bindings.AuthScopeMode) != published.AuthScopeMode || !sameProjectConfigStrings(bindings.AuthResourcePaths, published.AuthResourcePaths) {
+	if string(bindings.AuthScopeMode) != published.AuthScopeMode || !loomtext.EqualUnordered(bindings.AuthResourcePaths, published.AuthResourcePaths) {
 		return errors.New("execution authorization paths do not match resolved recipe")
 	}
 	if len(resolved.Bundle.Outputs) == 0 || len(resolved.Bundle.Outputs) != len(resolved.Compiled.Outputs) || len(resolved.Bundle.Outputs) != len(published.Outputs) {
@@ -599,19 +600,4 @@ func projectConfigDatasetOutputs(bundle recipe.Bundle, executionValue publicatio
 		})
 	}
 	return outputs
-}
-
-func sameProjectConfigStrings(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	leftCopy, rightCopy := append([]string(nil), left...), append([]string(nil), right...)
-	sort.Strings(leftCopy)
-	sort.Strings(rightCopy)
-	for index := range leftCopy {
-		if leftCopy[index] != rightCopy[index] {
-			return false
-		}
-	}
-	return true
 }

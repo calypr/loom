@@ -1,6 +1,7 @@
 package receipt
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -13,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	loomtext "github.com/calypr/loom/internal/foundation/text"
 
 	"github.com/calypr/loom/internal/explorer/receipt/output"
 
@@ -554,9 +557,9 @@ func CompiledWorkspaceConfigV2(project, explorerID string, compiled explorercomp
 		}
 		views = append(views, view)
 	}
-	title := firstNonEmptyWorkspaceTitle(compiled.Workspace.Explorer.Title, explorerID)
+	title := cmp.Or(loomtext.FirstNonBlank(compiled.Workspace.Explorer.Title, explorerID), "Explorer")
 	if len(tabs) > 0 {
-		title = firstNonEmptyWorkspaceTitle(compiled.Workspace.Explorer.Title, tabs[0].Title, explorerID)
+		title = cmp.Or(loomtext.FirstNonBlank(compiled.Workspace.Explorer.Title, tabs[0].Title, explorerID), "Explorer")
 	}
 	shared := map[string][]explorerconfig.SharedFilter{}
 	for name, bindings := range compiled.Workspace.SharedFilters {
@@ -589,15 +592,6 @@ func semanticWorkspaceColumn(document ws.Document, column string) (ws.Column, bo
 		}
 	}
 	return ws.Column{}, false
-}
-
-func firstNonEmptyWorkspaceTitle(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return "Explorer"
 }
 
 func ValidateResolution(receipt *receiptmodel.CompilationReceipt, resolved *dataframeexecution.Resolved) error {

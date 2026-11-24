@@ -154,15 +154,6 @@ func sortStrings(values []string) {
 	}
 }
 
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-
 const (
 	DefaultSelectionMaxRows     int64 = 100_000
 	DefaultSelectionMaxBytes    int64 = 128 << 20

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -269,7 +271,7 @@ func (s constructionRouteFlow) searchRelatedExpandContributorChoices(ctx context
 			operators = append(operators, "EQUALS")
 		}
 		result.Choices = append(result.Choices, RelatedExpandContributorChoice{
-			ChoiceID: choice.ChoiceID, Label: firstNonEmpty(proved.Label, proved.ResourceType+"."+proved.FieldPath),
+			ChoiceID: choice.ChoiceID, Label: loomtext.FirstTrimmed(proved.Label, proved.ResourceType+"."+proved.FieldPath),
 			Source: ws.ConstructionRelatedFieldSource{
 				Kind: capability.ConstructionChoiceSourceField, CandidateID: proved.ID, NodeID: proved.NodeID,
 				ResourceType: proved.ResourceType, Path: proved.FieldPath, Cardinality: proved.Cardinality,

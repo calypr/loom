@@ -13,6 +13,8 @@ import (
 	"strings"
 	"unicode"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	"github.com/calypr/loom/internal/explorer/semanticauthoring"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
@@ -20,7 +22,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
-	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"github.com/calypr/loom/internal/projectid"
 	"github.com/calypr/loom/internal/semantic"
 )
@@ -103,7 +104,7 @@ func semanticCategoryConstructionChoiceForRoute(
 		ValueSelector:         family.Value.Selector,
 		ValueFallbacks:        append([]string(nil), family.Value.FallbackSelectors...),
 		FallbackOnBlankString: family.Value.FallbackOnBlankString,
-		LogicalType:           firstNonEmpty(family.LogicalType, family.Value.Type),
+		LogicalType:           loomtext.FirstTrimmed(family.LogicalType, family.Value.Type),
 		RuleHint:              semantic.RuleHintCodedCategoryV1, RuleVersion: family.RuleVersion,
 		SchemaVersion: family.SchemaVersion,
 	}
@@ -410,8 +411,4 @@ func semanticInventoryContextToken(snapshot capability.Snapshot, explorerID, row
 	}
 	digest := sha256.Sum256(identity)
 	return hex.EncodeToString(digest[:]), nil
-}
-
-func firstNonEmpty(values ...string) string {
-	return support.FirstNonEmpty(values...)
 }

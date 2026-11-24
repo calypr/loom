@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/viewer"
@@ -167,7 +169,7 @@ func recipeConstructionSourceColumns(columns []ws.Column, emitted []viewer.Emitt
 		} else {
 			stageColumn.Type = emission.LogicalType
 			stageColumn.Nullable = emission.Nullable
-			stageColumn.Label = firstNonEmpty(emission.Label, emission.PublicColumn)
+			stageColumn.Label = loomtext.FirstTrimmed(emission.Label, emission.PublicColumn)
 		}
 		stageColumn.Name = emission.PublicColumn
 		if strings.TrimSpace(stageColumn.Label) == "" {

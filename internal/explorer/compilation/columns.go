@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -39,17 +41,17 @@ func (columns *semanticColumnCompiler) compile(index int, column ws.Column) erro
 	occurrence := occurrences[column.OccurrenceID]
 	alias := semanticAlias(column.OccurrenceID)
 	leaf := column.Column
-	logicalType := firstNonEmpty(column.LogicalType, "string")
+	logicalType := loomtext.FirstTrimmed(column.LogicalType, "string")
 	if column.Source.Lookup != nil && column.Source.Lookup.Identifier != nil {
-		logicalType = firstNonEmpty(column.Source.Lookup.Identifier.LogicalType, logicalType)
+		logicalType = loomtext.FirstTrimmed(column.Source.Lookup.Identifier.LogicalType, logicalType)
 	}
 	if column.Source.Lookup != nil && column.Source.Lookup.Extension != nil {
-		logicalType = firstNonEmpty(column.Source.Lookup.Extension.LogicalType, logicalType)
+		logicalType = loomtext.FirstTrimmed(column.Source.Lookup.Extension.LogicalType, logicalType)
 	}
 	filterable, chartable := column.Filter != nil, column.Chart != nil
 	sourceJSON, _ := json.Marshal(column.Source.Normalized())
 	candidateID := "source_" + shortHash(column.OccurrenceID+"\x00"+string(sourceJSON)+"\x00"+column.Column)
-	projectionMode := firstNonEmpty(strings.ToUpper(column.Source.ProjectionMode()), "FIRST")
+	projectionMode := loomtext.FirstTrimmed(strings.ToUpper(column.Source.ProjectionMode()), "FIRST")
 	if column.ValueTransformation != nil && projectionMode == "INDEXED" {
 		return fail("capability", "UNSUPPORTED_VALUE_TRANSFORMATION_SHAPE", fmt.Sprintf("$.columns[%d].valueTransformation", index), "exact category recoding requires one scalar public projection, not an indexed expansion", map[string]any{"shape": "indexed_columns"}, nil)
 	}
@@ -84,7 +86,7 @@ func (columns *semanticColumnCompiler) compile(index int, column ws.Column) erro
 		}
 		candidateID = candidate.ID
 		sourceRepeated = len(candidate.RepeatedBoundaries) > 0
-		logicalType = firstNonEmpty(candidate.LogicalType, "string")
+		logicalType = loomtext.FirstTrimmed(candidate.LogicalType, "string")
 		filterable = filterable && supportsOperation(candidate.SupportedOperations, capability.OperationFilter)
 		chartable = chartable && supportsOperation(candidate.SupportedOperations, capability.OperationChart)
 		path := strings.TrimPrefix(strings.TrimSpace(sourcePath), "root.")
@@ -360,7 +362,7 @@ func (columns *semanticColumnCompiler) emitColumn(index int, column ws.Column, d
 	columns.mappings = append(columns.mappings, receiptmodel.IdentityMapping{OutputID: document.Output.ID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, EmissionIDs: []string{emissionID}})
 	presented := PresentationColumn{EmissionID: emissionID, PublicColumn: column.Column, Label: column.Label, Visible: visible, Order: orderValue, PhysicalOrder: columns.presentationOrder, Pinned: pinned}
 	if column.Filter != nil {
-		presented.FilterLabel = firstNonEmpty(column.Filter.Label, column.Label)
+		presented.FilterLabel = loomtext.FirstTrimmed(column.Filter.Label, column.Label)
 		presented.FilterOrder = index
 		if column.Filter.Order != nil {
 			presented.FilterOrder = *column.Filter.Order

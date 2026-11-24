@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/interpretation"
@@ -171,10 +173,10 @@ func ResolveInterpretationCandidate(document ws.Document, column ws.Column, snap
 	if len(concepts) == 1 {
 		concept := concepts[0]
 		candidate = interpretation.InterpretationStructuralCandidate{
-			ResourceType:  firstNonEmpty(concept.SourceResourceType, capabilityCandidate.ResourceType),
+			ResourceType:  loomtext.FirstTrimmed(concept.SourceResourceType, capabilityCandidate.ResourceType),
 			SourceProfile: concept.SourceProfile, SourceCanonical: concept.SourceCanonical, OwningScope: concept.OwningScope,
 			System: concept.System, Code: concept.Code, ExtensionURLPath: append([]string(nil), concept.ExtensionURLPath...),
-			LogicalType: firstNonEmpty(concept.LogicalType, capabilityCandidate.LogicalType), Cardinality: capabilityCandidate.Cardinality,
+			LogicalType: loomtext.FirstTrimmed(concept.LogicalType, capabilityCandidate.LogicalType), Cardinality: capabilityCandidate.Cardinality,
 			SchemaDigest: snapshot.Identity.SchemaDigest,
 		}
 	} else {

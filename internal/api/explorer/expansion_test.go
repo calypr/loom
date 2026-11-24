@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"slices"
 	"testing"
 
 	receiptoutput "github.com/calypr/loom/internal/explorer/receipt/output"
@@ -781,7 +782,7 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 			if relatedEmission.ConstructionID != step.ID || relatedEmission.SourceResourceType != "Observation" || relatedEmission.SourcePath != "status" || relatedEmission.CandidateID != candidate.ID || relatedEmission.OccurrenceID != candidate.NodeID ||
 				relatedEmission.NodeID != candidate.NodeID || len(relatedEmission.AuthoredColumns) != 0 || len(relatedEmission.InputColumns) != 0 ||
 				relatedEmission.Cardinality != wantCardinality || relatedEmission.Shape != wantShape || relatedEmission.Lossless || relatedEmission.MLReady || relatedEmission.StructuralSuitability != "requires-review" || relatedEmission.Filterable != wantFilterable || relatedEmission.Chartable != wantChartable ||
-				!receiptoutput.ContainsOutputContractString(relatedEmission.LossReasons, "RELATED_SOURCE_AUTHORIZED_MATCHES_ONLY") || !receiptoutput.ContainsOutputContractString(relatedEmission.LossReasons, receiptoutput.TableShapeMLReadinessUnassessed) {
+				!slices.Contains(relatedEmission.LossReasons, "RELATED_SOURCE_AUTHORIZED_MATCHES_ONLY") || !slices.Contains(relatedEmission.LossReasons, receiptoutput.TableShapeMLReadinessUnassessed) {
 				return dataframeexecution.PreviewSummary{}, fmt.Errorf("related-source output metadata does not match row value policy %q: %#v", related.RowValuePolicy, *relatedEmission)
 			}
 			contracts, err := receiptmodel.DecodePublicOutputContracts(receipt.PublicOutputContract)

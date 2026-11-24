@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	physicalpkg "github.com/calypr/loom/internal/dataframe/compiler/lower/physical"
 	"github.com/calypr/loom/internal/dataframe/expression"
@@ -407,7 +409,7 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedSource(
 	projections := make([]ir.PhysicalProjection, 0, len(step.Outputs)+1)
 	for _, declaration := range step.Outputs {
 		if prior, exists := inputByID[declaration.ID]; exists {
-			prior.Name, prior.Label = declaration.Name, constructionFirstNonEmpty(declaration.Label, prior.Label, declaration.Name)
+			prior.Name, prior.Label = declaration.Name, loomtext.FirstNonBlank(declaration.Label, prior.Label, declaration.Name)
 			outputSchema = append(outputSchema, prior)
 			projections = append(projections, ir.PhysicalProjection{Name: prior.Name, Value: ir.PhysicalValue{Variable: inputRow, Path: []string{inputByID[declaration.ID].Name}}})
 			continue
@@ -420,7 +422,7 @@ func (lowerer *constructionLowerer) lowerConstructionRelatedSource(
 			return nil, nil, fmt.Errorf("related source output column %q is missing from step schema", related.OutputColumnID)
 		}
 		outputSchema = append(outputSchema, CompiledOutputColumn{
-			ID: declaration.ID, Name: declaration.Name, Label: constructionFirstNonEmpty(declaration.Label, declaration.Name),
+			ID: declaration.ID, Name: declaration.Name, Label: loomtext.FirstNonBlank(declaration.Label, declaration.Name),
 			SemanticPath: "related_source:" + related.Source.NodeID + "." + selectorPath,
 			Kind:         outputKind, Cardinality: string(outputCardinality), Nullable: outputNullable,
 		})
@@ -519,7 +521,7 @@ func reconcileConstructionShapeSchema(declarations []recipe.StageColumn, outputN
 			return nil, fmt.Errorf("stage output ID %q name %q has no physical shape output", declaration.ID, declaration.Name)
 		}
 		column.ID, column.Name = declaration.ID, declaration.Name
-		column.Label = constructionFirstNonEmpty(declaration.Label, column.Label, declaration.Name)
+		column.Label = loomtext.FirstNonBlank(declaration.Label, column.Label, declaration.Name)
 		column.Internal, column.Identity = false, false
 		result = append(result, column)
 	}
@@ -551,7 +553,7 @@ func reconcileConstructionUnpivotSchema(declarations []recipe.StageColumn, compu
 			return nil, fmt.Errorf("unpivot output ID %q name %q has no physical output", declaration.ID, declaration.Name)
 		}
 		column.ID, column.Name = declaration.ID, declaration.Name
-		column.Label = constructionFirstNonEmpty(declaration.Label, column.Label, declaration.Name)
+		column.Label = loomtext.FirstNonBlank(declaration.Label, column.Label, declaration.Name)
 		column.Internal, column.Identity = false, false
 		result = append(result, column)
 	}

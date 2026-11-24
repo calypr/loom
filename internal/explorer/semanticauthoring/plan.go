@@ -2,9 +2,11 @@ package semanticauthoring
 
 import (
 	"fmt"
-	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
 	"strconv"
 	"strings"
+
+	fhirbinding "github.com/calypr/loom/internal/fhir/binding"
+	loomtext "github.com/calypr/loom/internal/foundation/text"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	"github.com/calypr/loom/internal/semantic"
@@ -113,7 +115,7 @@ func resolveIdentifierSelectionPlan(observation semantic.Observation) SemanticSe
 	ownerPath := strings.TrimSpace(observation.OwningScope)
 	systemPath, systemOK := relativeSemanticPath(ownerPath, observation.Key.Selector)
 	valuePath, valueOK := relativeSemanticPath(ownerPath, observation.Value.Selector)
-	logicalType := firstNonBlank(observation.LogicalType, observation.Value.Type)
+	logicalType := loomtext.FirstTrimmed(observation.LogicalType, observation.Value.Type)
 	if ownerPath == "" || !systemOK || !valueOK || strings.TrimSpace(observation.Source.Type) == "" || logicalType == "" {
 		return semanticUnsupported("IDENTIFIER_BINDING_INCOMPLETE", "The catalog observation does not contain a complete Identifier system/value pair.")
 	}
@@ -148,7 +150,7 @@ func resolveExtensionSelectionPlan(observation semantic.Observation) SemanticSel
 		}
 		fallbackPaths = append(fallbackPaths, fallbackPath)
 	}
-	logicalType := firstNonBlank(observation.LogicalType, observation.Value.Type)
+	logicalType := loomtext.FirstTrimmed(observation.LogicalType, observation.Value.Type)
 	if ownerPath == "" || !valueOK || !fallbacksOK || logicalType == "" || len(observation.ExtensionURLPath) == 0 || strings.TrimSpace(observation.ChoiceArm) == "" {
 		return semanticUnsupported("EXTENSION_BINDING_INCOMPLETE", "The catalog observation does not contain a complete Extension URL/value binding.")
 	}
@@ -193,7 +195,7 @@ func resolveCodedValueSelectionPlan(observation semantic.Observation) SemanticSe
 	ownerPath := strings.Trim(strings.TrimSpace(observation.OwningScope), ".")
 	keyPath := strings.Trim(strings.TrimSpace(observation.Key.Selector), ".")
 	valuePath := strings.Trim(strings.TrimSpace(observation.Value.Selector), ".")
-	logicalType := firstNonBlank(observation.LogicalType, observation.Value.Type)
+	logicalType := loomtext.FirstTrimmed(observation.LogicalType, observation.Value.Type)
 	if strings.TrimSpace(observation.Source.Type) == "" || keyPath == "" || valuePath == "" || logicalType == "" {
 		return semanticUnsupported("CODED_VALUE_BINDING_INCOMPLETE", "The catalog observation does not contain a complete owner, coding key, and scalar value binding.")
 	}
@@ -257,7 +259,7 @@ func resolveCodedCodingSelectionPlan(observation semantic.Observation, category 
 	keyPath := ws.QualifySemanticPath(ownerPath, observation.Key.Selector)
 	valuePath := ws.QualifySemanticPath(ownerPath, observation.Value.Selector)
 	valuePathInCoding, valueOK := relativeSemanticPath(keyPath, valuePath)
-	logicalType := firstNonBlank(observation.LogicalType, observation.Value.Type)
+	logicalType := loomtext.FirstTrimmed(observation.LogicalType, observation.Value.Type)
 	if strings.TrimSpace(observation.Source.Type) == "" || keyPath == "" || valuePathInCoding == "" || !valueOK ||
 		strings.Contains(valuePathInCoding, "[]") || logicalType != "string" ||
 		observation.ChoiceArm != "" || len(observation.Value.FallbackSelectors) == 0 || !observation.Value.FallbackOnBlankString {
@@ -343,15 +345,6 @@ func semanticStatusPlan(status string) SemanticSelectionPlan {
 	default:
 		return semanticUnsupported("SEMANTIC_BINDING_UNSUPPORTED", "The observed semantic binding is not supported by the current compiler.")
 	}
-}
-
-func firstNonBlank(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func EnsureSemanticRoute(document *ws.Document, catalogSnapshot ws.CatalogSnapshot, commandID string, commandIndex, selectionIndex int, edgeIDs []string, targetResource string) (string, error) {

@@ -357,7 +357,7 @@ func TestMigrateStoredWorkspaceReportsLegacyNilStepReceiptDigest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.OriginalNilConstructionStepLists != 1 || result.OriginalLegacyNilStepsDigest != legacyDigest || !ContainsString(result.AcceptedOriginalDigests, legacyDigest) {
+	if result.OriginalNilConstructionStepLists != 1 || result.OriginalLegacyNilStepsDigest != legacyDigest || !slices.Contains(result.AcceptedOriginalDigests, legacyDigest) {
 		t.Fatalf("legacy receipt digest relation missing: %#v want %q", result, legacyDigest)
 	}
 	if result.Workspace.Documents[0].Construction == nil || result.Workspace.Documents[0].Construction.Steps == nil {

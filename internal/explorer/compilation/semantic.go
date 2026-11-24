@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -193,19 +195,10 @@ func mergeContractQuality(contract *receiptmodel.PublicOutputContract, emission 
 		contract.StructuralSuitability = "array"
 	}
 	for _, reason := range emission.LossReasons {
-		if !containsSemanticString(contract.LossReasons, reason) {
+		if !slices.Contains(contract.LossReasons, reason) {
 			contract.LossReasons = append(contract.LossReasons, reason)
 		}
 	}
-}
-
-func containsSemanticString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 func choiceArmForPath(path string) string {
@@ -233,7 +226,7 @@ func indexedLabel(label string, coordinates []capability.RepeatedCoordinate) str
 
 func publicColumnContract(column viewer.EmittedColumn) receiptmodel.PublicOutputColumn {
 	return receiptmodel.PublicOutputColumn{
-		Column: column.PublicColumn, AuthoredColumns: append([]string(nil), column.AuthoredColumns...), InputColumns: append([]string(nil), column.InputColumns...), Label: firstNonEmpty(column.Label, column.PublicColumn), LogicalType: column.LogicalType,
+		Column: column.PublicColumn, AuthoredColumns: append([]string(nil), column.AuthoredColumns...), InputColumns: append([]string(nil), column.InputColumns...), Label: loomtext.FirstTrimmed(column.Label, column.PublicColumn), LogicalType: column.LogicalType,
 		Nullable: column.Nullable, Shape: column.Shape, SourceResourceType: column.SourceResourceType, SourcePath: column.SourcePath,
 		ChoiceArm: column.ChoiceArm, Coordinates: append([]capability.RepeatedCoordinate(nil), column.Coordinates...), UnitNormalization: clonePublicUnitNormalization(column.UnitNormalization),
 		Lossless: column.Lossless, MLReady: column.MLReady, StructuralSuitability: column.StructuralSuitability, LossReasons: append([]string(nil), column.LossReasons...), Filterable: column.Filterable, Chartable: column.Chartable,
@@ -281,7 +274,7 @@ func presentationColumn(source ws.Column, sourceOrder, order int, emission viewe
 	}
 	result := PresentationColumn{EmissionID: emission.EmissionID, PublicColumn: emission.PublicColumn, Label: emission.Label, Visible: visible, Order: authoredOrder, PhysicalOrder: order, Pinned: pinned}
 	if source.Filter != nil && emission.Filterable {
-		result.FilterLabel = firstNonEmpty(source.Filter.Label, emission.Label)
+		result.FilterLabel = loomtext.FirstTrimmed(source.Filter.Label, emission.Label)
 		result.FilterOrder = sourceOrder
 	}
 	if source.Chart != nil && emission.Chartable {
@@ -460,11 +453,11 @@ func semanticFixedLookup(column ws.Column, resourceType, alias, leaf, logicalTyp
 			value = recipe.Expression{Select: "item." + checked.ValueSelector.CanonicalPath()}
 			sourceKey = checked.SystemURI
 		} else {
-			sourcePath, keyPath = firstNonEmpty(fieldPath, "identifier[]"), "item.system"
+			sourcePath, keyPath = loomtext.FirstTrimmed(fieldPath, "identifier[]"), "item.system"
 			value = recipe.Expression{Select: "item.value"}
 		}
 	case ws.SourceExtensionByURL:
-		sourcePath, keyPath = firstNonEmpty(fieldPath, "extension[]"), "item.url"
+		sourcePath, keyPath = loomtext.FirstTrimmed(fieldPath, "extension[]"), "item.url"
 		value = coalesceString("item.valueString", "item.valueCode", "item.valueInteger", "item.valueDecimal", "item.valueBoolean", "item.valueDate", "item.valueDateTime", "item.valueUri")
 	default:
 		return recipe.DynamicColumn{}, fmt.Errorf("unsupported source kind %q", column.Source.Kind)

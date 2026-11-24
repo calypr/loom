@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -100,15 +101,6 @@ func QualifySemanticPath(ownerPath, relativePath string) string {
 		return ownerPath
 	}
 	return ownerPath + "." + relativePath
-}
-
-func ContainsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 func InferredSourceLogicalType(document Document, catalog CatalogSnapshot, occurrenceID string, source ColumnSource, fallback string) string {
@@ -208,7 +200,7 @@ func ValidateEditableSourcePolicy(document Document, catalog CatalogSnapshot, oc
 	if mode == "" {
 		mode = "FIRST"
 	}
-	if !ContainsString(candidate.ProjectionModes, mode) {
+	if !slices.Contains(candidate.ProjectionModes, mode) {
 		return fmt.Errorf("projection mode %q is not advertised for source path %q", mode, path)
 	}
 	return nil

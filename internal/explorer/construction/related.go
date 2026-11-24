@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
@@ -404,7 +406,7 @@ func (s *Service) appendRelatedGroupFieldChoices(
 					source.TargetGroupStepID = targetGroupStepID
 					choice, choiceErr := capability.NewGroupFieldConstructionChoice(base.Snapshot.Token, resolvedRoute, source, candidate)
 					if choiceErr == nil {
-						label := firstNonEmpty(observed.scalarFacts.Title, candidate.Label, constructionGroupFieldLabel(candidate.FieldPath))
+						label := loomtext.FirstTrimmed(observed.scalarFacts.Title, candidate.Label, constructionGroupFieldLabel(candidate.FieldPath))
 						choicesByID[choice.ChoiceID] = ConstructionGroupFieldChoice{
 							Kind: "FIELD_SOURCE", FieldSource: &ws.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: choice.ChoiceID},
 							ValueKind: "SCALAR", Label: label, ScopeLabel: routeLabel, ValueType: candidate.LogicalType,

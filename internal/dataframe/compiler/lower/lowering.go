@@ -3,6 +3,8 @@ package lower
 import (
 	"fmt"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -380,7 +382,7 @@ func (lowerer *constructionLowerer) lowerDeriveStage(step recipe.ConstructionSte
 	work.schema = make([]CompiledOutputColumn, 0, len(step.Outputs)+1)
 	for _, declaration := range step.Outputs {
 		if prior, exists := inputByID[declaration.ID]; exists {
-			prior.Name, prior.Label = declaration.Name, constructionFirstNonEmpty(declaration.Label, prior.Label, declaration.Name)
+			prior.Name, prior.Label = declaration.Name, loomtext.FirstNonBlank(declaration.Label, prior.Label, declaration.Name)
 			work.schema = append(work.schema, prior)
 			continue
 		}
@@ -389,7 +391,7 @@ func (lowerer *constructionLowerer) lowerDeriveStage(step recipe.ConstructionSte
 		}
 		metadata := derivedTypes[recipeColumn.Name]
 		work.schema = append(work.schema, CompiledOutputColumn{
-			ID: declaration.ID, Name: declaration.Name, Label: constructionFirstNonEmpty(declaration.Label, declaration.Name),
+			ID: declaration.ID, Name: declaration.Name, Label: loomtext.FirstNonBlank(declaration.Label, declaration.Name),
 			SemanticPath: "derived:" + derive.ConstructionID, Kind: string(metadata.Type.Kind),
 			Cardinality: string(metadata.Type.Cardinality), Nullable: metadata.Type.Cardinality.Optional(),
 			NormalizedUnit: ir.CloneUnitIdentity(metadata.NormalizedUnit),
@@ -420,7 +422,7 @@ func (lowerer *constructionLowerer) lowerFilterStage(step recipe.ConstructionSte
 		if !exists || prior.Internal {
 			return fmt.Errorf("filter output ID %q is not a public input column", declaration.ID)
 		}
-		prior.Name, prior.Label = declaration.Name, constructionFirstNonEmpty(declaration.Label, prior.Label, declaration.Name)
+		prior.Name, prior.Label = declaration.Name, loomtext.FirstNonBlank(declaration.Label, prior.Label, declaration.Name)
 		work.schema = append(work.schema, prior)
 	}
 	work.physical.OutputProjections = stagePassThroughProjections(step.Outputs, inputByID, inputRow)

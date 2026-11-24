@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	loomtext "github.com/calypr/loom/internal/foundation/text"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -332,7 +334,7 @@ func lowerConstructionGroupCodingKey(
 		SourceUnnest: cloneGroupSourceUnnest(*unnest),
 	}
 	column := CompiledOutputColumn{
-		ID: output.ID, Name: output.Name, Label: constructionFirstNonEmpty(output.Label, output.Name),
+		ID: output.ID, Name: output.Name, Label: loomtext.FirstNonBlank(output.Label, output.Name),
 		SemanticValueKind: CompiledSemanticValueCodingIdentityDisplay,
 		Kind:              "string", Cardinality: "required_one", Nullable: missingPolicy.Normalized() == recipe.ConstructionGroupMissingKeyGroup,
 		SemanticPath: "construction_group_coding_identity:" + source.SourceShapeID + ":" + source.CanonicalPath,

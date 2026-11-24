@@ -10,6 +10,7 @@ import (
 	"math"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -561,7 +562,7 @@ func (w *Writer) validateRow(input map[string]any) (map[string]any, int, error) 
 		if !ok {
 			return nil, 0, fmt.Errorf("private artifact auth_resource_path must be a string")
 		}
-		if w.manifest.Identity.AuthScopeMode == authscope.ReadScopeRestricted && (path == "" || !contains(w.manifest.Identity.AuthResourcePaths, path)) {
+		if w.manifest.Identity.AuthScopeMode == authscope.ReadScopeRestricted && (path == "" || !slices.Contains(w.manifest.Identity.AuthResourcePaths, path)) {
 			return nil, 0, fmt.Errorf("private artifact row authorization path is outside the exact restricted scope")
 		}
 	}
@@ -928,15 +929,6 @@ func toClickHouseColumns(columns []Column) []clickhouse.Column {
 		result[index] = clickhouse.Column{Name: column.Name, Type: column.ClickHouseType}
 	}
 	return result
-}
-
-func contains(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 func boundedCleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
