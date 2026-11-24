@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -727,7 +729,7 @@ func relatedCategoryScanOutput(options relatedCategoryScanOptions) recipe.Output
 		expandObservation.ContributorChoiceID = "observation-status-choice"
 		expandObservation.ContributorPredicate = &recipe.ConstructionRelatedPredicate{
 			CandidateID: "observation-status", Operator: recipe.FilterEquals,
-			Value: &recipe.FilterValue{Kind: recipe.FilterCode, Code: &recipe.CodeValue{Code: *options.contributorPredicate}},
+			Value: &spec.FilterValue{Kind: recipe.FilterCode, Code: &recipe.CodeValue{Code: *options.contributorPredicate}},
 		}
 	}
 	previous := "expand_patients"

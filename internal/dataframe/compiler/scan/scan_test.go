@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -582,11 +584,11 @@ func TestCompileCategoryScanPushesDirectScalarEqualityToSourceAndKeepsFallbacks(
 	}
 }
 
-func categoryScanFilterTestOutput(operator recipe.FilterOperator) recipe.Output {
+func categoryScanFilterTestOutput(operator spec.FilterOperator) recipe.Output {
 	trueValue := true
 	filter := &recipe.ConstructionFilter{ColumnID: "active_id", Operator: operator}
 	if operator == recipe.FilterEquals {
-		filter.Values = []recipe.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &trueValue}}
+		filter.Values = []spec.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &trueValue}}
 	}
 	columns := []recipe.StageColumn{
 		{ID: "patient_id", Name: "patient_id"},

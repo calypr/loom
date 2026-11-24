@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
@@ -162,7 +164,7 @@ func applyFilter(value Value, filter recipe.ConstructionFilter) (bool, error) {
 	}
 }
 
-func filterValue(value recipe.FilterValue) any {
+func filterValue(value spec.FilterValue) any {
 	switch value.Kind {
 	case recipe.FilterString:
 		if value.String != nil {

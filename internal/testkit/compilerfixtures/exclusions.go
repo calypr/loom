@@ -2,6 +2,7 @@ package compilerfixtures
 
 import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func BindOracleCurrentDerived(output recipe.Output) recipe.Output {
@@ -31,7 +32,7 @@ func CurrentOracleDerivedPivotOutput(withFilter bool) recipe.Output {
 	output.Construction.Steps = append(output.Construction.Steps, derive)
 	if withFilter {
 		zero := 0.0
-		output.Construction.Steps = append(output.Construction.Steps, recipe.ConstructionStep{ID: "filter", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "derive"}}, Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{ColumnID: "alpha_plus_zero", Operator: recipe.FilterGreaterEq, Values: []recipe.FilterValue{{Kind: recipe.FilterDecimal, Decimal: &zero}}}}, Outputs: outputs})
+		output.Construction.Steps = append(output.Construction.Steps, recipe.ConstructionStep{ID: "filter", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "derive"}}, Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{ColumnID: "alpha_plus_zero", Operator: recipe.FilterGreaterEq, Values: []spec.FilterValue{{Kind: recipe.FilterDecimal, Decimal: &zero}}}}, Outputs: outputs})
 	}
 	return output
 }

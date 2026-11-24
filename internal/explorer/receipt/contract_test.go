@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
@@ -1373,7 +1375,7 @@ func TestCompileValidatedReceiptResolutionSurvivesCohortConstructionRoundTrip(t 
 					Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 						ColumnID: "specimen_id", Operator: recipe.FilterEquals,
-						Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
+						Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
 					}},
 					Outputs: []recipe.StageColumn{{ID: "specimen_id", Name: "specimen_id", Type: "string"}},
 				}},

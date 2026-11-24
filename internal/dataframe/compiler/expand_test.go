@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -609,7 +611,7 @@ func TestRelatedFieldReadsExactExpandedRecordAfterFilterAgainstArango(t *testing
 				ID: "keep_active", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "expand_observations"}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: "patient-active", Operator: recipe.FilterEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &active}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &active}},
 				}}, Outputs: expandedColumns,
 			},
 			{
@@ -798,7 +800,7 @@ func TestRelatedExpandRepeatedScalarContributorMatchesWithinTerminalRecordAgains
 	related.ContributorPolicy = "ALL_MATCHES"
 	related.ContributorPredicate = &recipe.ConstructionRelatedPredicate{
 		CandidateID: "observation-code", Quantifier: recipe.QuantifierAny, Operator: recipe.FilterEquals,
-		Value: &recipe.FilterValue{Kind: recipe.FilterCode, Code: &recipe.CodeValue{Code: code}},
+		Value: &spec.FilterValue{Kind: recipe.FilterCode, Code: &recipe.CodeValue{Code: code}},
 	}
 	related.ContributorSource = &recipe.ConstructionRelatedFieldSource{
 		CandidateID: "observation-code", NodeID: "observation-node", ResourceType: "Observation",

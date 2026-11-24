@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -137,14 +139,14 @@ func rootAndRelatedPageFilterOutput(includePractitioner bool) recipe.Output {
 	return output
 }
 
-func pageFilterStep(id, inputStepID, columnID string, operator recipe.FilterOperator, value string, outputs []recipe.StageColumn) recipe.ConstructionStep {
+func pageFilterStep(id, inputStepID, columnID string, operator spec.FilterOperator, value string, outputs []recipe.StageColumn) recipe.ConstructionStep {
 	input := recipe.ConstructionInputRef{Kind: recipe.ConstructionSourceProjectionInput}
 	if inputStepID != "" {
 		input = recipe.ConstructionInputRef{Kind: recipe.ConstructionStepOutputInput, StepID: inputStepID}
 	}
 	filter := &recipe.ConstructionFilter{ColumnID: columnID, Operator: operator}
 	if operator != recipe.FilterExists && operator != recipe.FilterMissing {
-		filter.Values = []recipe.FilterValue{{Kind: recipe.FilterString, String: &value}}
+		filter.Values = []spec.FilterValue{{Kind: recipe.FilterString, String: &value}}
 	}
 	return recipe.ConstructionStep{
 		ID: id, Inputs: []recipe.ConstructionInputRef{input},

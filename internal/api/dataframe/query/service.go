@@ -8,8 +8,8 @@ import (
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	compilerfacade "github.com/calypr/loom/internal/dataframe/compiler/facade"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -96,7 +96,7 @@ func (s *Service) resolveRecipe(ctx context.Context, bundle recipe.Bundle, bindi
 }
 
 func compileSingleQuery(resolved recipeplan.ResolvedRecipePlan, limit int) (dataframeexecution.CompiledQuery, error) {
-	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
+	queries, err := compilerfacade.CompileResolvedRecipePlanWithPolicy(resolved, limit, compilerfacade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return dataframeexecution.CompiledQuery{}, err
 	}

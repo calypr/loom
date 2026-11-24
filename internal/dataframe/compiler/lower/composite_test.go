@@ -1,9 +1,11 @@
 package lower
 
 import (
-	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/columntransform"
@@ -120,7 +122,7 @@ func TestComposeClickHouseCombineRejectsCohortGroupPrefixAndIRBypass(t *testing.
 				ID: "source_filter", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: "patient_id", Operator: recipe.FilterEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &value}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &value}},
 				}},
 				Outputs: []recipe.StageColumn{{ID: "patient_id", Name: "patient_id", Type: "string"}},
 			}},

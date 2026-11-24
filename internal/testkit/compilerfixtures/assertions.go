@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
@@ -42,7 +44,7 @@ func ConstructionTraceRecipeOutput(name string) recipe.Output {
 					ID: "keep_positive", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "derive_total"}},
 					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 						ColumnID: "total_id", Operator: recipe.FilterGreaterThan,
-						Values: []recipe.FilterValue{{Kind: recipe.FilterInteger, Integer: &zero}},
+						Values: []spec.FilterValue{{Kind: recipe.FilterInteger, Integer: &zero}},
 					}},
 					Outputs: []recipe.StageColumn{
 						{ID: "amount_id", Name: "amount"}, {ID: "status_id", Name: "status"}, {ID: "total_id", Name: "total"},

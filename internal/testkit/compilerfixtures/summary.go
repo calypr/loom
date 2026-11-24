@@ -2,6 +2,7 @@ package compilerfixtures
 
 import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func GroupedRelatedSummaryOutput(form, filter string) recipe.Output {
@@ -18,7 +19,7 @@ func GroupedRelatedSummaryOutput(form, filter string) recipe.Output {
 	}
 	if filter != "" {
 		related.Predicate = &recipe.ConstructionRelatedPredicate{CandidateID: "observation-status", Operator: recipe.FilterEquals,
-			Value: &recipe.FilterValue{Kind: recipe.FilterString, String: &filter}}
+			Value: &spec.FilterValue{Kind: recipe.FilterString, String: &filter}}
 	}
 	return recipe.Output{Name: "group_related_summary", RootResourceType: "Patient", RowGrain: "patient", RootColumnNaming: recipe.RootColumnNamingExact,
 		Fields: []recipe.Field{{Name: "gender", ColumnID: "gender", Expr: recipe.Expression{Select: "root.gender"}}},

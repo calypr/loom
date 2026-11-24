@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/dataframe/lineage"
 )
 
@@ -175,7 +177,7 @@ func TestConstructionValidatesTypedIntermediateSequence(t *testing.T) {
 			ID: "step_filter", Inputs: []ConstructionInputRef{{Kind: ConstructionStepOutputInput, StepID: "step_derive"}},
 			Operation: ConstructionOperation{Kind: ConstructionFilterOp, Filter: &ConstructionFilter{
 				ColumnID: derived.ID, Operator: FilterGreaterEq,
-				Values: []FilterValue{{Kind: FilterInteger, Integer: &integerTen}},
+				Values: []spec.FilterValue{{Kind: FilterInteger, Integer: &integerTen}},
 			}},
 			Outputs: columns(group, amount, count, derived),
 		},
@@ -214,14 +216,14 @@ func TestConstructionValidatesEffectiveCohortBoundary(t *testing.T) {
 		{
 			ID: "source_filter", Inputs: []ConstructionInputRef{{Kind: ConstructionSourceProjectionInput}},
 			Operation: ConstructionOperation{Kind: ConstructionFilterOp, Filter: &ConstructionFilter{
-				ColumnID: "id", Operator: FilterEquals, Values: []FilterValue{{Kind: FilterString, String: &selected}},
+				ColumnID: "id", Operator: FilterEquals, Values: []spec.FilterValue{{Kind: FilterString, String: &selected}},
 			}},
 			Outputs: []StageColumn{{ID: "id", Name: "id", Type: "string"}},
 		},
 		{
 			ID: "group_filter", Inputs: []ConstructionInputRef{{Kind: ConstructionStepOutputInput, StepID: ConstructionCohortGroupStageID}},
 			Operation: ConstructionOperation{Kind: ConstructionFilterOp, Filter: &ConstructionFilter{
-				ColumnID: "group_id", Operator: FilterEquals, Values: []FilterValue{{Kind: FilterString, String: &label}},
+				ColumnID: "group_id", Operator: FilterEquals, Values: []spec.FilterValue{{Kind: FilterString, String: &label}},
 			}},
 			Outputs: []StageColumn{
 				{ID: "group_id", Name: "group_id", Type: "string"},

@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -289,7 +291,7 @@ func composedRelatedExpandLineageOutput(selectionID string) recipe.Output {
 				ID: "filter_active", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: "active-id", Operator: recipe.FilterEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &trueValue}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &trueValue}},
 				}}, Outputs: activeColumns,
 			},
 			{

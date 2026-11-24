@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/model"
@@ -20,7 +22,7 @@ import (
 func assertReshapeOracleUnpivot(t *testing.T, ctx context.Context, client *store.Client, project, generation string) {
 	t.Helper()
 	output := reshapeOracleUnpivotOutput(recipe.UnpivotNullPreserve, "s04-unpivot")
-	output.Filters = []recipe.Filter{{Select: "root.id", Operator: recipe.FilterIn, Values: []recipe.FilterValue{reshapeOracleStringFilter("alpha-a"), reshapeOracleStringFilter("empty-and-null")}}}
+	output.Filters = []recipe.Filter{{Select: "root.id", Operator: recipe.FilterIn, Values: []spec.FilterValue{reshapeOracleStringFilter("alpha-a"), reshapeOracleStringFilter("empty-and-null")}}}
 	compiled, query, err := compileReshapeOracle(output, project, generation, 100)
 	if err != nil {
 		t.Fatalf("compile preserving unpivot: %v", err)
@@ -80,7 +82,7 @@ func assertReshapeOracleUnpivot(t *testing.T, ctx context.Context, client *store
 	}
 
 	ordered := reshapeOracleUnpivotOutput(recipe.UnpivotNullPreserve, "s04-unpivot-order")
-	ordered.Filters = []recipe.Filter{{Select: "root.id", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{reshapeOracleStringFilter("alpha-a")}}}
+	ordered.Filters = []recipe.Filter{{Select: "root.id", Operator: recipe.FilterEquals, Values: []spec.FilterValue{reshapeOracleStringFilter("alpha-a")}}}
 	compiledOrder, orderedQuery, err := compileReshapeOracle(ordered, project, generation, 100)
 	if err != nil {
 		t.Fatalf("compile ordered unpivot: %v", err)

@@ -1,6 +1,9 @@
 package compilerfixtures
 
-import "github.com/calypr/loom/internal/dataframe/recipe"
+import (
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/spec"
+)
 
 func ConstructionExpandGroupOutput() recipe.Output {
 	output := ConstructionExpandOutput()
@@ -112,6 +115,6 @@ func ConstructionPreviewMultiKeyPivotOutput() recipe.Output {
 	}
 }
 
-func ReshapeOracleStringFilter(value string) recipe.FilterValue {
-	return recipe.FilterValue{Kind: recipe.FilterString, String: &value}
+func ReshapeOracleStringFilter(value string) spec.FilterValue {
+	return spec.FilterValue{Kind: recipe.FilterString, String: &value}
 }

@@ -6,12 +6,9 @@ import (
 	model "github.com/calypr/loom/internal/dataframe/compiler/model"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 type CompiledQuery = model.CompiledQuery
-type RowIdentity = spec.RowIdentity
-type CompilerPlanDiagnostics = ir.CompilerPlanDiagnostics
 
 type Result struct {
 	Columns     []string

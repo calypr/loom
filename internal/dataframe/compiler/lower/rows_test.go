@@ -1,11 +1,13 @@
 package lower
 
 import (
-	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/columntransform"
@@ -517,7 +519,7 @@ func TestCohortMissingMembersFollowPreCohortFilterBoundary(t *testing.T) {
 		ID: "keep_group", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID}},
 		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 			ColumnID: "group_id", Operator: recipe.FilterEquals,
-			Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &groupID}},
+			Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &groupID}},
 		}},
 		Outputs: []recipe.StageColumn{{ID: "group_id", Name: "group_id", Type: "string"}, {ID: "group_label", Name: "group_label", Type: "string"},
 			{ID: "group_ordinal", Name: "group_ordinal", Type: "integer"}, {ID: "members", Name: "members", Type: "array"}},
@@ -535,7 +537,7 @@ func TestCohortMissingMembersFollowPreCohortFilterBoundary(t *testing.T) {
 		ID: "exclude_missing", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 			ColumnID: "patient_id", Operator: recipe.FilterNotEquals,
-			Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &patientID}},
+			Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &patientID}},
 		}},
 		Outputs: []recipe.StageColumn{{ID: "patient_id", Name: "patient_id", Type: "string"}},
 	}}
@@ -548,7 +550,7 @@ func TestCohortMissingMembersFollowPreCohortFilterBoundary(t *testing.T) {
 	legacySourceFilter.Construction = &recipe.Construction{Version: 1, SourceColumns: []recipe.StageColumn{{ID: "patient_id", Name: "patient_id", Type: "string"}}, Steps: append([]recipe.ConstructionStep(nil), postCohortFilter.Construction.Steps...)}
 	legacySourceFilter.Filters = []recipe.Filter{{
 		Select: "root.id", Operator: recipe.FilterNotEquals,
-		Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &patientID}},
+		Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &patientID}},
 	}}
 	if preserve, query := compile(t, legacySourceFilter, bindings); preserve || !strings.Contains(query, "source != null AND source._key IN") {
 		t.Fatalf("legacy source filter retained a missing member that could not reach its input: preserve=%t query=%s", preserve, query)
@@ -806,14 +808,14 @@ func TestCompileCohortAtPersistedConstructionBoundary(t *testing.T) {
 				{
 					ID: "keep_a", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
-						ColumnID: "id", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &selectedID}},
+						ColumnID: "id", Operator: recipe.FilterEquals, Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &selectedID}},
 					}},
 					Outputs: []recipe.StageColumn{{ID: "id", Name: "id", Type: "string"}},
 				},
 				{
 					ID: "keep_pair", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID}},
 					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
-						ColumnID: "group_id", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &selectedGroup}},
+						ColumnID: "group_id", Operator: recipe.FilterEquals, Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &selectedGroup}},
 					}},
 					Outputs: []recipe.StageColumn{
 						{ID: "group_id", Name: "group_id", Type: "string"},

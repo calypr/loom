@@ -4,13 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"os"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -199,7 +201,7 @@ func TestPopulationMappingRoutedCohortPreservesSelectedMembersAgainstArango(t *t
 				ID: "exclude_upstream_patient", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: "patient_id", Operator: recipe.FilterNotEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &excludedPatientID}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &excludedPatientID}},
 				}},
 				Outputs: []recipe.StageColumn{{ID: "patient_id", Name: "patient_id", Type: "string"}},
 			}},
@@ -565,7 +567,7 @@ func routedPopulationGroupPivotCohortOutput(population *recipe.PopulationConstra
 					ID: "exclude_filtered_patient", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "patient_gender_pivot"}},
 					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 						ColumnID: "patient_id", Operator: recipe.FilterNotEquals,
-						Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &excludedPatientID}},
+						Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &excludedPatientID}},
 					}},
 					Outputs: []recipe.StageColumn{
 						{ID: "patient_id", Name: "patient_id", Type: "string"},

@@ -301,7 +301,7 @@ func constructionCodedGroupChoices(
 			populatedPaths[candidate.FieldPath] = struct{}{}
 		}
 	}
-	choices := make([]receiptmodel.ReceiptConstructionCodedGroupChoice, 0, len(paths))
+	choices := make([]capability.ConstructionCodedGroupChoice, 0, len(paths))
 	for _, path := range paths {
 		facts, err := index.ResolveRowPath(fhirschema.DefinitionName(base.Document.RootResourceType), path)
 		if err != nil || facts.FHIRType != "Coding" || facts.Cardinality != fhirschema.RowCardinalityMany ||
@@ -319,10 +319,7 @@ func constructionCodedGroupChoices(
 		if err != nil {
 			return nil, err
 		}
-		choices = append(choices, receiptmodel.ReceiptConstructionCodedGroupChoice{
-			ChoiceID: choice.ChoiceID, OccurrenceID: choice.OccurrenceID, ResourceType: choice.ResourceType,
-			CodingPath: choice.CodingPath, Label: choice.Label,
-		})
+		choices = append(choices, choice)
 	}
 	return choices, nil
 }

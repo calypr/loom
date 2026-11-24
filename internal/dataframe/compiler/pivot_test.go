@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/celltrace"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -300,7 +302,7 @@ FOR document IN Observation
 	output := streamingMissingCategoryPivotTestOutput()
 	output.Filters = []recipe.Filter{{
 		Select: "root.status", Operator: recipe.FilterIn,
-		Values: []recipe.FilterValue{
+		Values: []spec.FilterValue{
 			reshapeOracleStringFilter("missing-parent"), reshapeOracleStringFilter("null-parent"),
 			reshapeOracleStringFilter("scalar-parent"), reshapeOracleStringFilter("missing-code"),
 			reshapeOracleStringFilter("explicit-null"), reshapeOracleStringFilter("all-null"),
@@ -367,7 +369,7 @@ FOR document IN Observation
 	} {
 		t.Run(test.status+" error", func(t *testing.T) {
 			errorOutput := streamingMissingCategoryPivotTestOutput()
-			errorOutput.Filters = []recipe.Filter{{Select: "root.status", Operator: recipe.FilterIn, Values: []recipe.FilterValue{reshapeOracleStringFilter(test.status)}}}
+			errorOutput.Filters = []recipe.Filter{{Select: "root.status", Operator: recipe.FilterIn, Values: []spec.FilterValue{reshapeOracleStringFilter(test.status)}}}
 			errorOutput.Construction.Steps[0].Operation.Pivot.DuplicatePolicy = test.duplicate
 			errorQuery := compileConstructionOutputQueryWithBindings(t, errorOutput, project, generation, recipe.RuntimeBindings{})
 			if !strings.Contains(errorQuery.Query, "FIRST([root.payload.valueQuantity])") || strings.Contains(errorQuery.Query, "LET "+pivot.InputRowVariable+" = {") {
@@ -914,7 +916,7 @@ func assertReshapeOracleBooleanValues(t *testing.T, ctx context.Context, client 
 		},
 	})
 	output.Filters = []recipe.Filter{
-		{Select: "root.id", Operator: recipe.FilterIn, Values: []recipe.FilterValue{reshapeOracleStringFilter("alpha-a"), reshapeOracleStringFilter("alpha-b")}},
+		{Select: "root.id", Operator: recipe.FilterIn, Values: []spec.FilterValue{reshapeOracleStringFilter("alpha-a"), reshapeOracleStringFilter("alpha-b")}},
 	}
 	_, query, err := compileReshapeOracle(output, project, generation, 100)
 	if err != nil {
@@ -955,7 +957,7 @@ func assertReshapeOracleEmptyStringValue(t *testing.T, ctx context.Context, clie
 			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
 		},
 	})
-	output.Filters = []recipe.Filter{{Select: "root.id", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{reshapeOracleStringFilter("empty-and-null")}}}
+	output.Filters = []recipe.Filter{{Select: "root.id", Operator: recipe.FilterEquals, Values: []spec.FilterValue{reshapeOracleStringFilter("empty-and-null")}}}
 	_, query, err := compileReshapeOracle(output, project, generation, 100)
 	if err != nil {
 		t.Fatalf("compile empty-string pivot: %v", err)
@@ -1152,7 +1154,7 @@ func assertReshapeOraclePivotErrorTrace(t *testing.T, ctx context.Context, clien
 			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryExcludeWithEvidence,
 		},
 	})
-	output.Filters = []recipe.Filter{{Select: "root.id", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{reshapeOracleStringFilter("alpha-a")}}}
+	output.Filters = []recipe.Filter{{Select: "root.id", Operator: recipe.FilterEquals, Values: []spec.FilterValue{reshapeOracleStringFilter("alpha-a")}}}
 	compiled, _, err := compileReshapeOracle(output, project, generation, 100)
 	if err != nil {
 		t.Fatalf("compile ERROR pivot trace: %v", err)

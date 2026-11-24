@@ -3,6 +3,8 @@ package reference
 import (
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
@@ -27,7 +29,7 @@ func TestEvaluatePivotDeriveFilterUnpivot(t *testing.T) {
 			{ID: "derive", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "pivot"}}, Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionDeriveOp, Derive: &recipe.ConstructionDerive{
 				ConstructionID: "total", OutputColumnID: "total_id", Operation: recipe.DerivedAdd, Left: recipe.ConstructionOperand{Kind: recipe.DerivedColumnOperand, ColumnID: "alpha_id"}, Right: recipe.ConstructionOperand{Kind: recipe.DerivedColumnOperand, ColumnID: "beta_id"}, MissingInputPolicy: recipe.MissingInputPropagateNull,
 			}}, Outputs: []recipe.StageColumn{{ID: "status_id", Name: "status"}, {ID: "alpha_id", Name: "alpha"}, {ID: "beta_id", Name: "beta"}, {ID: "total_id", Name: "total"}}},
-			{ID: "filter", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "derive"}}, Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{ColumnID: "total_id", Operator: recipe.FilterGreaterEq, Values: []recipe.FilterValue{{Kind: recipe.FilterDecimal, Decimal: &threshold}}}}, Outputs: []recipe.StageColumn{{ID: "status_id", Name: "status"}, {ID: "alpha_id", Name: "alpha"}, {ID: "beta_id", Name: "beta"}, {ID: "total_id", Name: "total"}}},
+			{ID: "filter", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "derive"}}, Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{ColumnID: "total_id", Operator: recipe.FilterGreaterEq, Values: []spec.FilterValue{{Kind: recipe.FilterDecimal, Decimal: &threshold}}}}, Outputs: []recipe.StageColumn{{ID: "status_id", Name: "status"}, {ID: "alpha_id", Name: "alpha"}, {ID: "beta_id", Name: "beta"}, {ID: "total_id", Name: "total"}}},
 			{ID: "unpivot", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "filter"}}, Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionUnpivotOp, Unpivot: &recipe.ConstructionUnpivot{ConstructionID: "unpivot", Inputs: []recipe.ConstructionUnpivotInput{{ColumnID: "alpha_id", Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &alpha}}, {ColumnID: "beta_id", Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &beta}}}, KeyOutputColumnID: "measure_id", ValueOutputColumnID: "value_id", NullRowPolicy: recipe.UnpivotNullPreserve}}, Outputs: []recipe.StageColumn{{ID: "status_id", Name: "status"}, {ID: "total_id", Name: "total"}, {ID: "measure_id", Name: "measure"}, {ID: "value_id", Name: "value"}}},
 		}},
 	}

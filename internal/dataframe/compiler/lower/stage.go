@@ -658,7 +658,7 @@ func constructionPhysicalFilter(plan *ir.PhysicalPlan, filter recipe.Constructio
 	return ir.PhysicalFilter{Predicate: predicate}, nil
 }
 
-func constructionFilterLiteral(value recipe.FilterValue) (any, error) {
+func constructionFilterLiteral(value spec.FilterValue) (any, error) {
 	if err := value.Validate(); err != nil {
 		return nil, err
 	}

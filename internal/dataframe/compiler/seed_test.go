@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -357,7 +359,7 @@ func rootPageRelatedSeedOutput(patientID string) recipe.Output {
 				ID: "keep_matching_patient", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: patientColumn.ID, Operator: recipe.FilterEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &patientID}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &patientID}},
 				}},
 				Outputs: []recipe.StageColumn{observationColumn, patientColumn},
 			}},

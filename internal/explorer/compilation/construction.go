@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	loomtext "github.com/calypr/loom/internal/foundation/text"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
@@ -352,13 +354,13 @@ func recipeConstructionOperation(authored ws.ConstructionOperation) (recipe.Cons
 		if authored.Filter == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("filter payload is required")
 		}
-		values := make([]recipe.FilterValue, 0, len(authored.Filter.Values))
+		values := make([]spec.FilterValue, 0, len(authored.Filter.Values))
 		for index, value := range authored.Filter.Values {
-			if !recipe.FilterValueKind(value.Kind).Valid() {
+			if !spec.FilterValueKind(value.Kind).Valid() {
 				return recipe.ConstructionOperation{}, fmt.Errorf("filter.values[%d] has unsupported kind %q", index, value.Kind)
 			}
-			mapped := recipe.FilterValue{
-				Kind: recipe.FilterValueKind(value.Kind), String: value.String, Boolean: value.Boolean,
+			mapped := spec.FilterValue{
+				Kind: spec.FilterValueKind(value.Kind), String: value.String, Boolean: value.Boolean,
 				Integer: value.Integer, Decimal: value.Decimal, Date: value.Date, DateTime: value.DateTime,
 			}
 			if value.Code != nil {
@@ -367,7 +369,7 @@ func recipeConstructionOperation(authored ws.ConstructionOperation) (recipe.Cons
 			values = append(values, mapped)
 		}
 		operation.Filter = &recipe.ConstructionFilter{
-			ColumnID: authored.Filter.ColumnID, Operator: recipe.FilterOperator(authored.Filter.Operator), Values: values,
+			ColumnID: authored.Filter.ColumnID, Operator: spec.FilterOperator(authored.Filter.Operator), Values: values,
 		}
 	case ws.ConstructionOperationUnpivot:
 		if authored.Unpivot == nil {
@@ -734,13 +736,13 @@ func constructionRelatedPredicate(predicate *ws.ContributorPredicate) (*recipe.C
 	}
 	mapped := &recipe.ConstructionRelatedPredicate{
 		CandidateID: predicate.CandidateID,
-		Operator:    recipe.FilterOperator(predicate.Operator),
+		Operator:    spec.FilterOperator(predicate.Operator),
 		Quantifier:  recipe.ArrayQuantifier(predicate.Quantifier),
 	}
 	if predicate.Value == nil {
 		return mapped, nil
 	}
-	value := &recipe.FilterValue{Kind: recipe.FilterValueKind(predicate.Value.Kind)}
+	value := &spec.FilterValue{Kind: spec.FilterValueKind(predicate.Value.Kind)}
 	switch predicate.Value.Kind {
 	case ws.ContributorString:
 		if predicate.Value.String != nil {

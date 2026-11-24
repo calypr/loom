@@ -7,11 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/testkit/compilerfixtures"
 
@@ -376,14 +377,14 @@ func compileComposedCohortOutput(t *testing.T, appendPivot bool) lower.CompiledR
 				{
 					ID: "keep_a", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
-						ColumnID: "id", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &selectedID}},
+						ColumnID: "id", Operator: recipe.FilterEquals, Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &selectedID}},
 					}},
 					Outputs: []recipe.StageColumn{{ID: "id", Name: "id", Type: "string"}},
 				},
 				{
 					ID: "keep_pair", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID}},
 					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
-						ColumnID: "group_id", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &selectedGroup}},
+						ColumnID: "group_id", Operator: recipe.FilterEquals, Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &selectedGroup}},
 					}},
 					Outputs: []recipe.StageColumn{
 						{ID: "group_id", Name: "group_id", Type: "string"},

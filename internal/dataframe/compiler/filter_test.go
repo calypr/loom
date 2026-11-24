@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -124,7 +126,7 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 				ID: "filter_group_rows", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: "group_label", Operator: recipe.FilterEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
 				}},
 				Outputs: []recipe.StageColumn{
 					{ID: "group_id", Name: "group_id", Type: "string"},

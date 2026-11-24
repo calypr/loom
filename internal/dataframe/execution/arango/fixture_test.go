@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,6 +15,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
@@ -851,7 +853,7 @@ func graphRowsFixtureSourceExpanded(policy recipe.ExpansionEmptyPolicy) recipe.O
 
 func graphRowsFixtureOneDistinct(subject string) recipe.Output {
 	output := graphRowsFixtureSource(false, false)
-	output.Filters = []recipe.Filter{{Select: "root.id", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &subject}}}}
+	output.Filters = []recipe.Filter{{Select: "root.id", Operator: recipe.FilterEquals, Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &subject}}}}
 	columns := graphRowsFixtureSourceColumns()
 	output.Construction = &recipe.Construction{Version: 1, SourceColumns: columns, Steps: []recipe.ConstructionStep{{ID: "one-distinct-observation", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}}, Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedSourceOp, RelatedSource: &recipe.ConstructionRelatedSource{
 		AnchorColumnID: "_key", ChoiceID: "one-distinct-observation", SourceOccurrenceID: "observation", Source: recipe.ConstructionRelatedFieldSource{CandidateID: "observation-value", NodeID: "observation", ResourceType: "Observation", Path: "Observation.valueInteger", Cardinality: "optional_one", LogicalType: "integer"}, Route: graphRowsFixtureObservationRoute(), ContributorPolicy: "ALL_MATCHES", Form: "ALL", RowValuePolicy: recipe.ConstructionRowValueOne, OutputColumnID: "observation-value",

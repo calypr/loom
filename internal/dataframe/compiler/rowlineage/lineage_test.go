@@ -5,10 +5,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -462,7 +464,7 @@ func TestCompileCohortGroupLineageAppliesFilterBeforePaging(t *testing.T) {
 				ID: "filter_group_rows", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: "group_label", Operator: recipe.FilterEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
 				}},
 				Outputs: []recipe.StageColumn{
 					{ID: "group_id", Name: "group_id", Type: "string"},
@@ -1079,7 +1081,7 @@ func constructionGroupFilterLineageOutput(thresholds ...int64) recipe.Output {
 			ID: stepID, Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: previous}},
 			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 				ColumnID: "row_count_id", Operator: recipe.FilterGreaterThan,
-				Values: []recipe.FilterValue{{Kind: recipe.FilterInteger, Integer: &value}},
+				Values: []spec.FilterValue{{Kind: recipe.FilterInteger, Integer: &value}},
 			}},
 			Outputs: append([]recipe.StageColumn(nil), columns...),
 		})
@@ -1101,7 +1103,7 @@ func constructionGroupFilteredSummaryOutput() recipe.Output {
 		ID: stepID, Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: step.ID}},
 		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 			ColumnID: "amount_sum_id", Operator: recipe.FilterGreaterThan,
-			Values: []recipe.FilterValue{{Kind: recipe.FilterDecimal, Decimal: &threshold}},
+			Values: []spec.FilterValue{{Kind: recipe.FilterDecimal, Decimal: &threshold}},
 		}},
 		Outputs: filterOutputs,
 	})

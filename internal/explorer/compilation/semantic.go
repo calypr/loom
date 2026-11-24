@@ -583,10 +583,10 @@ func contributorRecipeFilter(resourceType, alias string, candidate capability.Ca
 		return recipe.Filter{}, fmt.Errorf("contributor candidate %q selector %q is not a supported scalar", candidate.ID, candidate.FieldPath)
 	}
 	where := recipe.Filter{Select: alias + "." + selector.CanonicalPath(), FieldRef: candidate.ID}
-	where.Operator = recipe.FilterOperator(predicate.Operator)
+	where.Operator = spec.FilterOperator(predicate.Operator)
 	where.Quantifier = recipe.ArrayQuantifier(predicate.Quantifier)
 	if predicate.Value != nil {
-		value := recipe.FilterValue{Kind: recipe.FilterValueKind(predicate.Value.Kind)}
+		value := spec.FilterValue{Kind: spec.FilterValueKind(predicate.Value.Kind)}
 		switch predicate.Value.Kind {
 		case ws.ContributorString:
 			stringValue := *predicate.Value.String
@@ -596,7 +596,7 @@ func contributorRecipeFilter(resourceType, alias string, candidate capability.Ca
 		default:
 			return recipe.Filter{}, fmt.Errorf("unsupported contributor value kind %q", predicate.Value.Kind)
 		}
-		where.Values = []recipe.FilterValue{value}
+		where.Values = []spec.FilterValue{value}
 	}
 	if err := where.Validate(); err != nil {
 		return recipe.Filter{}, fmt.Errorf("contributor candidate %q: %w", candidate.ID, err)

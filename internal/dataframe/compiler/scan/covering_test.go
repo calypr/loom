@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -87,11 +89,11 @@ func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing
 		{ID: "active_id", Name: "active"},
 		{ID: "birth_date_id", Name: "birth_date"},
 	}
-	makeOutput := func(name, stageID string, operator recipe.FilterOperator) recipe.Output {
+	makeOutput := func(name, stageID string, operator spec.FilterOperator) recipe.Output {
 		filter := &recipe.ConstructionFilter{ColumnID: "active_id", Operator: operator}
 		if operator == recipe.FilterEquals {
 			active := true
-			filter.Values = []recipe.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &active}}
+			filter.Values = []spec.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &active}}
 		}
 		return recipe.Output{
 			Name: name, RootResourceType: "Patient", RowGrain: "patient",

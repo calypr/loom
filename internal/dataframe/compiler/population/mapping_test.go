@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/population"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -282,7 +284,7 @@ func TestCompilePopulationMappingConstructionUsesFinalObjectIdentityAndRootMembe
 				ID: "filter_group_rows", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: "group_label", Operator: recipe.FilterEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
 				}},
 				Outputs: []recipe.StageColumn{
 					{ID: "group_id", Name: "group_id", Type: "string"},

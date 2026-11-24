@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
@@ -273,7 +275,7 @@ func testCohortCompositionBundle() recipe.Bundle {
 					ID: "keep_patient", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 						ColumnID: "patient_id", Operator: recipe.FilterEquals,
-						Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &value}},
+						Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &value}},
 					}},
 					Outputs: []recipe.StageColumn{{ID: "patient_id", Name: "id", Type: "string"}},
 				}},
@@ -1379,7 +1381,7 @@ func TestCohortPreviewWithSmallerRootPageKeepsAllMemberValuesAgainstArango(t *te
 				ID: "keep_all_members", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: "gender", Operator: recipe.FilterEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &keepGender}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &keepGender}},
 				}},
 				Outputs: []recipe.StageColumn{
 					{ID: "ids", Name: "ids", Type: "string"}, {ID: "gender", Name: "gender", Type: "string"},

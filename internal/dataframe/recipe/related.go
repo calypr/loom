@@ -61,10 +61,10 @@ type ConstructionRelatedField struct {
 }
 
 type ConstructionRelatedPredicate struct {
-	CandidateID string          `json:"candidateId"`
-	Quantifier  ArrayQuantifier `json:"quantifier,omitempty"`
-	Operator    FilterOperator  `json:"operator"`
-	Value       *FilterValue    `json:"value,omitempty"`
+	CandidateID string              `json:"candidateId"`
+	Quantifier  ArrayQuantifier     `json:"quantifier,omitempty"`
+	Operator    spec.FilterOperator `json:"operator"`
+	Value       *spec.FilterValue   `json:"value,omitempty"`
 }
 
 type ConstructionRelatedRepeatedBoundary struct {

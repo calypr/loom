@@ -40,6 +40,8 @@ type RowLineageUnsupportedError = rowlineage.RowLineageUnsupportedError
 
 var BindGroupRelatedOccurrenceSource = lower.BindGroupRelatedOccurrenceSource
 var CompileResolvedRecipePlan = lower.CompileResolvedRecipePlan
+var CompileResolvedRecipePlanWithPolicy = compilerpkg.CompileResolvedRecipePlanWithPolicy
+var CompileResolvedGraphQueryWithPolicy = compilerpkg.CompileResolvedGraphQueryWithPolicy
 
 type CompiledGroupFieldOwner = lower.CompiledGroupFieldOwner
 type CompiledGroupFieldSourceContext = lower.CompiledGroupFieldSourceContext
@@ -70,7 +72,9 @@ const PhysicalCallExpression = ir.PhysicalCallExpression
 const PhysicalCombineAppend = ir.PhysicalCombineAppend
 const PhysicalCombineKeyJoin = ir.PhysicalCombineKeyJoin
 
+type CompilerPlanDiagnostics = ir.CompilerPlanDiagnostics
 type PhysicalOptimizationDecision = ir.PhysicalOptimizationDecision
+type PhysicalOptimizationReport = ir.PhysicalOptimizationReport
 type PhysicalPlan = ir.PhysicalPlan
 type PhysicalProjection = ir.PhysicalProjection
 

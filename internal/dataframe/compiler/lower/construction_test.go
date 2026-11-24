@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -231,7 +233,7 @@ func TestCompileRelatedSourceAddsAllMatchesAfterSelectedStage(t *testing.T) {
 					Source:            recipe.ConstructionRelatedFieldSource{CandidateID: "observation-status", NodeID: "observation-node", ResourceType: "Observation", Path: "Observation.status", Cardinality: "optional_one", LogicalType: "string"},
 					Route:             []recipe.ConstructionRelatedRouteStep{{EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node", FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL"}},
 					ContributorPolicy: "ALL_MATCHES",
-					Predicate:         &recipe.ConstructionRelatedPredicate{CandidateID: "observation-status", Operator: recipe.FilterEquals, Value: &recipe.FilterValue{Kind: recipe.FilterString, String: &status}},
+					Predicate:         &recipe.ConstructionRelatedPredicate{CandidateID: "observation-status", Operator: recipe.FilterEquals, Value: &spec.FilterValue{Kind: recipe.FilterString, String: &status}},
 					Form:              "ALL", OutputColumnID: "observation-status",
 				}},
 				Outputs: []recipe.StageColumn{{ID: "group_id", Name: "group"}, {ID: "category_id", Name: "category"}, {ID: "amount_id", Name: "amount"}, {ID: "observation-status", Name: "observation_status", Label: "Observation statuses"}},
@@ -1171,7 +1173,7 @@ func constructionTestOutput() recipe.Output {
 					ID: "filter", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "derive"}},
 					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 						ColumnID: "total_id", Operator: recipe.FilterGreaterEq,
-						Values: []recipe.FilterValue{{Kind: recipe.FilterInteger, Integer: &filterValue}},
+						Values: []spec.FilterValue{{Kind: recipe.FilterInteger, Integer: &filterValue}},
 					}},
 					Outputs: []recipe.StageColumn{{ID: "group_id", Name: "group", Label: groupLabel}, {ID: "amount_a_id", Name: "amount_a"}, {ID: "amount_b_id", Name: "amount_b"}, {ID: "total_id", Name: "total"}},
 				},

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/testkit/recipetest"
@@ -33,7 +35,7 @@ func TestFilteredSourceCellTraceMatchesForwardValueAgainstArango(t *testing.T) {
 		ID: "filter", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 			ColumnID: "group_text", Operator: recipe.FilterEquals,
-			Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &status}},
+			Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &status}},
 		}},
 		Outputs: append([]recipe.StageColumn(nil), output.Construction.SourceColumns...),
 	}}

@@ -126,7 +126,7 @@ func recipeFiltersFromInput(in []*dataframemodel.FhirFilterInput) ([]recipe.Filt
 		filter := recipe.Filter{
 			Select:   strings.TrimSpace(item.Select),
 			FieldRef: strings.TrimSpace(httpapi.OptionalString(item.FieldRef)),
-			Operator: recipe.FilterOperator(item.Operator.String()),
+			Operator: spec.FilterOperator(item.Operator.String()),
 		}
 		if item.Quantifier != nil {
 			filter.Quantifier = recipe.ArrayQuantifier(item.Quantifier.String())
@@ -143,11 +143,11 @@ func recipeFiltersFromInput(in []*dataframemodel.FhirFilterInput) ([]recipe.Filt
 	return out, nil
 }
 
-func recipeFilterValue(input *dataframemodel.FhirFilterValueInput) (recipe.FilterValue, error) {
+func recipeFilterValue(input *dataframemodel.FhirFilterValueInput) (spec.FilterValue, error) {
 	if input == nil {
-		return recipe.FilterValue{}, fmt.Errorf("value is required")
+		return spec.FilterValue{}, fmt.Errorf("value is required")
 	}
-	value := recipe.FilterValue{Kind: recipe.FilterValueKind(input.Kind.String())}
+	value := spec.FilterValue{Kind: spec.FilterValueKind(input.Kind.String())}
 	switch input.Kind {
 	case dataframemodel.FhirFilterValueKindString:
 		value.String = input.String
@@ -169,10 +169,10 @@ func recipeFilterValue(input *dataframemodel.FhirFilterValueInput) (recipe.Filte
 	case dataframemodel.FhirFilterValueKindDateTime:
 		value.DateTime = input.DateTime
 	default:
-		return recipe.FilterValue{}, fmt.Errorf("unsupported value kind %q", input.Kind)
+		return spec.FilterValue{}, fmt.Errorf("unsupported value kind %q", input.Kind)
 	}
 	if err := value.Validate(); err != nil {
-		return recipe.FilterValue{}, err
+		return spec.FilterValue{}, err
 	}
 	return value, nil
 }
@@ -281,5 +281,5 @@ func recipeSelectorExpression(in *dataframemodel.FhirFieldSelectorInput) (recipe
 
 func recipeStringEqualityFilter(path, value string) *recipe.Filter {
 	valueCopy := value
-	return &recipe.Filter{Select: path, Operator: recipe.FilterEquals, Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &valueCopy}}}
+	return &recipe.Filter{Select: path, Operator: recipe.FilterEquals, Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &valueCopy}}}
 }

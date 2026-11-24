@@ -8,14 +8,12 @@ import (
 )
 
 type Filter struct {
-	Select     string          `json:"select"`
-	FieldRef   string          `json:"fieldRef,omitempty"`
-	Operator   FilterOperator  `json:"operator"`
-	Quantifier ArrayQuantifier `json:"quantifier,omitempty"`
-	Values     []FilterValue   `json:"values,omitempty"`
+	Select     string              `json:"select"`
+	FieldRef   string              `json:"fieldRef,omitempty"`
+	Operator   spec.FilterOperator `json:"operator"`
+	Quantifier ArrayQuantifier     `json:"quantifier,omitempty"`
+	Values     []spec.FilterValue  `json:"values,omitempty"`
 }
-
-type FilterOperator = spec.FilterOperator
 
 const (
 	FilterEquals      = spec.FilterEquals
@@ -38,8 +36,6 @@ const (
 	QuantifierNone = spec.QuantifierNone
 )
 
-type FilterValueKind = spec.FilterValueKind
-
 const (
 	FilterString   = spec.FilterString
 	FilterCode     = spec.FilterCode
@@ -51,8 +47,6 @@ const (
 )
 
 type CodeValue = spec.CodeValue
-
-type FilterValue = spec.FilterValue
 
 func (f Filter) Validate() error { return f.validateAt("$") }
 
@@ -77,7 +71,7 @@ func (f Filter) validateAt(path string) error {
 		}
 		return validationError("invalid_filter_values", path+".values", message)
 	}
-	var kind FilterValueKind
+	var kind spec.FilterValueKind
 	for i, value := range f.Values {
 		if err := value.Validate(); err != nil {
 			return validationError("invalid_filter_value", fmt.Sprintf("%s.values[%d]", path, i), err.Error())

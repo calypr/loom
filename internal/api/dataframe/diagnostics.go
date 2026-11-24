@@ -3,7 +3,7 @@ package dataframe
 import (
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	compilerfacade "github.com/calypr/loom/internal/dataframe/compiler/facade"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 )
 
@@ -22,7 +22,7 @@ func Diagnostics(in dataframeexecution.QueryDiagnostics) *DataframeQueryDiagnost
 
 func milliseconds(value time.Duration) float64 { return float64(value) / float64(time.Millisecond) }
 
-func compilerPlanDiagnostics(in ir.CompilerPlanDiagnostics) *DataframeCompilerPlanDiagnostics {
+func compilerPlanDiagnostics(in compilerfacade.CompilerPlanDiagnostics) *DataframeCompilerPlanDiagnostics {
 	out := &DataframeCompilerPlanDiagnostics{
 		TraversalSets:                     in.TraversalSets,
 		SharedTraversalCount:              in.SharedTraversalCount,
@@ -46,7 +46,7 @@ func compilerPlanDiagnostics(in ir.CompilerPlanDiagnostics) *DataframeCompilerPl
 	return out
 }
 
-func optimizationPolicy(in ir.PhysicalOptimizationReport) *DataframeOptimizationPolicy {
+func optimizationPolicy(in compilerfacade.PhysicalOptimizationReport) *DataframeOptimizationPolicy {
 	out := &DataframeOptimizationPolicy{Name: in.Policy, Enabled: in.Enabled, MinimumSavings: in.MinimumSavings, Decisions: make([]*DataframeOptimizationDecision, 0, len(in.Decisions))}
 	for _, decision := range in.Decisions {
 		out.Decisions = append(out.Decisions, &DataframeOptimizationDecision{Rule: decision.Rule, Enabled: decision.Enabled, CandidateSets: decision.CandidateSets, EstimatedBaselineWork: decision.EstimatedBaselineWork, EstimatedOptimizedWork: decision.EstimatedOptimizedWork, EstimatedSavings: decision.EstimatedSavings, Reason: decision.Reason})

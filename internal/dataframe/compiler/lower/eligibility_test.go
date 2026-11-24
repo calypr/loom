@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -31,7 +33,7 @@ func TestCompileRelatedEligibilityPreservesRowsAndCountsDistinctTerminalResource
 		{kind: recipe.RelatedEligibilityCountAtLeast, threshold: intPointer(2),
 			contributorSource: contributorSource("observation-id", "Observation.id", "required_one"),
 			contributorPredicate: &recipe.ConstructionRelatedPredicate{CandidateID: "observation-id", Operator: recipe.FilterEquals,
-				Value: &recipe.FilterValue{Kind: recipe.FilterString, String: &exactValue}}},
+				Value: &spec.FilterValue{Kind: recipe.FilterString, String: &exactValue}}},
 	} {
 		t.Run(match.kind, func(t *testing.T) {
 			output := constructionTestOutput()

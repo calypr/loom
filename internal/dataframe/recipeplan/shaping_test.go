@@ -82,7 +82,7 @@ func TestLowerRecipeCorrelatedPivotPreservesSelectedVersion(t *testing.T) {
 		t.Fatalf("lowered correlated pivot = %#v", pivots)
 	}
 
-	values, err := recipeFilterValues([]recipe.FilterValue{{Kind: recipe.FilterCode, Code: &recipe.CodeValue{System: "urn:study:A", Code: "shared", Version: "v2"}}})
+	values, err := recipeFilterValues([]spec.FilterValue{{Kind: recipe.FilterCode, Code: &recipe.CodeValue{System: "urn:study:A", Code: "shared", Version: "v2"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestLowerRecipeAggregatesMapsSelectorWhereAndOperation(t *testing.T) {
 		Where: &recipe.Filter{
 			Select:   "gender",
 			Operator: recipe.FilterEquals,
-			Values:   []recipe.FilterValue{{Kind: recipe.FilterString, String: &want}},
+			Values:   []spec.FilterValue{{Kind: recipe.FilterString, String: &want}},
 		},
 	}})
 	if err != nil {
@@ -179,7 +179,7 @@ func TestLowerRecipeAggregatesCountsExtractedValuesAndRejectsUnrepresentableWher
 	_, err = lowerRecipeAggregates("Patient", "root", scope, []recipe.Aggregate{{
 		Name: "count", Operation: recipe.AggregateCount, Where: &recipe.Filter{
 			Select: "gender", Operator: recipe.FilterNotEquals,
-			Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: stringPtr("female")}},
+			Values: []spec.FilterValue{{Kind: recipe.FilterString, String: stringPtr("female")}},
 		},
 	}})
 	if err == nil || !strings.Contains(err.Error(), "not representable") {
@@ -228,7 +228,7 @@ func TestLowerRecipeAggregatesPreservesCodePredicateKind(t *testing.T) {
 	scope := newRootScope("Specimen")
 	aggregates, err := lowerRecipeAggregates("Specimen", "specimen", scope, []recipe.Aggregate{{
 		Name: "tumor_count", Operation: recipe.AggregateCount,
-		Where: &recipe.Filter{Select: "specimen.type.coding[].code", Operator: recipe.FilterEquals, Quantifier: recipe.QuantifierAny, Values: []recipe.FilterValue{{Kind: recipe.FilterCode, Code: &recipe.CodeValue{Code: code}}}},
+		Where: &recipe.Filter{Select: "specimen.type.coding[].code", Operator: recipe.FilterEquals, Quantifier: recipe.QuantifierAny, Values: []spec.FilterValue{{Kind: recipe.FilterCode, Code: &recipe.CodeValue{Code: code}}}},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -338,7 +338,7 @@ func TestLowerRecipeSlicesUsesProjectionFallbacksAndPredicate(t *testing.T) {
 	want := "female"
 	slices, err := lowerRecipeSlices("Patient", "root", scope, []recipe.RepresentativeSlice{{
 		Name: "representatives", Limit: 3,
-		Where: &recipe.Filter{Select: "gender", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &want}}},
+		Where: &recipe.Filter{Select: "gender", Operator: recipe.FilterEquals, Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &want}}},
 		Fields: []recipe.Field{{
 			Name: "identifier", Expr: *recipeExpr("id"),
 			Fallbacks: []recipe.Expression{*recipeExpr("gender")}, ValueMode: recipe.ValueModeFirst,

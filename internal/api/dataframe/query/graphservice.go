@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
-	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	compilerfacade "github.com/calypr/loom/internal/dataframe/compiler/facade"
+
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
@@ -176,7 +176,7 @@ func (s *Service) RunFHIRGraph(ctx context.Context, input FHIRGraphQuery) (*FHIR
 	if err != nil {
 		return nil, queryInvalid(err)
 	}
-	compiled, err := compiler.CompileResolvedGraphQueryWithPolicy(resolved, normalized.Limit, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := compilerfacade.CompileResolvedGraphQueryWithPolicy(resolved, normalized.Limit, compilerfacade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return nil, queryInvalid(err)
 	}
@@ -220,7 +220,7 @@ func (s *Service) ExplainFHIRGraph(ctx context.Context, input FHIRGraphQuery, li
 		return nil, queryInvalid(err)
 	}
 
-	compiled, err := compiler.CompileResolvedGraphQueryWithPolicy(resolved, normalized.Limit, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := compilerfacade.CompileResolvedGraphQueryWithPolicy(resolved, normalized.Limit, compilerfacade.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return nil, err
 	}

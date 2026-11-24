@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/spec"
+
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/model"
@@ -27,7 +29,7 @@ func TestConstructionPreviewLimitAppliesAfterFinalStage(t *testing.T) {
 				ID: "filter_status", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 					ColumnID: "status_id", Operator: recipe.FilterEquals,
-					Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &value}},
+					Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &value}},
 				}},
 				Outputs: []recipe.StageColumn{{ID: "status_id", Name: "status", Type: "string"}},
 			}},
@@ -562,7 +564,7 @@ func constructionPreviewPivotOutput(groupSelector string, priorFilter bool) reci
 			ID: "filter_preview_rows", Inputs: []recipe.ConstructionInputRef{input},
 			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 				ColumnID: "category_id", Operator: recipe.FilterEquals,
-				Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &filterGender}},
+				Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &filterGender}},
 			}},
 			Outputs: []recipe.StageColumn{{ID: "id_id", Name: "resource_id"}, {ID: "category_id", Name: "category"}, {ID: "amount_id", Name: "amount"}},
 		})

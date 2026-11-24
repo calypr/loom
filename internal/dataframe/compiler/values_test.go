@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
+	explorerdb "github.com/calypr/loom/internal/explorer/arango/db"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/columntransform"
@@ -342,7 +344,7 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 		ID: "exclude_filtered", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
 			ColumnID: "patient_id", Operator: recipe.FilterNotEquals,
-			Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
+			Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
 		}},
 		Outputs: []recipe.StageColumn{{ID: "patient_id", Name: "patient_id"}},
 	}}
@@ -484,7 +486,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 		}, Steps: []recipe.ConstructionStep{{
 			ID: "keep_a", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
 			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
-				ColumnID: "ids", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &selectedID}},
+				ColumnID: "ids", Operator: recipe.FilterEquals, Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &selectedID}},
 			}},
 			Outputs: []recipe.StageColumn{{ID: "ids", Name: "ids", Type: "string"}, {ID: "gender", Name: "gender", Type: "string"}, {ID: "identifiers", Name: "identifiers", Type: "string"}},
 		}}}
@@ -520,7 +522,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 		}, Steps: []recipe.ConstructionStep{{
 			ID: "keep_pair", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID}},
 			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
-				ColumnID: "group_id", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &selectedGroup}},
+				ColumnID: "group_id", Operator: recipe.FilterEquals, Values: []spec.FilterValue{{Kind: recipe.FilterString, String: &selectedGroup}},
 			}},
 			Outputs: []recipe.StageColumn{
 				{ID: "group_id", Name: "group_id", Type: "string"},
