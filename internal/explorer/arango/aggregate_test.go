@@ -14,7 +14,9 @@ type Store struct {
 	*workspacedb.RevisionStore
 	*workspacedb.WorkspaceStore
 	*ExplicitGroupStore
-	*publicationdb.Store
+	*publicationdb.ReceiptStore
+	*publicationdb.PublicationStore
+	*publicationdb.ViewBuilderStore
 	*InterpretationStore
 	*WorkspaceProjectionStore
 }
@@ -24,17 +26,15 @@ func New(client client) (*Store, error) {
 		return nil, fmt.Errorf("Explorer Arango client is required")
 	}
 	selections := selectiondb.NewSelectionStore(client)
-	publicationStore, err := publicationdb.NewStore(client)
-	if err != nil {
-		return nil, err
-	}
 	return &Store{
 		DraftStore:               NewDraftStore(client),
 		SelectionStore:           selections,
 		RevisionStore:            workspacedb.NewRevisionStore(client),
 		WorkspaceStore:           workspacedb.NewWorkspaceStore(client),
 		ExplicitGroupStore:       NewExplicitGroupStore(client, selections),
-		Store:                    publicationStore,
+		ReceiptStore:             publicationdb.NewReceiptStore(client),
+		PublicationStore:         publicationdb.NewPublicationStore(client),
+		ViewBuilderStore:         publicationdb.NewViewBuilderStore(client),
 		InterpretationStore:      NewInterpretationStore(client),
 		WorkspaceProjectionStore: NewWorkspaceProjectionStore(client),
 	}, nil
