@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1107,21 +1108,9 @@ func assertSemanticCategoryExamples(t *testing.T, family semantic.Family, want [
 	expected := append([]string(nil), want...)
 	sort.Strings(got)
 	sort.Strings(expected)
-	if !equalStringSlices(got, expected) {
+	if !slices.Equal(got, expected) {
 		t.Fatalf("family examples = %#v, want selected Coding display/code values %#v", got, expected)
 	}
-}
-
-func equalStringSlices(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func deleteSemanticCategoryFixtureRows(ctx context.Context, client *arangostore.Client, collection, project, generation string) error {

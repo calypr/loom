@@ -25,10 +25,6 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 	return prepared, receipt, accepted, err
 }
 
-func (s *Service) currentWorkspace(ctx context.Context, project, explorerID string) (ws.Workspace, error) {
-	return s.core.CurrentWorkspace(ctx, "construction-choices", project, explorerID)
-}
-
 func (s *Service) ProposeConstruction(ctx context.Context, request construction.ConstructionProposalRequest) (construction.ConstructionProposalResponse, error) {
 	return s.constructionService.ProposeConstruction(ctx, request)
 }

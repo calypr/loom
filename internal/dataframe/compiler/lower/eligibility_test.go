@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -188,7 +189,7 @@ func TestRelatedEligibilityAfterGroupUsesCompilerOwnedRootContributors(t *testin
 			if subplan == nil || len(subplan.Operations) < 2 || subplan.Operations[0].CollectionScan == nil ||
 				subplan.Operations[1].Filter == nil || subplan.Operations[1].Filter.Predicate.Operator != "IN" ||
 				subplan.Operations[1].Filter.Predicate.Right == nil ||
-				!equalStringSlices(subplan.Operations[1].Filter.Predicate.Right.Path, []string{rootContributorSetColumn}) {
+				!slices.Equal(subplan.Operations[1].Filter.Predicate.Right.Path, []string{rootContributorSetColumn}) {
 				t.Fatalf("eligibility did not scan the exact compiler-owned contributor set: %#v", subplan)
 			}
 			if err := compiled.Plan.Validate(); err != nil {

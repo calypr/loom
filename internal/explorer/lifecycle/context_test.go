@@ -10,6 +10,7 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/interpretation"
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
@@ -46,7 +47,7 @@ func (*interpretationContextRepository) CreateInterpretationRevision(context.Con
 }
 
 func TestConfiguredColumnContextProjectsServerOwnedResolutionWithoutMutation(t *testing.T) {
-	revision := lifecyclePrepareInterpretation(t)
+	revision := explorerfixtures.PrepareInterpretationRevision(t, explorerfixtures.InterpretationRevisionInput())
 	workspace := lifecycleInterpretationWorkspace(string(revision.ID), false)
 	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns,
 		ws.Column{Column: "project", Label: "Project", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceProjectID}},
@@ -115,7 +116,7 @@ func TestConfiguredColumnContextProjectsServerOwnedResolutionWithoutMutation(t *
 }
 
 func TestConfiguredColumnContextRejectsStaleDraftAndScope(t *testing.T) {
-	revision := lifecyclePrepareInterpretation(t)
+	revision := explorerfixtures.PrepareInterpretationRevision(t, explorerfixtures.InterpretationRevisionInput())
 	workspace := lifecycleInterpretationWorkspace(string(revision.ID), false)
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -164,7 +165,7 @@ func TestConfiguredColumnContextRejectsStaleDraftAndScope(t *testing.T) {
 }
 
 func TestConfiguredColumnContextRejectsInvalidRoute(t *testing.T) {
-	revision := lifecyclePrepareInterpretation(t)
+	revision := explorerfixtures.PrepareInterpretationRevision(t, explorerfixtures.InterpretationRevisionInput())
 	workspace := lifecycleInterpretationWorkspace(string(revision.ID), false)
 	workspace.Documents[0].Route.Children = []ws.RouteNode{{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "subject"}}
 	workspace.Documents[0].Columns[0].OccurrenceID = "observation"
@@ -265,7 +266,7 @@ func assertLifecycleCode(t *testing.T, err error, code string) {
 }
 
 func TestConfiguredColumnContextKeepsOrdinaryMappingsAlongsideLargeImportedSources(t *testing.T) {
-	revision := lifecyclePrepareInterpretation(t)
+	revision := explorerfixtures.PrepareInterpretationRevision(t, explorerfixtures.InterpretationRevisionInput())
 	workspace := lifecycleInterpretationWorkspace(string(revision.ID), false)
 	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns,
 		ws.Column{Column: "project", Label: "Project", OccurrenceID: ws.RootOccurrenceID, Source: ws.ColumnSource{Kind: ws.SourceProjectID}},

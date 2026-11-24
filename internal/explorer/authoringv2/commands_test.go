@@ -355,11 +355,11 @@ func TestApplySemanticSelectionsUsesStableIdentityAndServerRoutes(t *testing.T) 
 	outputID := created[0].OutputID
 	workspace.Documents[0].Construction = &ws.Construction{Version: ws.ConstructionVersion, Steps: []ws.ConstructionStep{}}
 	selections := []SemanticSelection{
-		{ConceptID: "concept-system-a-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", Title: "First label", ResolvedObservation: semanticSelectionEntry("concept-system-a-shared", "binding-observation", "urn:system:a", "shared", "")},
-		{ConceptID: "concept-system-b-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("concept-system-b-shared", "binding-observation", "urn:system:b", "shared", "")},
-		{ConceptID: "concept-system-a-other", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-encounter", "encounter-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("concept-system-a-other", "binding-observation", "urn:system:a", "other", "")},
-		{ConceptID: "concept-system-a-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", Title: "Changed label", ResolvedObservation: semanticSelectionEntry("concept-system-a-shared", "binding-observation", "urn:system:a", "shared", "")},
-		{ConceptID: "concept-system-a-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "FIRST", ResolvedObservation: semanticSelectionEntry("concept-system-a-shared", "binding-observation", "urn:system:a", "shared", "")},
+		{ConceptID: "concept-system-a-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", Title: "First label", ResolvedObservation: capabilityfixtures.SemanticSelectionEntry("concept-system-a-shared", "binding-observation", "urn:system:a", "shared", "")},
+		{ConceptID: "concept-system-b-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: capabilityfixtures.SemanticSelectionEntry("concept-system-b-shared", "binding-observation", "urn:system:b", "shared", "")},
+		{ConceptID: "concept-system-a-other", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-encounter", "encounter-observation"}, ProjectionMode: "VALUE", ResolvedObservation: capabilityfixtures.SemanticSelectionEntry("concept-system-a-other", "binding-observation", "urn:system:a", "other", "")},
+		{ConceptID: "concept-system-a-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", Title: "Changed label", ResolvedObservation: capabilityfixtures.SemanticSelectionEntry("concept-system-a-shared", "binding-observation", "urn:system:a", "shared", "")},
+		{ConceptID: "concept-system-a-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "FIRST", ResolvedObservation: capabilityfixtures.SemanticSelectionEntry("concept-system-a-shared", "binding-observation", "urn:system:a", "shared", "")},
 	}
 	updated, results, err := ApplyCommands(workspace, catalogSnapshot, "semantic-add", []Command{{Type: CommandAddSemanticSelections, OutputID: outputID, Payload: &SemanticPayload{ContextToken: "context", SemanticSelections: selections}}})
 	if err != nil {
@@ -456,8 +456,8 @@ func TestApplySemanticSelectionsRollsBackInvalidLastItem(t *testing.T) {
 		t.Fatal(err)
 	}
 	selections := []SemanticSelection{
-		{ConceptID: "valid", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("valid", "binding", "urn:system", "valid", "")},
-		{ConceptID: "versioned", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("versioned", "binding", "urn:system", "versioned", "v1")},
+		{ConceptID: "valid", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: capabilityfixtures.SemanticSelectionEntry("valid", "binding", "urn:system", "valid", "")},
+		{ConceptID: "versioned", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: capabilityfixtures.SemanticSelectionEntry("versioned", "binding", "urn:system", "versioned", "v1")},
 	}
 	versionedPlan := semanticauthoring.ResolveSemanticSelectionPlan(selections[1].ResolvedObservation.Observation)
 	if _, _, err := ApplyCommands(workspace, catalogSnapshot, "atomic-add", []Command{{Type: CommandAddSemanticSelections, OutputID: created[0].OutputID, Payload: &SemanticPayload{ContextToken: "context", SemanticSelections: selections}}}); err == nil || !strings.Contains(err.Error(), versionedPlan.Readiness.Code) || !strings.Contains(err.Error(), versionedPlan.Readiness.Message) {
@@ -482,7 +482,7 @@ func TestApplySemanticSelectionsPreservesExistingGraphAuthoredConfig(t *testing.
 	existingFilters := append([]ws.FixedFilter(nil), document.FixedFilters...)
 	existingActions := append([]ws.Action(nil), document.Actions...)
 	workspace := ws.Workspace{APIVersion: ws.APIVersion, Kind: ws.WorkspaceKind, SemanticsVersion: ws.CurrentSemanticsVersion, Explorer: ws.ExplorerMetadata{Title: "Builder"}, Documents: []ws.Document{document}, Tabs: []ws.Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}}
-	updated, _, err := ApplyCommands(workspace, catalogSnapshot, "semantic-add", []Command{{Type: CommandAddSemanticSelections, OutputID: "patients", Payload: &SemanticPayload{ContextToken: "context", SemanticSelections: []SemanticSelection{{ConceptID: "concept", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("concept", "binding", "urn:system", "code", "")}}}}})
+	updated, _, err := ApplyCommands(workspace, catalogSnapshot, "semantic-add", []Command{{Type: CommandAddSemanticSelections, OutputID: "patients", Payload: &SemanticPayload{ContextToken: "context", SemanticSelections: []SemanticSelection{{ConceptID: "concept", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: capabilityfixtures.SemanticSelectionEntry("concept", "binding", "urn:system", "code", "")}}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -526,20 +526,6 @@ func semanticSelectionCatalog() ws.CatalogSnapshot {
 		RoutePolicy: ws.RoutePolicy{Unbounded: true},
 	}
 	return catalogSnapshot
-}
-
-func semanticSelectionEntry(conceptID, bindingID, system, code, version string) *semantic.Entry {
-	return &semantic.Entry{
-		ConceptID: conceptID,
-		BindingID: bindingID,
-		Observation: semantic.Observation{
-			SchemaVersion: semantic.ObservationSchemaVersion,
-			Source:        semantic.Source{Type: "Observation", Path: "code"},
-			Key:           semantic.Key{Selector: "code.coding[]", System: system, Version: version, Code: code, Display: "Observed label"},
-			Value:         semantic.Value{Selector: "valueQuantity.value", Type: "decimal"},
-			ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: semantic.CompletenessComplete, Status: "SUPPORTED", RuleHint: semantic.RuleHintCodedValueV1, RuleVersion: strconv.Itoa(semantic.SemanticObservationRuleVersion),
-		},
-	}
 }
 
 func TestApplyCommandsAcceptsAncestorAwareExtensionAndRejectsLegacyWrite(t *testing.T) {

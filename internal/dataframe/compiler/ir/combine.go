@@ -2,6 +2,7 @@ package ir
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -270,7 +271,7 @@ func (prefix PhysicalClickHousePrefix) Validate(sequence *PhysicalStageSequence,
 	paths, pathsOK := bindVars[PhysicalScopeAuthPathsBind].([]string)
 	unrestricted, unrestrictedOK := bindVars[PhysicalScopeAuthPathsUnrestrictedBind].(bool)
 	allowed, allowedOK := bindVars[PhysicalScopeAllowedBind].(bool)
-	if !pathsOK || !samePhysicalStrings(paths, prefix.AuthResourcePaths) || !unrestrictedOK || unrestricted != (prefix.AuthScopeMode == "unrestricted") || !allowedOK || !allowed {
+	if !pathsOK || !slices.Equal(paths, prefix.AuthResourcePaths) || !unrestrictedOK || unrestricted != (prefix.AuthScopeMode == "unrestricted") || !allowedOK || !allowed {
 		return fmt.Errorf("private ClickHouse prefix scope differs from the AQL authorization bindings")
 	}
 	for _, column := range sequence.FinalColumns {
@@ -291,18 +292,6 @@ func (prefix PhysicalClickHousePrefix) Validate(sequence *PhysicalStageSequence,
 		return fmt.Errorf("private ClickHouse prefix authorization bind does not match its exact scope")
 	}
 	return nil
-}
-
-func samePhysicalStrings(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
 }
 
 func (prefix PhysicalClickHousePrefix) ValidateScope() error {

@@ -36,10 +36,6 @@ func ConstructionDocumentIndex(workspace ws.Workspace, outputID string) int {
 	return constructionDocumentIndex(workspace, outputID)
 }
 
-func ConstructionRouteForOccurrence(snapshot capability.Snapshot, rootResourceType, targetNodeID string, authoredRoot ws.RouteNode, occurrenceID string) ([]capability.ConstructionRouteStep, error) {
-	return constructionRouteForOccurrence(snapshot, rootResourceType, targetNodeID, authoredRoot, occurrenceID)
-}
-
 func ProveConstructionCandidate(ctx context.Context, authorized ports.AuthorizedCapability, rootResourceType string, candidate capability.Candidate, route []capability.ConstructionRouteStep) (capability.Candidate, error) {
 	return proveConstructionCandidate(ctx, authorized, rootResourceType, candidate, route)
 }

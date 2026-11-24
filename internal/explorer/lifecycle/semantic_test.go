@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/explorer/semanticbrowse"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/viewer"
@@ -18,12 +18,13 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/semantic"
+	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 )
 
 func TestApplySemanticSelectionsPersistsAuthorizedFactsAndPreservesWorkspace(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}}
 	snapshot := semanticAuthoringSnapshot(scope)
-	entry := semanticAuthoringEntry("concept-a", "binding-a", "urn:system:a", "code-a", "")
+	entry := capabilityfixtures.SemanticSelectionEntry("concept-a", "binding-a", "urn:system:a", "code-a", "")
 	resolverCalls := 0
 	store := semanticAuthoringStore(t)
 	service := semanticAuthoringService(t, store, snapshot, scope, func(_ context.Context, opts semantic.ResolveOptions) (semantic.ResolveResult, error) {
@@ -75,7 +76,7 @@ func TestApplySemanticSelectionsRejectsStaleScopeAndInventoryContext(t *testing.
 		snapshot := semanticAuthoringSnapshot(scope)
 		store := semanticAuthoringStore(t)
 		service := semanticAuthoringService(t, store, snapshot, scope, func(context.Context, semantic.ResolveOptions) (semantic.ResolveResult, error) {
-			return semanticAuthoringInventory(snapshot, []semantic.Entry{*semanticAuthoringEntry("concept-a", "binding-a", "urn:system", "code", "")}), nil
+			return semanticAuthoringInventory(snapshot, []semantic.Entry{*capabilityfixtures.SemanticSelectionEntry("concept-a", "binding-a", "urn:system", "code", "")}), nil
 		})
 		request := semanticAuthoringRequest(snapshot, "stale-context", "concept-a", "binding-a", "VALUE")
 		request.Commands[0].Payload.(*authoringv2.SemanticPayload).ContextToken = "old-context-token"
@@ -107,7 +108,7 @@ func TestApplySemanticSelectionsRejectsUnavailableAndUnsupportedRowsAtomically(t
 		want    string
 	}{
 		{name: "selection outside scope", entries: []semantic.Entry{}, want: "INVALID_SEMANTIC_SELECTION"},
-		{name: "version-specific binding", entries: []semantic.Entry{*semanticAuthoringEntry("concept-a", "binding-a", "urn:system", "code", "v1")}, want: "version-specific"},
+		{name: "version-specific binding", entries: []semantic.Entry{*capabilityfixtures.SemanticSelectionEntry("concept-a", "binding-a", "urn:system", "code", "v1")}, want: "version-specific"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
@@ -130,7 +131,7 @@ func TestApplySemanticSelectionsRejectsUnavailableAndUnsupportedRowsAtomically(t
 func TestApplySemanticSelectionsReplaysAndDeduplicatesByIntent(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := semanticAuthoringSnapshot(scope)
-	entry := semanticAuthoringEntry("concept-a", "binding-a", "urn:system", "code", "")
+	entry := capabilityfixtures.SemanticSelectionEntry("concept-a", "binding-a", "urn:system", "code", "")
 	resolverCalls := 0
 	store := semanticAuthoringStore(t)
 	service := semanticAuthoringService(t, store, snapshot, scope, func(_ context.Context, opts semantic.ResolveOptions) (semantic.ResolveResult, error) {
@@ -175,7 +176,7 @@ func TestApplySemanticSelectionsReturnsCASConflictAfterConcurrentWrite(t *testin
 	snapshot := semanticAuthoringSnapshot(scope)
 	store := semanticAuthoringStore(t)
 	service := semanticAuthoringService(t, store, snapshot, scope, func(context.Context, semantic.ResolveOptions) (semantic.ResolveResult, error) {
-		return semanticAuthoringInventory(snapshot, []semantic.Entry{*semanticAuthoringEntry("concept-a", "binding-a", "urn:system", "code", "")}), nil
+		return semanticAuthoringInventory(snapshot, []semantic.Entry{*capabilityfixtures.SemanticSelectionEntry("concept-a", "binding-a", "urn:system", "code", "")}), nil
 	})
 	store.copyGet = true
 	baseline := semanticAuthoringStore(t).created
@@ -279,7 +280,7 @@ func semanticAuthoringStore(t *testing.T) *fakeStore {
 
 func semanticAuthoringRequest(snapshot capability.Snapshot, commandID, conceptID, bindingID, projectionMode string) authoringv2.ApplyCommandsRequest {
 	buildID := semantic.BuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
-	contextToken, err := semanticInventoryContextToken(snapshot, "patients", "Patient", buildID)
+	contextToken, err := semanticbrowse.SemanticInventoryContextToken(snapshot, "patients", "Patient", buildID)
 	if err != nil {
 		panic(err)
 	}
@@ -287,16 +288,6 @@ func semanticAuthoringRequest(snapshot capability.Snapshot, commandID, conceptID
 		CommandID: commandID, SemanticsVersion: ws.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1,
 		ExpectedDraftDigest: "", Commands: []authoringv2.Command{{Type: authoringv2.CommandAddSemanticSelections, OutputID: "patients", Payload: &authoringv2.SemanticPayload{ContextToken: contextToken, SemanticSelections: []authoringv2.SemanticSelection{{ConceptID: conceptID, BindingID: bindingID, RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: projectionMode}}}}},
 	}
-}
-
-func semanticAuthoringEntry(conceptID, bindingID, system, code, version string) *semantic.Entry {
-	return &semantic.Entry{ConceptID: conceptID, BindingID: bindingID, Observation: semantic.Observation{
-		SchemaVersion: semantic.ObservationSchemaVersion,
-		Source:        semantic.Source{Type: "Observation", Path: "code"},
-		Key:           semantic.Key{Selector: "code.coding[]", System: system, Version: version, Code: code, Display: "Observed label"},
-		Value:         semantic.Value{Selector: "valueQuantity.value", Type: "decimal"},
-		ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: semantic.CompletenessComplete, Status: "SUPPORTED", RuleHint: semantic.RuleHintCodedValueV1, RuleVersion: strconv.Itoa(semantic.SemanticObservationRuleVersion),
-	}}
 }
 
 func semanticAuthoringInventory(snapshot capability.Snapshot, entries []semantic.Entry) semantic.ResolveResult {

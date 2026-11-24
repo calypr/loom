@@ -6,9 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"sort"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/facade"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -655,18 +656,6 @@ func traceConstructionStepPosition(construction ws.Construction, stepID string) 
 		}
 	}
 	return -1
-}
-
-func equalTraceMissingInputs(left, right []traceMissingInput) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func traceProposalRequestFingerprint(t *testing.T, id string, request json.RawMessage) string {

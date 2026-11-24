@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 	"os"
 	"reflect"
+	"slices"
 	"sort"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer/lifecycle/support"
 
 	"github.com/calypr/loom/internal/authscope"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -235,7 +237,7 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 					t.Fatalf("trace %s action %d request base differs from accepted state: digest=%q/%q version=%d/%d err=%v", traceID, actionIndex, req.ExpectedDraftDigest, currentDigest, req.ExpectedDraftVersion, store.created.DraftVersion, err)
 				}
 				captured := constructionFromRaw(t, traceID, actionIndex, cp.CandidateConstruction)
-				if !reflect.DeepEqual(req.CandidateConstruction, captured) || req.ChangedStepID != cp.ChangedStepID || !equalStringSlices(req.RemoveStepIDs, cp.RemoveStepIDs) {
+				if !reflect.DeepEqual(req.CandidateConstruction, captured) || req.ChangedStepID != cp.ChangedStepID || !slices.Equal(req.RemoveStepIDs, cp.RemoveStepIDs) {
 					t.Fatalf("trace %s action %d full proposalRequest differs from frontend captured candidate", traceID, actionIndex)
 				}
 				for stepID, output := range expectation.DownstreamOutputTypes {
@@ -639,7 +641,7 @@ func newOperationHistoryService(t *testing.T, w ws.Workspace, request constructi
 }
 
 func sameOperationHistoryExpectation(a, b operationHistoryExpectation) bool {
-	return a.ProposalStatus == b.ProposalStatus && equalStringSlices(a.StepIDs, b.StepIDs) && reflect.DeepEqual(a.GroupOutputTypes, b.GroupOutputTypes) && reflect.DeepEqual(a.DownstreamInputTypes, b.DownstreamInputTypes) && reflect.DeepEqual(a.DownstreamOutputTypes, b.DownstreamOutputTypes) && a.CandidateGroupKeyOutputID == b.CandidateGroupKeyOutputID && a.AcceptedGroupKeyOutputID == b.AcceptedGroupKeyOutputID && a.GroupKeyOutputRelation == b.GroupKeyOutputRelation && a.AcceptedAggregate == b.AcceptedAggregate && a.CandidateAggregate == b.CandidateAggregate && a.AcceptedChangesOnApply == b.AcceptedChangesOnApply && a.ApplyAck == b.ApplyAck && equalTraceMissingInputs(a.MissingInputs, b.MissingInputs) && equalStringSlices(a.RemovedStepIDs, b.RemovedStepIDs)
+	return a.ProposalStatus == b.ProposalStatus && slices.Equal(a.StepIDs, b.StepIDs) && reflect.DeepEqual(a.GroupOutputTypes, b.GroupOutputTypes) && reflect.DeepEqual(a.DownstreamInputTypes, b.DownstreamInputTypes) && reflect.DeepEqual(a.DownstreamOutputTypes, b.DownstreamOutputTypes) && a.CandidateGroupKeyOutputID == b.CandidateGroupKeyOutputID && a.AcceptedGroupKeyOutputID == b.AcceptedGroupKeyOutputID && a.GroupKeyOutputRelation == b.GroupKeyOutputRelation && a.AcceptedAggregate == b.AcceptedAggregate && a.CandidateAggregate == b.CandidateAggregate && a.AcceptedChangesOnApply == b.AcceptedChangesOnApply && a.ApplyAck == b.ApplyAck && slices.Equal(a.MissingInputs, b.MissingInputs) && slices.Equal(a.RemovedStepIDs, b.RemovedStepIDs)
 }
 
 func assertOperationHistoryProposal(t *testing.T, id string, actionIndex int, aggregateOutputID string, expected operationHistoryExpectation, accepted ws.Construction, proposal construction.ConstructionProposalResponse, receipt *receiptmodel.CompilationReceipt, outputID string) {
@@ -772,10 +774,10 @@ func assertOperationHistoryProposal(t *testing.T, id string, actionIndex int, ag
 		}
 		return wantMissing[i].ID < wantMissing[j].ID
 	})
-	if !equalTraceMissingInputs(missing, wantMissing) {
+	if !slices.Equal(missing, wantMissing) {
 		t.Fatalf("trace %s action %d missing inputs %#v != %#v", id, actionIndex, missing, wantMissing)
 	}
-	if !equalStringSlices(proposal.DependencyImpact.RemovedStepIDs, expected.RemovedStepIDs) {
+	if !slices.Equal(proposal.DependencyImpact.RemovedStepIDs, expected.RemovedStepIDs) {
 		t.Fatalf("trace %s action %d removed steps %v != model %v", id, actionIndex, proposal.DependencyImpact.RemovedStepIDs, expected.RemovedStepIDs)
 	}
 	if proposal.PreviewStatus == "PREVIEW_PENDING" {

@@ -28,8 +28,6 @@ type relatedCodingSelector struct {
 	facts fhirschema.RowPathFacts
 }
 
-func (s relatedCodingSelector) Path() string { return s.path }
-
 type savedRelatedGroupRoute struct {
 	targetNodeID string
 	steps        []capability.ConstructionRouteStep

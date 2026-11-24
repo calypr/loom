@@ -3,10 +3,11 @@ package lifecycle
 import (
 	"bytes"
 	"context"
-	"github.com/calypr/loom/internal/explorer/semanticbrowse"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer/semanticbrowse"
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/semantic"
+	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 )
 
 type constructionChoiceNegativeCase struct {
@@ -323,7 +325,7 @@ func constructionSemanticChoiceSetup(t *testing.T, mutateEntry func(*semantic.En
 	snapshot.Nodes = []capability.Node{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}, {ID: "patient", ResourceType: "Patient"}}
 	candidate := capability.Candidate{ID: "observation-value", NodeID: "observation", ResourceType: "Observation", FieldPath: "valueQuantity.value", Label: "Observed value", LogicalType: "decimal", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}}
 	snapshot.Candidates = []capability.Candidate{candidate}
-	entry := *semanticAuthoringEntry("concept-a", "binding-a", "urn:system:a", "code-a", "")
+	entry := *capabilityfixtures.SemanticSelectionEntry("concept-a", "binding-a", "urn:system:a", "code-a", "")
 	choiceEntry := entry
 	buildID := semantic.BuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
 	semanticContext := ""
@@ -342,7 +344,7 @@ func constructionSemanticChoiceSetup(t *testing.T, mutateEntry func(*semantic.En
 	}
 	if semanticContext == "" {
 		var err error
-		semanticContext, err = semanticInventoryContextToken(snapshot, "patients", "Observation", buildID)
+		semanticContext, err = semanticbrowse.SemanticInventoryContextToken(snapshot, "patients", "Observation", buildID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -396,5 +398,22 @@ func constructionSemanticChoiceSetup(t *testing.T, mutateEntry func(*semantic.En
 }
 
 func semanticInventoryConstructionChoice(snapshot capability.Snapshot, contextToken, buildID string, entry semantic.Entry, candidate capability.Candidate, ownerRecordsProved bool) (capability.ConstructionChoice, error) {
-	return semanticbrowse.SemanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, entry, candidate, ownerRecordsProved)
+	observation := entry.Observation
+	logicalType := observation.LogicalType
+	if logicalType == "" {
+		logicalType = observation.Value.Type
+	}
+	source := capability.SemanticBindingChoiceSource{
+		ConceptID: entry.ConceptID, BindingID: entry.BindingID, ResourceType: observation.Source.Type,
+		SourcePath: observation.Source.Path, SourceCanonical: observation.Source.Canonical,
+		SourceProfile: observation.Source.Profile, FieldPath: candidate.FieldPath,
+		OwningScope: observation.OwningScope, ExtensionURLPath: observation.ExtensionURLPath,
+		KeySelector: observation.Key.Selector, System: observation.Key.System, Version: observation.Key.Version,
+		Code: observation.Key.Code, ValueSelector: observation.Value.Selector,
+		ValueFallbacks:        append([]string(nil), observation.Value.FallbackSelectors...),
+		FallbackOnBlankString: observation.Value.FallbackOnBlankString, ChoiceArm: observation.ChoiceArm,
+		LogicalType: logicalType, RuleHint: observation.RuleHint, RuleVersion: observation.RuleVersion,
+		SchemaVersion: observation.SchemaVersion,
+	}
+	return capability.NewSemanticConstructionChoiceForRoute(snapshot.Token, contextToken, buildID, nil, source, candidate, ownerRecordsProved)
 }

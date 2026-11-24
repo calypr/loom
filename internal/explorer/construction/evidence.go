@@ -334,13 +334,6 @@ func semanticCategoryLabel(family semantic.Family, candidate capability.Candidat
 	return strings.TrimSpace(family.Source.Type + " " + field)
 }
 
-func semanticIdentifierLabel(system string) string {
-	if strings.TrimSpace(system) == "" {
-		return "Identifier"
-	}
-	return "Identifier · " + strings.TrimSpace(system)
-}
-
 func semanticSystemTailLabel(system string) string {
 	path := strings.TrimRight(strings.TrimSpace(system), "/")
 	if index := strings.LastIndex(path, "/"); index >= 0 {

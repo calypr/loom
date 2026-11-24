@@ -9,6 +9,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/semanticauthoring"
 	"github.com/calypr/loom/internal/semantic"
+	"github.com/calypr/loom/internal/testkit/constructionfixtures"
 )
 
 func TestSemanticCandidateWithFallbackPreservesRepeatedCardinalityAndAuthorizationIdentity(t *testing.T) {
@@ -117,4 +118,76 @@ func presentationHasFact(facts []capability.ConstructionChoiceFact, label, value
 		}
 	}
 	return false
+}
+
+func TestSemanticEntryReauthorizesPriorPrimaryOnlyFrameFamilies(t *testing.T) {
+	for _, kind := range []string{"quantity", "codeable concept"} {
+		t.Run(kind, func(t *testing.T) {
+			observation := constructionfixtures.SemanticFrameCompatibilityObservation(kind)
+			currentEntry := semantic.Entry{ConceptID: "concept", BindingID: "current-binding", Observation: observation}
+			currentFamily := constructionfixtures.SemanticFrameCompatibilityFamily(t, currentEntry)
+			priorFamily := currentFamily
+			priorFamily.BindingID = semantic.LegacySemanticBindingIDV1(observation)
+			priorFamily.SchemaVersion = semantic.ObservationSchemaVersion - 1
+			priorFamily.RuleVersion = strconv.Itoa(semantic.SemanticObservationRuleVersion - 1)
+			priorFamily.ValueFallbacks = nil
+			priorFamily.FallbackOnBlankString = false
+
+			projected, plan, ok := semanticEntryForFrameFamily(currentEntry, priorFamily)
+			if !ok || !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil {
+				t.Fatalf("prior frame did not reauthorize against the exact current inventory: ok=%v plan=%#v family=%#v", ok, plan, priorFamily)
+			}
+			binding := plan.Source.Lookup.Binding
+			if binding.ValuePath != priorFamily.ValuePath || len(binding.ValueFallback) != 0 || binding.FallbackOnBlankString ||
+				projected.Observation.Value.Selector != observation.Value.Selector || len(projected.Observation.Value.FallbackSelectors) != 0 || projected.Observation.Value.FallbackOnBlankString {
+				t.Fatalf("legacy frame did not retain its primary-only binding: binding=%#v projected=%#v", binding, projected.Observation.Value)
+			}
+			if len(observation.Value.FallbackSelectors) > 0 && !observation.Value.FallbackOnBlankString {
+				t.Fatalf("test fixture does not exercise the new opted-in fallback: %#v", observation.Value)
+			}
+
+			for _, test := range []struct {
+				name   string
+				mutate func(*capability.SemanticFrameFamily)
+			}{
+				{name: "tampered legacy binding id", mutate: func(f *capability.SemanticFrameFamily) { f.BindingID = "not-the-v1-binding" }},
+				{name: "legacy fallback injection", mutate: func(f *capability.SemanticFrameFamily) {
+					f.ValueFallbacks = []string{"valueCodeableConcept.coding[].code"}
+				}},
+				{name: "legacy blank policy injection", mutate: func(f *capability.SemanticFrameFamily) { f.FallbackOnBlankString = true }},
+				{name: "wrong owner", mutate: func(f *capability.SemanticFrameFamily) { f.OwningScope = "component[]" }},
+				{name: "wrong key", mutate: func(f *capability.SemanticFrameFamily) { f.KeyPath = "other.coding[]" }},
+				{name: "wrong value", mutate: func(f *capability.SemanticFrameFamily) { f.ValuePath += ".changed" }},
+				{name: "wrong logical type", mutate: func(f *capability.SemanticFrameFamily) { f.LogicalType = "integer" }},
+				{name: "wrong choice arm", mutate: func(f *capability.SemanticFrameFamily) { f.ChoiceArms = []string{"valueString"} }},
+				{name: "wrong source path", mutate: func(f *capability.SemanticFrameFamily) { f.SourcePath = "other" }},
+				{name: "schema only changed", mutate: func(f *capability.SemanticFrameFamily) {
+					f.RuleVersion = strconv.Itoa(semantic.SemanticObservationRuleVersion)
+				}},
+				{name: "unknown old versions", mutate: func(f *capability.SemanticFrameFamily) { f.SchemaVersion--; f.RuleVersion = "1" }},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					changed := priorFamily
+					test.mutate(&changed)
+					if _, _, accepted := semanticEntryForFrameFamily(currentEntry, changed); accepted {
+						t.Fatalf("accepted tampered or unknown legacy frame identity: %#v", changed)
+					}
+
+				})
+			}
+
+			changedObservation := observation
+			changedObservation.Key.Version = "2024"
+			changedEntry := currentEntry
+			changedEntry.Observation = changedObservation
+			if _, _, accepted := semanticEntryForFrameFamily(changedEntry, priorFamily); accepted {
+				t.Fatal("accepted a version-specific code for a prior versionless frame")
+			}
+
+			fresh, freshPlan, freshOK := semanticEntryForFrameFamily(currentEntry, currentFamily)
+			if !freshOK || !freshPlan.Readiness.Addable() || !reflect.DeepEqual(fresh.Observation.Value, observation.Value) {
+				t.Fatalf("current frame did not keep current fallback semantics: ok=%v plan=%#v value=%#v", freshOK, freshPlan, fresh.Observation.Value)
+			}
+		})
+	}
 }

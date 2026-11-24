@@ -31,18 +31,6 @@ func constructionStepIDs(steps []ws.ConstructionStep) []string {
 	return ids
 }
 
-func equalStringSlices(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
-}
-
 func seedRelatedExpandRemovalConstruction(t *testing.T, store *fakeStore) (ws.Workspace, ws.Construction) {
 	t.Helper()
 	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)

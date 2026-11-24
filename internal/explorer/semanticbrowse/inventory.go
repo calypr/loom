@@ -1271,26 +1271,6 @@ func (b *Service) semanticFieldPresentationReplacement(
 	return item, true, "", nil
 }
 
-func ResolveSchemaFieldCandidate(snapshot capability.Snapshot, candidateID string) (capability.Candidate, bool) {
-	return resolveSchemaFieldCandidate(snapshot, candidateID)
-}
-
-func SemanticInventoryConstructionChoiceForRoute(snapshot capability.Snapshot, contextToken, buildID string, route []capability.ConstructionRouteStep, entry semantic.Entry, candidate capability.Candidate, ownerRecordsProved bool) (capability.ConstructionChoice, error) {
-	return semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, route, entry, candidate, ownerRecordsProved)
-}
-
-func SemanticCategoryConstructionChoiceForRoute(snapshot capability.Snapshot, contextToken, buildID string, route []capability.ConstructionRouteStep, family semantic.Family, candidate capability.Candidate) (capability.ConstructionChoice, error) {
-	return semanticCategoryConstructionChoiceForRoute(snapshot, contextToken, buildID, route, family, candidate)
-}
-
 func SemanticCandidateWithFallback(snapshot capability.Snapshot, observation semantic.Observation, primary capability.Candidate) (capability.Candidate, bool) {
 	return semanticCandidateWithFallback(snapshot, observation, primary)
-}
-
-func SemanticEntryMatchesFrameFamily(entry semantic.Entry, family capability.SemanticFrameFamily) bool {
-	return semanticEntryMatchesFrameFamily(entry, family)
-}
-
-func SemanticEntryForFrameFamily(entry semantic.Entry, family capability.SemanticFrameFamily) (semantic.Entry, semanticauthoring.SemanticSelectionPlan, bool) {
-	return semanticEntryForFrameFamily(entry, family)
 }

@@ -5,7 +5,6 @@ import (
 
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
-	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/construction"
 )
 
@@ -95,34 +94,6 @@ func constructionOwnerInputsClearedFromCandidate(base ws.Construction, candidate
 	}
 	return true
 }
-func constructionRootFieldAlreadyProjected(document ws.Document, steps []ws.ConstructionStep, projections []ws.ConstructionSourceProjection, slotColumnID, fieldPath string) bool {
-	slot := strings.TrimSpace(fieldPath)
-	if slot == "" {
-		return false
-	}
-	for _, column := range document.Columns {
-		if column.ColumnID == "" || column.ColumnID == slotColumnID ||
-			column.OccurrenceID != ws.RootOccurrenceID ||
-			column.Source.Kind != ws.SourceField || column.Source.Field == nil {
-			continue
-		}
-		if column.Column == "_key" || strings.HasPrefix(column.Column, "__loom_") {
-			continue
-		}
-		if strings.TrimSpace(column.Source.Field.Path) == slot {
-			return true
-		}
-	}
-	for _, projection := range projections {
-		if projection.ColumnID == slotColumnID || !constructionStepCarriesSourceLane(steps, projection.OwnerStepID) {
-			continue
-		}
-		if strings.TrimSpace(projection.FieldPath) == slot {
-			return true
-		}
-	}
-	return false
-}
 func hasPivotSourceProjection(projections []ws.ConstructionSourceProjection, columnID string) bool {
 	for _, projection := range projections {
 		if projection.ColumnID == columnID {
@@ -131,55 +102,9 @@ func hasPivotSourceProjection(projections []ws.ConstructionSourceProjection, col
 	}
 	return false
 }
-func constructionGroupSourceCandidate(snapshot capability.Snapshot, choice capability.RowChoice) (capability.Candidate, bool) {
-	var candidate capability.Candidate
-	found := false
-	for _, current := range snapshot.Candidates {
-		if current.NodeID != choice.NodeID || current.ResourceType != choice.ResourceType || canonicalRowPath(current.FieldPath) != choice.Path {
-			continue
-		}
-		if found {
-			return capability.Candidate{}, false
-		}
-		candidate, found = current, true
-	}
-	if !found || !candidate.Populated || len(candidate.RepeatedBoundaries) != 0 || capability.IsRepeatedCardinality(candidate.Cardinality) ||
-		!containsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
-		!capability.IsSupportedConstructionSourceType(candidate.LogicalType) {
-		return capability.Candidate{}, false
-	}
-	return candidate, true
-}
-func canonicalRowPath(path string) string {
-	return strings.TrimPrefix(strings.TrimSpace(path), "root.")
-}
-func containsSourceProjectionMode(modes []capability.ProjectionMode, want capability.ProjectionMode) bool {
-	for _, mode := range modes {
-		if mode == want {
-			return true
-		}
-	}
-	return false
-}
-
 func constructionFHIRPathLabel(resourceType, path string) string {
 	path = strings.TrimPrefix(strings.TrimSpace(path), resourceType+".")
 	return resourceType + "." + path
-}
-
-func constructionStepCarriesSourceLane(steps []ws.ConstructionStep, stepID string) bool {
-	if stepID == "" {
-		return false
-	}
-	for _, step := range steps {
-		if step.ID != stepID {
-			continue
-		}
-		return step.Operation.Kind == ws.ConstructionOperationDerive ||
-			step.Operation.Kind == ws.ConstructionOperationFilter ||
-			step.Operation.Kind == ws.ConstructionOperationUnpivot
-	}
-	return false
 }
 
 func (e rowSourceEnumeration) onlySkipClass() (rowSourceSkipClass, bool) {

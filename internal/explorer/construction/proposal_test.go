@@ -104,6 +104,7 @@ func TestConstructionGroupSourceExposesPopulatedGeneratedScalarWhenObserved(t *t
 			{ID: "active", NodeID: "body-structure", ResourceType: "BodyStructure", FieldPath: "active", Label: "Whether this record is in active use", LogicalType: "boolean", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: true, Populated: true, ObservedDocumentCount: 2},
 			{ID: "id", NodeID: "body-structure", ResourceType: "BodyStructure", FieldPath: "id", Label: "Logical id", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: true, Populated: true, ObservedDocumentCount: 2},
 			{ID: "patient", NodeID: "body-structure", ResourceType: "BodyStructure", FieldPath: "patient", Label: "Patient", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: true, Populated: true, ObservedDocumentCount: 2},
+			{ID: "schema-only-description", NodeID: "body-structure", ResourceType: "BodyStructure", FieldPath: "description", Label: "Description", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: false, Populated: false},
 		},
 		nil,
 	)
@@ -129,6 +130,11 @@ func TestConstructionGroupSourceExposesPopulatedGeneratedScalarWhenObserved(t *t
 	}
 	if !capability.Supported || capability.ReasonCode != "" || len(capability.Choices) != 1 {
 		t.Fatalf("BodyStructure source choices = %#v, want one eligible root scalar", capability)
+	}
+	for _, choice := range capability.Choices {
+		if choice.FieldPath == "description" {
+			t.Fatal("offered a group-key choice for an unobserved, unpopulated scalar")
+		}
 	}
 	choice := capability.Choices[0]
 	if choice.FieldPath != "active" || choice.Label != "Active" || choice.FHIRType != "boolean" ||

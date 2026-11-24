@@ -1,8 +1,9 @@
 package ir
 
-import ()
-
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 const (
 	PhysicalScopeProjectBind               = "project"
@@ -529,7 +530,7 @@ func findDatasetGenerationScopeFilters(operations []PhysicalOperation, start, en
 				continue
 			}
 			predicate := operation.Filter.Predicate
-			if predicate.Left.Variable != variable || !physicalPathEquals(predicate.Left.Path, []string{physicalScopeDatasetGenerationField}) {
+			if predicate.Left.Variable != variable || !slices.Equal(predicate.Left.Path, []string{physicalScopeDatasetGenerationField}) {
 				continue
 			}
 			if isDatasetGenerationScopePredicate(predicate, variable) {
@@ -559,7 +560,7 @@ func findProjectScopeFilters(operations []PhysicalOperation, start, end int, res
 				continue
 			}
 			predicate := operation.Filter.Predicate
-			if predicate.Left.Variable != variable || !physicalPathEquals(predicate.Left.Path, []string{physicalScopeProjectField}) {
+			if predicate.Left.Variable != variable || !slices.Equal(predicate.Left.Path, []string{physicalScopeProjectField}) {
 				continue
 			}
 			if isProjectScopePredicate(predicate, variable) {
@@ -614,7 +615,7 @@ func findAuthScopeEquality(operations []PhysicalOperation, start, end int, authV
 func isProjectScopePredicate(predicate PhysicalPredicate, variable string) bool {
 	return predicate.Operator == "EQUALS" &&
 		predicate.Left.Variable == variable &&
-		physicalPathEquals(predicate.Left.Path, []string{physicalScopeProjectField}) &&
+		slices.Equal(predicate.Left.Path, []string{physicalScopeProjectField}) &&
 		predicate.Right != nil &&
 		predicate.Right.BindKey == PhysicalScopeProjectBind &&
 		predicate.Right.Variable == "" &&
@@ -632,7 +633,7 @@ func isScopeAllowedPredicate(predicate PhysicalPredicate, variable string) bool 
 func isDatasetGenerationScopePredicate(predicate PhysicalPredicate, variable string) bool {
 	return predicate.Operator == "EQUALS" &&
 		predicate.Left.Variable == variable &&
-		physicalPathEquals(predicate.Left.Path, []string{physicalScopeDatasetGenerationField}) &&
+		slices.Equal(predicate.Left.Path, []string{physicalScopeDatasetGenerationField}) &&
 		predicate.Right != nil &&
 		predicate.Right.BindKey == PhysicalScopeDatasetGenerationBind &&
 		predicate.Right.Variable == "" &&
@@ -656,23 +657,11 @@ func validateAuthScopeInputs(inputs, expectedPaths []PhysicalValue) error {
 
 func containsPhysicalValue(values []PhysicalValue, expected PhysicalValue) bool {
 	for _, value := range values {
-		if value.Variable == expected.Variable && value.BindKey == expected.BindKey && physicalPathEquals(value.Path, expected.Path) {
+		if value.Variable == expected.Variable && value.BindKey == expected.BindKey && slices.Equal(value.Path, expected.Path) {
 			return true
 		}
 	}
 	return false
-}
-
-func physicalPathEquals(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
 }
 
 func formatPhysicalValue(value PhysicalValue) string {

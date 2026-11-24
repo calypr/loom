@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -47,7 +48,7 @@ func TestConstructionCodedGroupCompilesNestedAndDirectGeneratedCodingPaths(t *te
 			if stage.CodedGroup == nil || stage.CodedGroup.SourceIdentityColumn != "_key" || !stage.CodedGroup.SourceRowsUnique || stage.CodedGroup.CodingPath != test.path {
 				t.Fatalf("coded group payload = %#v, want direct root path %q", stage.CodedGroup, test.path)
 			}
-			if got, want := compiledSchemaNames(compiled.OutputSchema), []string{"code_system", "code_version", "code", "source_records", "__loom_row_id"}; !equalStringSlices(got, want) {
+			if got, want := compiledSchemaNames(compiled.OutputSchema), []string{"code_system", "code_version", "code", "source_records", "__loom_row_id"}; !slices.Equal(got, want) {
 				t.Fatalf("compiled output schema = %#v, want %#v", got, want)
 			}
 			if compiled.OutputSchema[0].Cardinality != string(expression.OptionalOne) || !compiled.OutputSchema[0].Nullable ||

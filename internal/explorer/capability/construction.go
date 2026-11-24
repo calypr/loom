@@ -748,7 +748,7 @@ func NewGroupCodingIdentityChoice(snapshotToken string, route []ConstructionRout
 		}
 	} else if source.SourceRole != "CURRENT_ITEM" || source.Shape != "CODING_IDENTITY" || source.CanonicalPath != source.OwnerSelector ||
 		rowChoice.Occurrence.OccurrenceID != source.OwnerOccurrenceID || rowChoice.Occurrence.NodeID != source.NodeID ||
-		rowChoice.Occurrence.ResourceType != source.OwnerResourceType || !equalConstructionRouteSteps(rowChoice.Occurrence.Route, route) ||
+		rowChoice.Occurrence.ResourceType != source.OwnerResourceType || !slices.Equal(rowChoice.Occurrence.Route, route) ||
 		rowChoice.Path != source.OwnerSelector || source.CandidateID != "" {
 		return ConstructionChoice{}, fmt.Errorf("Coding identity choice must pin the exact current Coding item selector")
 	}
@@ -772,23 +772,11 @@ func NewGroupCodingIdentityChoice(snapshotToken string, route []ConstructionRout
 	}, nil
 }
 
-func equalConstructionRouteSteps(left, right []ConstructionRouteStep) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
-}
-
 func constructionRouteHasSuffix(full, suffix []ConstructionRouteStep) bool {
 	if len(suffix) == 0 || len(suffix) > len(full) {
 		return false
 	}
-	return equalConstructionRouteSteps(full[len(full)-len(suffix):], suffix)
+	return slices.Equal(full[len(full)-len(suffix):], suffix)
 }
 
 func validGroupFieldSourceRole(role string) bool {

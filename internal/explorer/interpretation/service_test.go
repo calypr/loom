@@ -4,14 +4,12 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
-
-	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/interpretation"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
 	"github.com/calypr/loom/internal/explorer/lifecycle/support"
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 )
 
 type libraryRepository struct {
@@ -78,20 +76,8 @@ func newService(t *testing.T, repository interpretation.Repository) *interpretat
 	return service
 }
 
-func prepareInterpretation(t *testing.T) interpretation.InterpretationRevision {
-	t.Helper()
-	revision, err := interpretation.PrepareInterpretationRevision(interpretation.InterpretationRevision{
-		Project: "project-a", LibraryID: "library-a", Author: "tester", Explanation: "lifecycle",
-		CreatedAt: time.Unix(1, 0).UTC(), Rules: []interpretation.InterpretationRule{{ID: "rule", Match: interpretation.InterpretationStructuralMatch{ResourceType: "Patient", LogicalType: "string"}, Definition: interpretation.InterpretationFeatureDefinition{Source: ws.ColumnSource{Kind: ws.SourceField, Field: &ws.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return revision
-}
-
 func TestCreateInterpretationRevisionClassifiesRepositoryFailureAsInternal(t *testing.T) {
-	parent := prepareInterpretation(t)
+	parent := explorerfixtures.PrepareInterpretationRevision(t, explorerfixtures.InterpretationRevisionInput())
 	repository := &libraryRepository{
 		library:   interpretation.InterpretationLibrary{ID: parent.LibraryID, Project: parent.Project},
 		revisions: map[interpretation.InterpretationRevisionID]interpretation.InterpretationRevision{},
@@ -109,7 +95,7 @@ func TestCreateInterpretationRevisionClassifiesRepositoryFailureAsInternal(t *te
 }
 
 func TestCreateInterpretationRevisionRejectsRepositoryIntegrityMutation(t *testing.T) {
-	parent := prepareInterpretation(t)
+	parent := explorerfixtures.PrepareInterpretationRevision(t, explorerfixtures.InterpretationRevisionInput())
 	repository := &libraryRepository{
 		library:      interpretation.InterpretationLibrary{ID: parent.LibraryID, Project: parent.Project},
 		revisions:    map[interpretation.InterpretationRevisionID]interpretation.InterpretationRevision{},
@@ -127,7 +113,7 @@ func TestCreateInterpretationRevisionRejectsRepositoryIntegrityMutation(t *testi
 }
 
 func TestInterpretationLibraryBrowseAndExactGetExpandImmutableHead(t *testing.T) {
-	revision := prepareInterpretation(t)
+	revision := explorerfixtures.PrepareInterpretationRevision(t, explorerfixtures.InterpretationRevisionInput())
 	repository := &libraryRepository{
 		library:   interpretation.InterpretationLibrary{ID: revision.LibraryID, Project: revision.Project, HeadRevisionID: revision.ID, HeadDigest: revision.ContentDigest},
 		revisions: map[interpretation.InterpretationRevisionID]interpretation.InterpretationRevision{revision.ID: revision},
@@ -152,7 +138,7 @@ func TestInterpretationLibraryBrowseAndExactGetExpandImmutableHead(t *testing.T)
 }
 
 func TestCreateInterpretationRevisionUsesHeadParentAndRejectsStaleParent(t *testing.T) {
-	parent := prepareInterpretation(t)
+	parent := explorerfixtures.PrepareInterpretationRevision(t, explorerfixtures.InterpretationRevisionInput())
 	repository := &libraryRepository{
 		library:   interpretation.InterpretationLibrary{ID: parent.LibraryID, Project: parent.Project, HeadRevisionID: parent.ID, HeadDigest: parent.ContentDigest},
 		revisions: map[interpretation.InterpretationRevisionID]interpretation.InterpretationRevision{parent.ID: parent},
@@ -181,7 +167,7 @@ func TestCreateInterpretationRevisionUsesHeadParentAndRejectsStaleParent(t *test
 }
 
 func TestCreateRootInterpretationRevisionRetriesIdempotently(t *testing.T) {
-	parent := prepareInterpretation(t)
+	parent := explorerfixtures.PrepareInterpretationRevision(t, explorerfixtures.InterpretationRevisionInput())
 	repository := &libraryRepository{revisions: map[interpretation.InterpretationRevisionID]interpretation.InterpretationRevision{}}
 	service := newService(t, repository)
 	request := interpretation.CreateInterpretationRevisionRequest{Project: parent.Project, LibraryID: "new-library", Applicability: parent.Applicability, Rules: parent.Rules, Explanation: parent.Explanation, Author: parent.Author}

@@ -280,7 +280,7 @@ func TestConstructionGroupRelatedChoicesIssueObservedScalarAndCodingOnSharedRout
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := observedRelatedCodingSelectors(candidates[3], index); len(got) != 1 || got[0].Path() != "type.coding[]" {
+	if got := observedRelatedCodingSelectors(candidates[3], index); len(got) != 1 || got[0].path != "type.coding[]" {
 		t.Fatalf("observed Specimen Coding selectors = %#v, want type.coding[]", got)
 	}
 	choices, incomplete, err := (&Service{}).constructionGroupFieldChoices(context.Background(), base, "patients", stage, nil, false, "", "")

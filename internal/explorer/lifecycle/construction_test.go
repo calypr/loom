@@ -441,18 +441,6 @@ func TestConstructionCapabilitiesAfterStoredV9MigrationPreserveOwnerAndVerifyRec
 	}
 }
 
-func TestConstructionGroupSourceCandidateRequiresPopulatedField(t *testing.T) {
-	choice := capability.RowChoice{Kind: capability.RowChoiceFieldGroupKey, NodeID: "body-structure", ResourceType: "BodyStructure", Path: "active"}
-	snapshot := capability.Snapshot{Candidates: []capability.Candidate{{
-		ID: "active", NodeID: "body-structure", ResourceType: "BodyStructure", FieldPath: "active",
-		LogicalType: "boolean", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
-		Observed: false, Populated: false,
-	}}}
-	if _, ok := constructionGroupSourceCandidate(snapshot, choice); ok {
-		t.Fatal("offered an unpopulated field as a source grouping key")
-	}
-}
-
 func TestProposeConstructionKeepsAcceptedDraftWhenDependencyRepairIsNeeded(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
 	workspace, err := ws.DecodeWorkspace(store.created.DraftConfig)

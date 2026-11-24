@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	ir "github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -77,7 +78,7 @@ func NewPublishedWorkspaceScopeOperand(inputIndex int, ref ir.PhysicalCombineInp
 	if err := validateWholeRelationIdentityShape(expectedScope); err != nil {
 		return WorkspaceCombineScopeOperand{}, fmt.Errorf("published workspace Combine expected scope: %w", err)
 	}
-	if resolved.Unrestricted != (expectedScope.AuthScopeMode == "unrestricted") || !sameWholeRelationStrings(resolved.AuthResourcePaths, expectedScope.AuthResourcePaths) {
+	if resolved.Unrestricted != (expectedScope.AuthScopeMode == "unrestricted") || !slices.Equal(resolved.AuthResourcePaths, expectedScope.AuthResourcePaths) {
 		return WorkspaceCombineScopeOperand{}, fmt.Errorf("published workspace Combine operand differs from the exact authorized scope")
 	}
 	if err := validateResolvedWorkspaceOperandColumns(resolved.Columns, resolved.Unrestricted); err != nil {
@@ -271,7 +272,7 @@ func canonicalAQLSourceFingerprint(plan ir.PhysicalPlan) string {
 
 func sameWholeRelationScope(left, right WholeRelationScopeIdentity) bool {
 	return left.Project == right.Project && left.DatasetGeneration == right.DatasetGeneration &&
-		left.AuthScopeMode == right.AuthScopeMode && sameWholeRelationStrings(left.AuthResourcePaths, right.AuthResourcePaths)
+		left.AuthScopeMode == right.AuthScopeMode && slices.Equal(left.AuthResourcePaths, right.AuthResourcePaths)
 }
 
 func samePhysicalCombineInputRef(left, right ir.PhysicalCombineInputRef) bool {

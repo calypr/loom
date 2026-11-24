@@ -2,6 +2,7 @@ package lower
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -779,7 +780,7 @@ func TestCompileExplicitGroupRowsWithSourceOnlyConstructionMetadata(t *testing.T
 	if len(output.Plan.Operations) != 1 || output.Plan.Operations[0].Kind != ir.PhysicalGroupRowsOp {
 		t.Fatalf("grouped physical operations = %#v, want the explicit-group source", output.Plan.Operations)
 	}
-	if got := compiledSchemaNames(output.OutputSchema); !equalStringSlices(got, []string{"group_revision_id", "group_id", "group_label", "group_ordinal", "members", "__loom_row_id", "gender", rootContributorSetColumn}) {
+	if got := compiledSchemaNames(output.OutputSchema); !slices.Equal(got, []string{"group_revision_id", "group_id", "group_label", "group_ordinal", "members", "__loom_row_id", "gender", rootContributorSetColumn}) {
 		t.Fatalf("source-only group output schema = %#v", got)
 	}
 	if len(output.Stages) != 2 || output.Stages[1].Operation != "GROUP_ROWS" {

@@ -37,14 +37,6 @@ func constructionCompilerScope(authorized ports.AuthorizedCapability) facade.Sco
 	return construction.ConstructionCompilerScope(authorized)
 }
 
-func constructionDocumentIndex(workspace ws.Workspace, outputID string) int {
-	return construction.ConstructionDocumentIndex(workspace, outputID)
-}
-
-func constructionRouteForOccurrence(snapshot capability.Snapshot, rootResourceType, targetNodeID string, authoredRoot ws.RouteNode, occurrenceID string) ([]capability.ConstructionRouteStep, error) {
-	return construction.ConstructionRouteForOccurrence(snapshot, rootResourceType, targetNodeID, authoredRoot, occurrenceID)
-}
-
 func proveConstructionCandidate(ctx context.Context, authorized ports.AuthorizedCapability, rootResourceType string, candidate capability.Candidate, route []capability.ConstructionRouteStep) (capability.Candidate, error) {
 	return construction.ProveConstructionCandidate(ctx, authorized, rootResourceType, candidate, route)
 }

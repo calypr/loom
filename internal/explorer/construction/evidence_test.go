@@ -370,14 +370,6 @@ func TestCodedCategoryChoiceReauthorizesExactSystemVersionFamily(t *testing.T) {
 	}
 }
 
-func TestIdentifierSemanticItemLabelIncludesItsNamespace(t *testing.T) {
-	first := semanticIdentifierLabel("https://example.org/identifier/patient")
-	second := semanticIdentifierLabel("https://example.org/identifier/provider")
-	if first == "" || second == "" || first == second || first != "Identifier · https://example.org/identifier/patient" {
-		t.Fatalf("identifier labels = %q / %q", first, second)
-	}
-}
-
 func testCodedCategoryFamily(sourceKind, resourceType, sourcePath, system, version string) semantic.Family {
 	return constructionfixtures.CodedCategoryFamily(sourceKind, resourceType, sourcePath, system, version)
 }

@@ -1,15 +1,10 @@
 package lifecycle
 
 import (
-	"github.com/calypr/loom/internal/explorer/semanticbrowse"
 	"reflect"
 
 	"github.com/calypr/loom/internal/explorer/capability"
 )
-
-func semanticChoiceKey(conceptID, bindingID string) string {
-	return bindingID + "\x00" + conceptID
-}
 
 func semanticChoiceFieldOptionsMatch(semanticChoice, fieldChoice capability.ConstructionChoice) bool {
 	fieldOptions := make([]capability.ConstructionChoiceOption, 0, len(semanticChoice.Options))
@@ -19,26 +14,4 @@ func semanticChoiceFieldOptionsMatch(semanticChoice, fieldChoice capability.Cons
 		}
 	}
 	return reflect.DeepEqual(fieldOptions, fieldChoice.Options)
-}
-
-func uniqueCapabilityCandidate(snapshot capability.Snapshot, candidateID string) (capability.Candidate, bool) {
-	var match capability.Candidate
-	found := false
-	for _, candidate := range snapshot.Candidates {
-		if candidate.ID != candidateID {
-			continue
-		}
-		if found {
-			return capability.Candidate{}, false
-		}
-		match, found = candidate, true
-	}
-	if found {
-		return match, true
-	}
-	return semanticbrowse.ResolveSchemaFieldCandidate(snapshot, candidateID)
-}
-
-func semanticInventoryContextToken(snapshot capability.Snapshot, explorerID, rowRoot, buildID string) (string, error) {
-	return semanticbrowse.SemanticInventoryContextToken(snapshot, explorerID, rowRoot, buildID)
 }

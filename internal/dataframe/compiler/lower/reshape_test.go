@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -92,7 +93,7 @@ func TestConstructionExpandThenGroupUsesTypedIntermediateColumns(t *testing.T) {
 	if sequence.Stages[0].Expand.EmptyPolicy != ir.PhysicalUnnestPreserveParent || sequence.Stages[0].Expand.OrdinalColumn != "ordinal" {
 		t.Fatalf("expand contract = %#v, want preserve-parent with public ordinal", sequence.Stages[0].Expand)
 	}
-	if got, want := compiledSchemaNames(compiled.OutputSchema), []string{"tag", "rows", "status_count", "status_distinct", "__loom_row_id"}; !equalStringSlices(got, want) {
+	if got, want := compiledSchemaNames(compiled.OutputSchema), []string{"tag", "rows", "status_count", "status_distinct", "__loom_row_id"}; !slices.Equal(got, want) {
 		t.Fatalf("final schema = %#v, want %#v", got, want)
 	}
 	if compiled.OutputSchema[1].Kind != string(expression.KindInteger) || compiled.OutputSchema[2].Kind != string(expression.KindInteger) || compiled.OutputSchema[3].Kind != string(expression.KindInteger) {
@@ -398,7 +399,7 @@ func TestConstructionGroupAllowsZeroKeysAndExplicitCountSemantics(t *testing.T) 
 	if stage.Group.MissingKeyPolicy != ir.PhysicalStageGroupMissingKeyGroup {
 		t.Fatalf("zero-key summary missing-key policy = %q, want GROUP", stage.Group.MissingKeyPolicy)
 	}
-	if got, want := compiledSchemaNames(compiled.OutputSchema), []string{"rows", "status_count", "status_distinct", "amount_sum", "amount_mean", "__loom_row_id"}; !equalStringSlices(got, want) {
+	if got, want := compiledSchemaNames(compiled.OutputSchema), []string{"rows", "status_count", "status_distinct", "amount_sum", "amount_mean", "__loom_row_id"}; !slices.Equal(got, want) {
 		t.Fatalf("summary schema = %#v, want %#v", got, want)
 	}
 	if compiled.OutputSchema[3].Kind != string(expression.KindDecimal) && compiled.OutputSchema[3].Kind != string(expression.KindInteger) {

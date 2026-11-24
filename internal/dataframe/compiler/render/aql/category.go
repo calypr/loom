@@ -2,6 +2,7 @@ package aql
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -315,13 +316,13 @@ func (renderer categoryScanRenderer) renderIndexed(plan ir.PhysicalPlan) (Render
 				continue
 			}
 			value, direct := ir.DirectScalarRootProjectionValue(projection, root.Variable)
-			if !direct || presence != nil || projection.Hidden || value.Variable != root.Variable || value.BindKey != "" || !sameCategoryPath(value.Path, scan.ValuePath) || projection.Presence == nil {
+			if !direct || presence != nil || projection.Hidden || value.Variable != root.Variable || value.BindKey != "" || !slices.Equal(value.Path, scan.ValuePath) || projection.Presence == nil {
 				return RenderedCategoryScan{}, fmt.Errorf("indexed category does not match one direct source projection")
 			}
 			presence = projection.Presence
 		}
 	}
-	if presence == nil || presence.Source.Variable != root.Variable || presence.Source.BindKey != "" || len(presence.Paths) != 1 || !sameCategoryPath(append(append([]string{}, presence.Source.Path...), presence.Paths[0]...), scan.ValuePath) {
+	if presence == nil || presence.Source.Variable != root.Variable || presence.Source.BindKey != "" || len(presence.Paths) != 1 || !slices.Equal(append(append([]string{}, presence.Source.Path...), presence.Paths[0]...), scan.ValuePath) {
 		return RenderedCategoryScan{}, fmt.Errorf("indexed category source presence does not match its exact value path")
 	}
 	if scan.ResourceType != "" && (plan.Source.ResourceType != scan.ResourceType || plan.BindVars[root.CollectionBindKey] != scan.ResourceType) {
@@ -465,16 +466,4 @@ func cloneCategoryScanBinds(source map[string]any) map[string]any {
 		out[key] = ir.ClonePhysicalBindValue(value)
 	}
 	return out
-}
-
-func sameCategoryPath(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

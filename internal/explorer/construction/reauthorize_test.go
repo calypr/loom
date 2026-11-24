@@ -2,6 +2,7 @@ package construction
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -74,10 +75,10 @@ func TestConstructionRemovalCascadeRemovesOwnerOfDependentRelatedField(t *testin
 		t.Fatalf("cascade owner of removed related-field source: %v", err)
 	}
 	wantRemoved := []string{expansion.ID, relatedField.ID, group.ID}
-	if !equalStringSlices(impact.RemovedStepIDs, wantRemoved) {
+	if !slices.Equal(impact.RemovedStepIDs, wantRemoved) {
 		t.Fatalf("removed steps = %#v, want expansion, its owned field input, and owner %#v", impact.RemovedStepIDs, wantRemoved)
 	}
-	if !equalStringSlices(constructionStepIDs(removedDocument.Construction.Steps), []string{filter.ID}) || impact.HasMissingInputs() {
+	if !slices.Equal(constructionStepIDs(removedDocument.Construction.Steps), []string{filter.ID}) || impact.HasMissingInputs() {
 		t.Fatalf("cascade did not preserve independent filter after removing owner: steps=%#v impact=%#v", constructionStepIDs(removedDocument.Construction.Steps), impact)
 	}
 }
@@ -105,10 +106,10 @@ func TestConstructionRelatedExpandTargetEditCascadesDependentsButPolicyEditDoesN
 		if err != nil {
 			t.Fatalf("analyze target edit with dependent cascade: %v", err)
 		}
-		if !equalStringSlices(impact.RemovedStepIDs, []string{"expand_conditions", "expand_medications"}) {
+		if !slices.Equal(impact.RemovedStepIDs, []string{"expand_conditions", "expand_medications"}) {
 			t.Fatalf("target edit removed steps = %#v, want dependent expansion suffix", impact.RemovedStepIDs)
 		}
-		if !equalStringSlices(constructionStepIDs(updated.Construction.Steps), []string{firstStepID, "keep_root_filter"}) || impact.HasMissingInputs() {
+		if !slices.Equal(constructionStepIDs(updated.Construction.Steps), []string{firstStepID, "keep_root_filter"}) || impact.HasMissingInputs() {
 			t.Fatalf("target edit candidate = %#v, impact=%#v", constructionStepIDs(updated.Construction.Steps), impact)
 		}
 	})
@@ -122,7 +123,7 @@ func TestConstructionRelatedExpandTargetEditCascadesDependentsButPolicyEditDoesN
 		if err != nil {
 			t.Fatalf("analyze policy edit: %v", err)
 		}
-		if len(impact.RemovedStepIDs) != 0 || !equalStringSlices(constructionStepIDs(updated.Construction.Steps), constructionStepIDs(construction.Steps)) {
+		if len(impact.RemovedStepIDs) != 0 || !slices.Equal(constructionStepIDs(updated.Construction.Steps), constructionStepIDs(construction.Steps)) {
 			t.Fatalf("policy edit removed valid dependents: steps=%#v impact=%#v", constructionStepIDs(updated.Construction.Steps), impact)
 		}
 	})
@@ -146,8 +147,8 @@ func TestConstructionRelatedExpandTargetEditCascadesDependentsButPolicyEditDoesN
 		if err != nil {
 			t.Fatalf("analyze middle target edit with dependent cascade: %v", err)
 		}
-		if !equalStringSlices(impact.RemovedStepIDs, []string{"expand_medications"}) ||
-			!equalStringSlices(constructionStepIDs(updated.Construction.Steps), []string{"expand_observations", middle.ID, "keep_root_filter"}) || impact.HasMissingInputs() {
+		if !slices.Equal(impact.RemovedStepIDs, []string{"expand_medications"}) ||
+			!slices.Equal(constructionStepIDs(updated.Construction.Steps), []string{"expand_observations", middle.ID, "keep_root_filter"}) || impact.HasMissingInputs() {
 			t.Fatalf("middle target edit result = steps=%#v impact=%#v", constructionStepIDs(updated.Construction.Steps), impact)
 		}
 	})
@@ -162,7 +163,7 @@ func TestConstructionEditCascadeKeepsChangedStepWhenItsOwnInputIsMissing(t *test
 	if err != nil {
 		t.Fatalf("analyze invalid GROUP edit: %v", err)
 	}
-	if len(impact.RemovedStepIDs) != 0 || !equalStringSlices(constructionStepIDs(updated.Construction.Steps), constructionStepIDs(construction.Steps)) {
+	if len(impact.RemovedStepIDs) != 0 || !slices.Equal(constructionStepIDs(updated.Construction.Steps), constructionStepIDs(construction.Steps)) {
 		t.Fatalf("edit cascade removed the changed step or its descendants: steps=%#v impact=%#v", constructionStepIDs(updated.Construction.Steps), impact)
 	}
 	if len(impact.MissingInputs) != 1 || impact.MissingInputs[0] != (ws.ConstructionDependencyIssue{StepID: "group-records", ColumnID: "missing_source_column"}) {
@@ -184,18 +185,6 @@ func constructionStepIDs(steps []ws.ConstructionStep) []string {
 		ids = append(ids, step.ID)
 	}
 	return ids
-}
-
-func equalStringSlices(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
 }
 
 func seedRelatedExpandRemovalConstruction(t *testing.T) (ws.Workspace, ws.Construction) {

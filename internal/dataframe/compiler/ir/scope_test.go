@@ -1,6 +1,7 @@
 package ir_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -8,20 +9,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipeplan"
 )
 
-func physicalPathEquals(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-	return true
-}
-
 func isProjectScopePredicate(predicate ir.PhysicalPredicate, variable string) bool {
-	return predicate.Operator == "EQUALS" && predicate.Left.Variable == variable && physicalPathEquals(predicate.Left.Path, []string{"project"}) && predicate.Right != nil && predicate.Right.BindKey == "project"
+	return predicate.Operator == "EQUALS" && predicate.Left.Variable == variable && slices.Equal(predicate.Left.Path, []string{"project"}) && predicate.Right != nil && predicate.Right.BindKey == "project"
 }
 
 func isScopeAllowedPredicate(predicate ir.PhysicalPredicate, variable string) bool {
@@ -97,7 +86,7 @@ func TestValidateGenericPhysicalPlanScopeRejectsMissingMisboundAndReorderedScope
 				inputs := plan.Operations[index].DerivedLet.Inputs
 				filtered := inputs[:0]
 				for _, input := range inputs {
-					if input.Variable == "node_1" && physicalPathEquals(input.Path, []string{"auth_resource_path"}) {
+					if input.Variable == "node_1" && slices.Equal(input.Path, []string{"auth_resource_path"}) {
 						continue
 					}
 					filtered = append(filtered, input)

@@ -22,6 +22,7 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 	"github.com/calypr/loom/internal/semantic"
 	semanticarango "github.com/calypr/loom/internal/semantic/arango"
+	"github.com/calypr/loom/internal/testkit/capabilityfixtures"
 )
 
 func TestFieldPresentationCoverageBuildVersionPreservesSavedFrameIdentity(t *testing.T) {
@@ -767,7 +768,7 @@ func newFieldPresentationTestFixture(t *testing.T, related bool) *fieldPresentat
 		ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Populated: true,
 	}
 	snapshot.Candidates = []capability.Candidate{candidate}
-	entry := *semanticAuthoringEntry("concept-a", "binding-a", "urn:system:a", "code-a", "")
+	entry := *capabilityfixtures.SemanticSelectionEntry("concept-a", "binding-a", "urn:system:a", "code-a", "")
 	entry.Observation.Population = 4
 	buildID := semantic.BuildID(project, generation)
 	build := semantic.Build{
@@ -896,7 +897,7 @@ func TestBrowseSemanticInventoryScopesAndContext(t *testing.T) {
 			}}
 			calls := 0
 			buildID := "build-a"
-			readyObservation := semanticAuthoringEntry("ready-concept", "ready-binding", "system", "code", "").Observation
+			readyObservation := capabilityfixtures.SemanticSelectionEntry("ready-concept", "ready-binding", "system", "code", "").Observation
 			readyObservation.Population = 3
 			readyObservation.Examples = []string{"2.5 mg", "4 mg"}
 			readyObservation.ExamplesTruncated = true
@@ -1197,7 +1198,7 @@ func TestBrowseSemanticInventoryMarksMissingCompilerProofUnsupported(t *testing.
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := readySnapshot("project-a", "generation-a", "token", scope)
 	snapshot.Nodes = []capability.Node{{ResourceType: "Observation", RowRootEligible: true}}
-	observation := semanticAuthoringEntry("concept", "binding", "system", "code", "").Observation
+	observation := capabilityfixtures.SemanticSelectionEntry("concept", "binding", "system", "code", "").Observation
 	service := &Service{config: Config{
 		Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
@@ -1222,7 +1223,7 @@ func TestBrowseSemanticInventoryRejectsAmbiguousCompilerProof(t *testing.T) {
 			ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
 		})
 	}
-	observation := semanticAuthoringEntry("concept", "binding", "system", "code", "").Observation
+	observation := capabilityfixtures.SemanticSelectionEntry("concept", "binding", "system", "code", "").Observation
 	service := &Service{config: Config{
 		Capability: ports.CapabilityResolver{ForCompilation: func(context.Context, string, string) (ports.AuthorizedCapability, error) {
 			return ports.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
@@ -1291,11 +1292,22 @@ func TestConstructionChoiceSearchReauthorizesSignedCategoryFamily(t *testing.T) 
 	snapshot.Candidates = []capability.Candidate{displayCandidate, codeCandidate}
 	family := testCodedCategoryFamily("file", "Observation", "Observation.code.coding[]", "https://example.org/codes", "v1")
 	buildID := semantic.BuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
-	contextToken, err := semanticInventoryContextToken(snapshot, "patients", "Patient", buildID)
+	contextToken, err := semanticbrowse.SemanticInventoryContextToken(snapshot, "patients", "Patient", buildID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	signed, err := semanticbrowse.SemanticCategoryConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, family, displayCandidate)
+	source := capability.SemanticBindingChoiceSource{
+		ConceptID: family.FamilyID, BindingID: family.BindingID, SourceKind: family.SourceKind,
+		ResourceType: family.Source.Type, SourcePath: family.Source.Path,
+		SourceCanonical: family.Source.Canonical, SourceProfile: family.Source.Profile,
+		FieldPath: displayCandidate.FieldPath, OwningScope: family.OwningScope,
+		KeySelector: family.KeySelector, System: family.System, Version: family.Version,
+		ValueSelector: family.Value.Selector, ValueFallbacks: append([]string(nil), family.Value.FallbackSelectors...),
+		FallbackOnBlankString: family.Value.FallbackOnBlankString,
+		LogicalType:           family.LogicalType, RuleHint: semantic.RuleHintCodedCategoryV1,
+		RuleVersion: family.RuleVersion, SchemaVersion: family.SchemaVersion,
+	}
+	signed, err := capability.NewSemanticConstructionChoiceForRoute(snapshot.Token, contextToken, buildID, nil, source, displayCandidate)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,6 +8,7 @@ import (
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/interpretation"
+	"github.com/calypr/loom/internal/testkit/explorerfixtures"
 
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/lifecycle/ports"
@@ -68,7 +69,7 @@ func TestCreateInterpretationRevisionFromColumnDerivesServerOwnedRule(t *testing
 }
 
 func TestCreateInterpretationRevisionFromColumnRejectsPinnedAndUnavailableSources(t *testing.T) {
-	revision := lifecyclePrepareInterpretation(t)
+	revision := explorerfixtures.PrepareInterpretationRevision(t, explorerfixtures.InterpretationRevisionInput())
 	snapshot, scope := interpretationContextSnapshot()
 
 	tests := []struct {

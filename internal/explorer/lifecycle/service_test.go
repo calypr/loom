@@ -31,6 +31,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/population"
 	"github.com/calypr/loom/internal/explorer/receiptmodel"
 	"github.com/calypr/loom/internal/explorer/rowdef"
+	"github.com/calypr/loom/internal/explorer/rowsource"
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
 	"github.com/calypr/loom/internal/explorer/viewer"
 	ws "github.com/calypr/loom/internal/explorer/workspace"
@@ -1272,23 +1273,23 @@ func (planner *importedSourceChoicePlanner) ListRowChoices(context.Context, capa
 func TestImportedSourceCapabilityHelpersSkipGenericRowChoicePlanner(t *testing.T) {
 	tests := []struct {
 		name string
-		call func(*Service, constructionBase) (bool, string, string, int, error)
+		call func(*rowsource.Service, rowsource.Base) (bool, string, string, int, error)
 	}{
 
-		{name: "filter", call: func(service *Service, base constructionBase) (bool, string, string, int, error) {
-			got, err := service.constructionFilterSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
+		{name: "filter", call: func(service *rowsource.Service, base rowsource.Base) (bool, string, string, int, error) {
+			got, err := service.ConstructionFilterSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
 			return got.Supported, got.ReasonCode, got.Reason, len(got.Choices), err
 		}},
-		{name: "derive", call: func(service *Service, base constructionBase) (bool, string, string, int, error) {
-			got, err := service.constructionDeriveSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
+		{name: "derive", call: func(service *rowsource.Service, base rowsource.Base) (bool, string, string, int, error) {
+			got, err := service.ConstructionDeriveSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
 			return got.Supported, got.ReasonCode, got.Reason, len(got.Choices), err
 		}},
-		{name: "unpivot", call: func(service *Service, base constructionBase) (bool, string, string, int, error) {
-			got, err := service.constructionUnpivotSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
+		{name: "unpivot", call: func(service *rowsource.Service, base rowsource.Base) (bool, string, string, int, error) {
+			got, err := service.ConstructionUnpivotSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
 			return got.Supported, got.ReasonCode, got.Reason, len(got.Choices), err
 		}},
-		{name: "expand", call: func(service *Service, base constructionBase) (bool, string, string, int, error) {
-			got, err := service.constructionExpandSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
+		{name: "expand", call: func(service *rowsource.Service, base rowsource.Base) (bool, string, string, int, error) {
+			got, err := service.ConstructionExpandSourceCapability(context.Background(), base, "DocumentReference", recipe.ConstructionSourceProjectionID)
 			return got.Supported, got.ReasonCode, got.Reason, len(got.Choices), err
 		}},
 	}
@@ -1300,7 +1301,7 @@ func TestImportedSourceCapabilityHelpersSkipGenericRowChoicePlanner(t *testing.T
 				Name: "seed", TranslationVersion: "v1", Digest: "0000000000000000000000000000000000000000000000000000000000000000", Output: "DocumentReference",
 			}, Rows: ws.RecordsRowDefinition(),
 			}}
-			supported, code, reason, choices, err := test.call(service, base)
+			supported, code, reason, choices, err := test.call(service.rowSourceService, base)
 			if err != nil {
 				t.Fatalf("capability helper: %v", err)
 			}

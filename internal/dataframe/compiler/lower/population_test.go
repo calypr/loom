@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -99,7 +100,7 @@ func TestPopulationConstructionRetainsRootStorageKeysAcrossGroupPivotAndCohort(t
 		for index, column := range public {
 			got[index] = column.Name
 		}
-		if !equalStringSlices(got, want) {
+		if !slices.Equal(got, want) {
 			t.Fatalf("population construction public schema = %#v, want %#v", got, want)
 		}
 	}
