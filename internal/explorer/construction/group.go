@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -460,18 +461,6 @@ func groupSourceSelector(expansion *receiptmodel.ReceiptConstructionGroupFieldSo
 	return expansion.Selector
 }
 
-func equalGroupFieldRoutes(left, right []capability.ConstructionRouteStep) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
-}
-
 func groupFieldScopeLabel(owner receiptmodel.ReceiptConstructionGroupFieldOwner, expansion *receiptmodel.ReceiptConstructionGroupFieldSourceExpansion) string {
 	parts := []string{owner.OwnerResourceType}
 	if owner.Role == "ANCESTOR" {
@@ -635,7 +624,7 @@ func (s *Service) constructionGroupFieldChoices(
 				if rowChoice.Kind != capability.RowChoiceExpandedScope || rowChoice.OccurrenceID != expansion.OwnerOccurrenceID ||
 					rowChoice.NodeID != owner.NodeID || rowChoice.ResourceType != expansion.OwnerResourceType ||
 					rowChoice.Path != expansion.Selector || rowChoice.FHIRType != "Coding" || rowChoice.Reference ||
-					rowChoice.Cardinality != capability.RowChoiceMany || !equalGroupFieldRoutes(rowChoice.Route, route) {
+					rowChoice.Cardinality != capability.RowChoiceMany || !slices.Equal(rowChoice.Route, route) {
 					continue
 				}
 				source := capability.GroupFieldChoiceSource{

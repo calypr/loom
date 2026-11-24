@@ -195,7 +195,7 @@ func reauthorizeConstructionRelatedField(
 	step ws.ConstructionStep,
 	related ws.ConstructionRelatedField,
 ) error {
-	inputStageID, err := relatedFieldInputStageID(step)
+	inputStageID, err := relatedInputStageID(step, "related field")
 	if err != nil {
 		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CANDIDATE", err.Error(), err)
 	}
@@ -415,9 +415,9 @@ func constructionStageSupportsCodedGroup(stage receiptmodel.ReceiptConstructionS
 	return false
 }
 
-func relatedFieldInputStageID(step ws.ConstructionStep) (string, error) {
+func relatedInputStageID(step ws.ConstructionStep, operation string) (string, error) {
 	if len(step.Inputs) != 1 {
-		return "", fmt.Errorf("related field requires exactly one input stage")
+		return "", fmt.Errorf("%s requires exactly one input stage", operation)
 	}
 	input := step.Inputs[0]
 	switch input.Kind {
@@ -425,11 +425,11 @@ func relatedFieldInputStageID(step ws.ConstructionStep) (string, error) {
 		return recipe.ConstructionSourceProjectionID, nil
 	case ws.ConstructionInputStepOutput:
 		if strings.TrimSpace(input.StepID) == "" || input.StepID != strings.TrimSpace(input.StepID) {
-			return "", fmt.Errorf("related field input step ID must be exact")
+			return "", fmt.Errorf("%s input step ID must be exact", operation)
 		}
 		return input.StepID, nil
 	default:
-		return "", fmt.Errorf("related field input must be a source or prior construction stage")
+		return "", fmt.Errorf("%s input must be a source or prior construction stage", operation)
 	}
 }
 
@@ -440,7 +440,7 @@ func reauthorizeConstructionRelatedExpand(
 	step ws.ConstructionStep,
 	related ws.ConstructionRelatedExpand,
 ) error {
-	inputStageID, err := relatedExpandInputStageID(step)
+	inputStageID, err := relatedInputStageID(step, "related expansion")
 	if err != nil {
 		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CANDIDATE", err.Error(), err)
 	}
@@ -507,24 +507,6 @@ func reauthorizeConstructionRelatedEligibility(
 		EmptyPolicy:           ws.ConstructionExpandEmptyExclude,
 		RelatedRecordColumnID: "__related_eligibility_probe",
 	})
-}
-
-func relatedExpandInputStageID(step ws.ConstructionStep) (string, error) {
-	if len(step.Inputs) != 1 {
-		return "", fmt.Errorf("related expansion requires exactly one input stage")
-	}
-	input := step.Inputs[0]
-	switch input.Kind {
-	case ws.ConstructionInputSourceProjection:
-		return recipe.ConstructionSourceProjectionID, nil
-	case ws.ConstructionInputStepOutput:
-		if strings.TrimSpace(input.StepID) == "" || input.StepID != strings.TrimSpace(input.StepID) {
-			return "", fmt.Errorf("related expansion input step ID must be exact")
-		}
-		return input.StepID, nil
-	default:
-		return "", fmt.Errorf("related expansion input must be a source or prior construction stage")
-	}
 }
 
 func reauthorizeRelatedExpandContributor(ctx context.Context, base Base, rootResourceType string, related ws.ConstructionRelatedExpand) error {

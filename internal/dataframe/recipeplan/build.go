@@ -135,7 +135,7 @@ func (s scopeFrame) resolve(ref expression.SelectorRef) (expression.Type, error)
 	if !ok {
 		return expression.Type{}, fmt.Errorf("selector path %q is not in the active FHIR schema", fullPath)
 	}
-	kind := primitiveKind(metadata.Primitive)
+	kind := ExpressionKindForPrimitive(metadata.Primitive)
 	if kind == expression.KindObject {
 
 		repeated = repeated || metadata.Repeated
@@ -151,7 +151,7 @@ func (s scopeFrame) resolve(ref expression.SelectorRef) (expression.Type, error)
 	return expression.Type{Kind: kind, Cardinality: cardinality}, nil
 }
 
-func primitiveKind(kind fhirschema.PrimitiveKind) expression.ValueKind {
+func ExpressionKindForPrimitive(kind fhirschema.PrimitiveKind) expression.ValueKind {
 	switch kind {
 	case fhirschema.PrimitiveBoolean:
 		return expression.KindBoolean

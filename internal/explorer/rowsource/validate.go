@@ -12,73 +12,37 @@ func ValidateDeriveSourceSelections(selections []ConstructionDeriveSourceSelecti
 	if len(selections) > maxDeriveSourceSelections {
 		return fmt.Errorf("deriveSources accepts at most %d operand selections", maxDeriveSourceSelections)
 	}
-	seenChoices := make(map[string]bool, len(selections))
-	seenColumns := make(map[string]bool, len(selections))
-	for index, selection := range selections {
-		if err := support.RequireExactIdentity(selection.ChoiceID, fmt.Sprintf("deriveSources[%d].choiceId", index)); err != nil {
-			return err
-		}
-		if err := support.RequireExactIdentity(selection.ColumnID, fmt.Sprintf("deriveSources[%d].columnId", index)); err != nil {
-			return err
-		}
-		if seenChoices[selection.ChoiceID] || seenColumns[selection.ColumnID] {
-			return fmt.Errorf("deriveSources contains duplicate choiceId or columnId")
-		}
-		seenChoices[selection.ChoiceID], seenColumns[selection.ColumnID] = true, true
-	}
-	return nil
+	return ValidateUniqueSourceSelectionPairs(selections, "deriveSources", func(selection ConstructionDeriveSourceSelection) string { return selection.ChoiceID }, func(selection ConstructionDeriveSourceSelection) string { return selection.ColumnID }, "deriveSources contains duplicate choiceId or columnId")
 }
 
 func ValidateExpandSourceSelections(selections []ConstructionExpandSourceSelection) error {
-	seenChoices := make(map[string]bool, len(selections))
-	seenColumns := make(map[string]bool, len(selections))
-	for index, selection := range selections {
-		if err := support.RequireExactIdentity(selection.ChoiceID, fmt.Sprintf("expandSources[%d].choiceId", index)); err != nil {
-			return err
-		}
-		if err := support.RequireExactIdentity(selection.ColumnID, fmt.Sprintf("expandSources[%d].columnId", index)); err != nil {
-			return err
-		}
-		if seenChoices[selection.ChoiceID] || seenColumns[selection.ColumnID] {
-			return fmt.Errorf("expandSources contains duplicate choiceId or columnId")
-		}
-		seenChoices[selection.ChoiceID], seenColumns[selection.ColumnID] = true, true
-	}
-	return nil
+	return ValidateUniqueSourceSelectionPairs(selections, "expandSources", func(selection ConstructionExpandSourceSelection) string { return selection.ChoiceID }, func(selection ConstructionExpandSourceSelection) string { return selection.ColumnID }, "expandSources contains duplicate choiceId or columnId")
 }
 
 func ValidateFilterSourceSelections(selections []ConstructionFilterSourceSelection) error {
-	seenChoices := make(map[string]bool, len(selections))
-	seenColumns := make(map[string]bool, len(selections))
-	for index, selection := range selections {
-		if err := support.RequireExactIdentity(selection.ChoiceID, fmt.Sprintf("filterSources[%d].choiceId", index)); err != nil {
-			return err
-		}
-		if err := support.RequireExactIdentity(selection.ColumnID, fmt.Sprintf("filterSources[%d].columnId", index)); err != nil {
-			return err
-		}
-		if seenChoices[selection.ChoiceID] || seenColumns[selection.ColumnID] {
-			return fmt.Errorf("filterSources contains duplicate choiceId or columnId")
-		}
-		seenChoices[selection.ChoiceID], seenColumns[selection.ColumnID] = true, true
-	}
-	return nil
+	return ValidateUniqueSourceSelectionPairs(selections, "filterSources", func(selection ConstructionFilterSourceSelection) string { return selection.ChoiceID }, func(selection ConstructionFilterSourceSelection) string { return selection.ColumnID }, "filterSources contains duplicate choiceId or columnId")
 }
 
 func ValidateUnpivotSourceSelections(selections []ConstructionUnpivotSourceSelection) error {
+	return ValidateUniqueSourceSelectionPairs(selections, "unpivotSources", func(selection ConstructionUnpivotSourceSelection) string { return selection.ChoiceID }, func(selection ConstructionUnpivotSourceSelection) string { return selection.ColumnID }, "unpivotSources contains duplicate choiceId or columnId")
+}
+
+func ValidateUniqueSourceSelectionPairs[T any](selections []T, field string, choiceID func(T) string, columnID func(T) string, duplicateError string) error {
 	seenChoices := make(map[string]bool, len(selections))
 	seenColumns := make(map[string]bool, len(selections))
 	for index, selection := range selections {
-		if err := support.RequireExactIdentity(selection.ChoiceID, fmt.Sprintf("unpivotSources[%d].choiceId", index)); err != nil {
+		choice := choiceID(selection)
+		column := columnID(selection)
+		if err := support.RequireExactIdentity(choice, fmt.Sprintf("%s[%d].choiceId", field, index)); err != nil {
 			return err
 		}
-		if err := support.RequireExactIdentity(selection.ColumnID, fmt.Sprintf("unpivotSources[%d].columnId", index)); err != nil {
+		if err := support.RequireExactIdentity(column, fmt.Sprintf("%s[%d].columnId", field, index)); err != nil {
 			return err
 		}
-		if seenChoices[selection.ChoiceID] || seenColumns[selection.ColumnID] {
-			return fmt.Errorf("unpivotSources contains duplicate choiceId or columnId")
+		if seenChoices[choice] || seenColumns[column] {
+			return fmt.Errorf("%s", duplicateError)
 		}
-		seenChoices[selection.ChoiceID], seenColumns[selection.ColumnID] = true, true
+		seenChoices[choice], seenColumns[column] = true, true
 	}
 	return nil
 }

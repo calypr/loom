@@ -9,23 +9,19 @@ import (
 )
 
 func RenderPreviewGroupProjectionFactorization(plan ir.PhysicalPlan, indexName string, disableIndex bool) (string, map[string]any, error) {
-	index, err := semanticGroupPreviewIndex(plan, indexName, disableIndex)
-	if err != nil {
-		return "", nil, err
-	}
-	rendered, err := aql.Render(plan, aql.Options{RootIndex: index, Preview: aql.SemanticGroupProjectionFactorizationPreview{}})
-	if err != nil {
-		return "", nil, err
-	}
-	return rendered.Query, rendered.BindVars, nil
+	return renderGroupProjectionPreview(plan, indexName, disableIndex, aql.SemanticGroupProjectionFactorizationPreview{})
 }
 
 func RenderPreviewGroupProjectionAssessment(plan ir.PhysicalPlan, indexName string, disableIndex bool) (string, map[string]any, error) {
+	return renderGroupProjectionPreview(plan, indexName, disableIndex, aql.SemanticGroupProjectionAssessmentPreview{})
+}
+
+func renderGroupProjectionPreview(plan ir.PhysicalPlan, indexName string, disableIndex bool, preview aql.Preview) (string, map[string]any, error) {
 	index, err := semanticGroupPreviewIndex(plan, indexName, disableIndex)
 	if err != nil {
 		return "", nil, err
 	}
-	rendered, err := aql.Render(plan, aql.Options{RootIndex: index, Preview: aql.SemanticGroupProjectionAssessmentPreview{}})
+	rendered, err := aql.Render(plan, aql.Options{RootIndex: index, Preview: preview})
 	if err != nil {
 		return "", nil, err
 	}

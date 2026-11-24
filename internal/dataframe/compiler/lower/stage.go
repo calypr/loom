@@ -662,22 +662,9 @@ func constructionFilterLiteral(value recipe.FilterValue) (any, error) {
 	if err := value.Validate(); err != nil {
 		return nil, err
 	}
-	switch value.Kind {
-	case recipe.FilterString:
-		return *value.String, nil
-	case recipe.FilterCode:
-		return value.Code.Code, nil
-	case recipe.FilterBoolean:
-		return *value.Boolean, nil
-	case recipe.FilterInteger:
-		return *value.Integer, nil
-	case recipe.FilterDecimal:
-		return *value.Decimal, nil
-	case recipe.FilterDate:
-		return *value.Date, nil
-	case recipe.FilterDateTime:
-		return *value.DateTime, nil
-	default:
+	if literal, ok := spec.FilterLiteralValue(value); ok {
+		return literal, nil
+	} else {
 		return nil, fmt.Errorf("unsupported construction filter value kind %q", value.Kind)
 	}
 }

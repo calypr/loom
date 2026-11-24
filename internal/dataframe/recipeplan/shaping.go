@@ -409,7 +409,7 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 			if !ok || metadata.Primitive == fhirschema.PrimitiveUnknown {
 				return nil, fmt.Errorf("%s.expr does not resolve to a supported scalar selector", path)
 			}
-			semanticAggregate.ValueKind = primitiveKind(metadata.Primitive)
+			semanticAggregate.ValueKind = ExpressionKindForPrimitive(metadata.Primitive)
 		} else if requiresSelector {
 			return nil, fmt.Errorf("%s.expr is required for operation %s", path, operation)
 		}

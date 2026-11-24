@@ -102,6 +102,27 @@ type FilterValue struct {
 	DateTime *string         `json:"dateTime,omitempty"`
 }
 
+func FilterLiteralValue(value FilterValue) (any, bool) {
+	switch value.Kind {
+	case FilterString:
+		return *value.String, true
+	case FilterCode:
+		return value.Code.Code, true
+	case FilterBoolean:
+		return *value.Boolean, true
+	case FilterInteger:
+		return *value.Integer, true
+	case FilterDecimal:
+		return *value.Decimal, true
+	case FilterDate:
+		return *value.Date, true
+	case FilterDateTime:
+		return *value.DateTime, true
+	default:
+		return nil, false
+	}
+}
+
 type TypedFilter struct {
 	FieldRef string `json:"fieldRef"`
 

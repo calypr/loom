@@ -427,7 +427,7 @@ func compileCandidate(ctx context.Context, prepared preparedCandidate, mode spec
 	}
 	fieldType := expression.Type{Kind: expression.KindObject, Cardinality: expression.OptionalOne}
 	if prepared.primitive != fhirschema.PrimitiveUnknown {
-		fieldType.Kind = expressionKind(prepared.primitive)
+		fieldType.Kind = recipeplan.ExpressionKindForPrimitive(prepared.primitive)
 	}
 	if prepared.repeated {
 		fieldType.Cardinality = expression.Many
@@ -637,25 +637,6 @@ func filterKindForPrimitive(primitive fhirschema.PrimitiveKind) spec.FilterValue
 		return spec.FilterDateTime
 	default:
 		return ""
-	}
-}
-
-func expressionKind(primitive fhirschema.PrimitiveKind) expression.ValueKind {
-	switch primitive {
-	case fhirschema.PrimitiveBoolean:
-		return expression.KindBoolean
-	case fhirschema.PrimitiveInteger:
-		return expression.KindInteger
-	case fhirschema.PrimitiveDecimal:
-		return expression.KindDecimal
-	case fhirschema.PrimitiveDate:
-		return expression.KindDate
-	case fhirschema.PrimitiveDateTime:
-		return expression.KindDateTime
-	case fhirschema.PrimitiveString:
-		return expression.KindString
-	default:
-		return expression.KindObject
 	}
 }
 

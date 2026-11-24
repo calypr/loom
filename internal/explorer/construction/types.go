@@ -390,19 +390,5 @@ func (r ConstructionChoiceProposalRequest) Validate() error {
 }
 
 func validatePivotSourceSelections(selections []ConstructionPivotSourceSelection) error {
-	seenChoices := make(map[string]bool, len(selections))
-	seenColumns := make(map[string]bool, len(selections))
-	for index, selection := range selections {
-		if err := support.RequireExactIdentity(selection.ChoiceID, fmt.Sprintf("pivotSources[%d].choiceId", index)); err != nil {
-			return err
-		}
-		if err := support.RequireExactIdentity(selection.ColumnID, fmt.Sprintf("pivotSources[%d].columnId", index)); err != nil {
-			return err
-		}
-		if seenChoices[selection.ChoiceID] || seenColumns[selection.ColumnID] {
-			return fmt.Errorf("pivotSources contains duplicate choiceId or columnId")
-		}
-		seenChoices[selection.ChoiceID], seenColumns[selection.ColumnID] = true, true
-	}
-	return nil
+	return rowsource.ValidateUniqueSourceSelectionPairs(selections, "pivotSources", func(selection ConstructionPivotSourceSelection) string { return selection.ChoiceID }, func(selection ConstructionPivotSourceSelection) string { return selection.ColumnID }, "pivotSources contains duplicate choiceId or columnId")
 }

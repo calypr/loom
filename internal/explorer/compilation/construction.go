@@ -2,6 +2,7 @@ package compilation
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	loomtext "github.com/calypr/loom/internal/foundation/text"
@@ -238,7 +239,7 @@ func repeatedCountSourceChild(owners []ws.Column, emission viewer.EmittedColumn)
 		}
 		if index == 0 {
 			coordinates, targetBoundary = current, boundaries[len(current)]
-		} else if targetBoundary != boundaries[len(current)] || !sameLineageCoordinates(coordinates, current) {
+		} else if targetBoundary != boundaries[len(current)] || !slices.Equal(coordinates, current) {
 			return lineage.SourceChild{}, fmt.Errorf("shared count owners resolve to different structural boundaries")
 		}
 	}
@@ -277,18 +278,6 @@ func repeatedSourceBoundaries(path string) []string {
 		boundaries = append(boundaries, strings.Join(parts[:index+1], "."))
 	}
 	return boundaries
-}
-
-func sameLineageCoordinates(left, right []lineage.Coordinate) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
 }
 
 func requiredConstructionID(value string) bool {
