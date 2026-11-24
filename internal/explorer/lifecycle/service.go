@@ -92,7 +92,7 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 	}
 	selectionService, err := selection.NewService(selection.Config{
 		Store: store,
-		RevisionReader: selection.RevisionReaderFunc(func(ctx context.Context, id string) (*selection.PublishedRevision, error) {
+		ReadPublishedRevision: func(ctx context.Context, id string) (*selection.PublishedRevision, error) {
 			revision, err := store.GetRevision(ctx, id)
 			if err != nil {
 				return nil, err
@@ -106,7 +106,7 @@ func New(store *explorer.Service, config Config) (*Service, error) {
 				CompilationReceiptID: revision.CompilationReceiptID,
 				ExecutionID:          revision.Publication.ExecutionID, Outputs: outputs,
 			}, nil
-		}),
+		},
 		CapabilityProvider: func() selection.CapabilityResolver {
 			return selectionCapabilityResolver(service.config.Capability)
 		},

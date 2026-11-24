@@ -3,6 +3,7 @@ package runtime_test
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/explorer/selection"
 	"testing"
 
 	"github.com/calypr/loom/internal/testkit/recipefixtures"
@@ -18,7 +19,7 @@ import (
 
 func TestRecipeAuthorizationTreatsWhitespaceProjectAsEmpty(t *testing.T) {
 	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{ResourceAccess: fencedFaultClient{}})
-	authorizer := recipeauth.NewAuthorization(resolver)
+	authorizer := recipeauth.NewAuthorization(resolver, selection.MembersCollection)
 	_, emptyErr := authorizer.AuthorizeRead(context.Background(), recipe.RuntimeBindings{Project: ""})
 	emptyErrUser := recipefixtures.AssertTypedProjectRequired(t, emptyErr, "read empty")
 	gotBlank, blankErr := authorizer.AuthorizeRead(context.Background(), recipe.RuntimeBindings{Project: "  "})
@@ -35,7 +36,7 @@ func TestRecipeAuthorizationResolverFaultStaysBackendUnavailable(t *testing.T) {
 	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 		ResourceAccess: fencedFaultClient{},
 	})
-	authorizer := recipeauth.NewAuthorization(resolver)
+	authorizer := recipeauth.NewAuthorization(resolver, selection.MembersCollection)
 	ctx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{Subject: "tester", AuthorizationHeader: "Bearer token"})
 	_, err := authorizer.AuthorizeRead(ctx, recipe.RuntimeBindings{Project: "HTAN_INT/project-a"})
 	userErr, ok := dataframeerrors.AsUserError(err)

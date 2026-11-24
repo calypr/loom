@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/explorer/selection"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/recipeauth"
@@ -43,7 +44,8 @@ func TestRecipeAuthorizationScopeResolutionSeesNormalizedProject(t *testing.T) {
 			lister := &keyingPathLister{paths: []string{"myproj/padata"}}
 			authorizer := recipeauth.NewAuthorization(authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 				ListExistingAuthResourcePaths: lister.list,
-			}))
+			}), selection.MembersCollection)
+
 			got, err := authorizer.AuthorizeRead(ctx, recipe.RuntimeBindings{Project: spelling.project, DatasetGeneration: "generation-a"})
 			if err != nil {
 				t.Fatalf("%s: %v", spelling.name, err)
@@ -61,7 +63,8 @@ func TestRecipeAuthorizationScopeResolutionSeesNormalizedProject(t *testing.T) {
 			blankLister := &keyingPathLister{paths: []string{"myproj/padata"}}
 			blankAuthorizer := recipeauth.NewAuthorization(authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 				ListExistingAuthResourcePaths: blankLister.list,
-			}))
+			}), selection.MembersCollection)
+
 			_, blankErr := blankAuthorizer.AuthorizeRead(ctx, recipe.RuntimeBindings{Project: "  \t "})
 			recipefixtures.AssertTypedProjectRequired(t, blankErr, "read blank-after-trim scoped")
 			if len(blankLister.projects) != 0 {

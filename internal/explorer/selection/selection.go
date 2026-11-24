@@ -63,11 +63,9 @@ func (r ResourceRef) key() string {
 	return r.Project + "\x00" + r.Generation + "\x00" + r.ResourceType + "\x00" + r.ID
 }
 
-type SelectionFilter = published.Filter
-
 type SelectionRule struct {
-	Kind    string            `json:"kind"`
-	Filters []SelectionFilter `json:"filters,omitempty"`
+	Kind    string             `json:"kind"`
+	Filters []published.Filter `json:"filters,omitempty"`
 }
 
 const (
@@ -80,7 +78,7 @@ const (
 
 func (r SelectionRule) Canonical() SelectionRule {
 	r.Kind = strings.ToUpper(strings.TrimSpace(r.Kind))
-	r.Filters = append([]SelectionFilter(nil), r.Filters...)
+	r.Filters = append([]published.Filter(nil), r.Filters...)
 	sort.SliceStable(r.Filters, func(i, j int) bool {
 		leftColumn, rightColumn := strings.TrimSpace(r.Filters[i].Column), strings.TrimSpace(r.Filters[j].Column)
 		if leftColumn != rightColumn {

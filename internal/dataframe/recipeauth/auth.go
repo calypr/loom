@@ -9,11 +9,11 @@ import (
 	"github.com/calypr/loom/internal/dataframe/errors/authpolicy"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/projectid"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 type Authorization struct {
-	resolver *authscope.ScopeResolver
+	resolver                   *authscope.ScopeResolver
+	selectionMembersCollection string
 }
 
 func (a Authorization) AuthorizeRead(ctx context.Context, bindings recipe.RuntimeBindings) (recipe.RuntimeBindings, error) {
@@ -22,7 +22,7 @@ func (a Authorization) AuthorizeRead(ctx context.Context, bindings recipe.Runtim
 	}
 	bindings.Project = strings.TrimSpace(bindings.Project)
 	bindings.SelectionProject = projectid.Canonical(bindings.Project)
-	bindings.SelectionMembersCollection = arangostore.SelectionMembersCollection
+	bindings.SelectionMembersCollection = a.selectionMembersCollection
 	if a.resolver == nil {
 		bindings.AuthScopeMode = authscope.ReadScopeUnrestricted
 		return bindings, nil
@@ -48,6 +48,6 @@ func AuthorizationError(err error) error {
 	return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 }
 
-func NewAuthorization(resolver *authscope.ScopeResolver) Authorization {
-	return Authorization{resolver: resolver}
+func NewAuthorization(resolver *authscope.ScopeResolver, selectionMembersCollection string) Authorization {
+	return Authorization{resolver: resolver, selectionMembersCollection: selectionMembersCollection}
 }

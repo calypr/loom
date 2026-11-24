@@ -1,6 +1,6 @@
 package db
 
-import store "github.com/calypr/loom/internal/store/arango"
+import "github.com/calypr/loom/internal/explorer/selection"
 
 const (
 	ExplorersCollection                = "loom_explorers"
@@ -8,7 +8,7 @@ const (
 	RevisionsCollection                = "loom_explorer_revisions"
 	CompilationReceiptsCollection      = "loom_explorer_compilation_receipts"
 	SelectionsCollection               = "loom_explorer_selections"
-	SelectionMembersCollection         = store.SelectionMembersCollection
+	SelectionMembersCollection         = selection.MembersCollection
 	ExplicitGroupRevisionsCollection   = "loom_explorer_explicit_group_revisions"
 	ExplicitGroupDefinitionsCollection = "loom_explorer_explicit_group_definitions"
 	ExplicitGroupMembershipsCollection = "loom_explorer_explicit_group_memberships"

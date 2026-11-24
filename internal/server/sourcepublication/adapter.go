@@ -18,6 +18,7 @@ import (
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/projectconfig"
+	"github.com/calypr/loom/internal/explorer/selection"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -71,7 +72,7 @@ func (a *SourcePublicationAdapter) MaterializeAndSelect(
 	expectedRevision int64,
 ) (string, int64, error) {
 	config := a.config
-	bindings, err := recipeauth.NewAuthorization(config.ScopeResolver).AuthorizeRead(ctx, recipe.RuntimeBindings{
+	bindings, err := recipeauth.NewAuthorization(config.ScopeResolver, selection.MembersCollection).AuthorizeRead(ctx, recipe.RuntimeBindings{
 		Project: project, DatasetGeneration: generation,
 	})
 	if err != nil {
