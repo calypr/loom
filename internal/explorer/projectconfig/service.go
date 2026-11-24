@@ -41,12 +41,12 @@ func (v *Service) ViewBuilderState(ctx context.Context, project string) (viewer.
 	if err != nil {
 		return viewer.ViewBuilderState{}, err
 	}
-	storageProject := projectid.Legacy(project)
+	publicProject, storageProject := projectid.CanonicalAndLegacy(project)
 	settings, err := repository.GetViewBuilderSettings(ctx, storageProject)
 	if err != nil {
 		return viewer.ViewBuilderState{}, fmt.Errorf("read project view settings: %w", err)
 	}
-	settings.Project = projectid.Canonical(project)
+	settings.Project = publicProject
 	if settings.Catalogs == nil {
 		settings.Catalogs = map[string]string{}
 	}

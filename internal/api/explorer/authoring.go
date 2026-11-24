@@ -19,13 +19,6 @@ import (
 	httpctx "github.com/calypr/loom/internal/foundation/httpctx"
 )
 
-func optionalString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
 func directAuthoringJSON[T any](value any) (T, error) {
 	var result T
 	raw, err := json.Marshal(value)

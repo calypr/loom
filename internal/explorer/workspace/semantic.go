@@ -789,7 +789,7 @@ func (d Document) semanticOccurrences() (map[string]RouteNode, error) {
 	occurrences := map[string]RouteNode{}
 	var walk func(RouteNode, string) error
 	walk = func(node RouteNode, path string) error {
-		if emptyID(node.OccurrenceID) || strings.TrimSpace(node.ResourceType) == "" {
+		if !requiredID(node.OccurrenceID) || strings.TrimSpace(node.ResourceType) == "" {
 			return fmt.Errorf("%s occurrenceId and resourceType are required", path)
 		}
 		if _, duplicate := occurrences[node.OccurrenceID]; duplicate {

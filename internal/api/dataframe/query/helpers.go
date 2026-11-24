@@ -5,13 +5,6 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 )
 
-func derefString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
 func predicatePathFromInput(input *dataframemodel.FhirFieldPredicateInput) string {
 	if input == nil {
 		return ""

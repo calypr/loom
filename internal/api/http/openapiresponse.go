@@ -5,10 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/foundation/httpctx"
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/calypr/loom/internal/foundation/httpctx"
 
 	loomapi "github.com/calypr/loom/api/loomapi"
 )
@@ -74,4 +75,11 @@ func DecodeStrict(raw []byte, value any) error {
 		return fmt.Errorf("multiple JSON values")
 	}
 	return nil
+}
+
+func OptionalString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

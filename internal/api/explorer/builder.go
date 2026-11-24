@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"time"
 
+	httpapi "github.com/calypr/loom/internal/api/http"
+
 	ws "github.com/calypr/loom/internal/explorer/workspace"
 
 	"github.com/calypr/loom/internal/explorer/authoringnetwork"
@@ -267,7 +269,7 @@ func (r *Handlers) ReconcileExplorerBuilder(ctx context.Context, request loomapi
 		if body == nil {
 			return result, explorer.MalformedRouteError("reconcile", errors.New("request body is required"))
 		}
-		reconciled, err := h.application.ReconcileWithWorkspace(ctx, lifecycle.ReconcileRequest{Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken, DraftVersion: body.DraftVersion, DraftDigest: body.DraftDigest, OutputID: optionalString(body.OutputId)})
+		reconciled, err := h.application.ReconcileWithWorkspace(ctx, lifecycle.ReconcileRequest{Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken, DraftVersion: body.DraftVersion, DraftDigest: body.DraftDigest, OutputID: httpapi.OptionalString(body.OutputId)})
 		if err != nil {
 			return result, err
 		}

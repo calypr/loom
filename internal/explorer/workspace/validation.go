@@ -19,7 +19,7 @@ func (d Document) validate(allowArchive bool) error {
 	if d.Kind != Kind {
 		return fmt.Errorf("unsupported V2 document protocol or kind")
 	}
-	if emptyID(d.Output.ID) || strings.TrimSpace(d.Output.Title) == "" {
+	if !requiredID(d.Output.ID) || strings.TrimSpace(d.Output.Title) == "" {
 		return fmt.Errorf("output id and title are required")
 	}
 	if !physicalColumnPattern.MatchString(d.Output.ID) {
@@ -84,7 +84,7 @@ func (w Workspace) validate(allowArchive bool) error {
 		outputs[d.Output.ID] = true
 	}
 	for i, tab := range w.Tabs {
-		if emptyID(tab.ID) || strings.TrimSpace(tab.Title) == "" || emptyID(tab.OutputID) || tab.Order < 0 {
+		if !requiredID(tab.ID) || strings.TrimSpace(tab.Title) == "" || !requiredID(tab.OutputID) || tab.Order < 0 {
 			return fmt.Errorf("tabs[%d] is invalid", i)
 		}
 		if tabs[tab.ID] {
@@ -190,7 +190,7 @@ func (c CatalogSnapshot) Validate() error {
 	}
 	nodes := map[string]CatalogNode{}
 	for i, n := range c.Nodes {
-		if emptyID(n.ID) || strings.TrimSpace(n.ResourceType) == "" {
+		if !requiredID(n.ID) || strings.TrimSpace(n.ResourceType) == "" {
 			return fmt.Errorf("nodes[%d] is invalid", i)
 		}
 		if _, ok := nodes[n.ID]; ok {
@@ -200,7 +200,7 @@ func (c CatalogSnapshot) Validate() error {
 	}
 	edges := map[string]CatalogEdge{}
 	for i, e := range c.Edges {
-		if emptyID(e.ID) || nodes[e.FromNodeID].ID == "" || nodes[e.ToNodeID].ID == "" {
+		if !requiredID(e.ID) || nodes[e.FromNodeID].ID == "" || nodes[e.ToNodeID].ID == "" {
 			return fmt.Errorf("edges[%d] has stale node reference", i)
 		}
 		if e.StorageDirection != "" && e.StorageDirection != "INBOUND" && e.StorageDirection != "OUTBOUND" {
@@ -216,7 +216,7 @@ func (c CatalogSnapshot) Validate() error {
 	}
 	candidates := map[string]CatalogCandidate{}
 	for i, candidate := range c.Candidates {
-		if emptyID(candidate.ID) || nodes[candidate.NodeID].ID == "" {
+		if !requiredID(candidate.ID) || nodes[candidate.NodeID].ID == "" {
 			return fmt.Errorf("candidates[%d] has stale node reference", i)
 		}
 		if _, ok := candidates[candidate.ID]; ok {
@@ -355,10 +355,6 @@ func (s BuilderState) Validate() error {
 		return nil
 	}
 	return s.Workspace.Validate()
-}
-
-func emptyID(value string) bool {
-	return strings.TrimSpace(value) == "" || value != strings.TrimSpace(value)
 }
 
 const maxCodedPivotCategories = 50

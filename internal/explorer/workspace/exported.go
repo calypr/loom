@@ -13,7 +13,7 @@ func CloneConstruction(construction *Construction) (*Construction, error) {
 	return cloneConstruction(construction)
 }
 
-func EmptyID(value string) bool { return emptyID(value) }
+func EmptyID(value string) bool { return !requiredID(value) }
 
 func ValidFrameForm(form capability.ConstructionChoiceForm) bool { return validFrameForm(form) }
 

@@ -32,11 +32,16 @@ func Canonical(raw string) string {
 }
 
 func Legacy(raw string) string {
-	canonical := Canonical(raw)
+	_, legacy := CanonicalAndLegacy(raw)
+	return legacy
+}
+
+func CanonicalAndLegacy(raw string) (canonical, legacy string) {
+	canonical = Canonical(raw)
 	if index := strings.IndexByte(canonical, '/'); index > 0 && index < len(canonical)-1 {
-		return canonical[:index] + "-" + canonical[index+1:]
+		return canonical, canonical[:index] + "-" + canonical[index+1:]
 	}
-	return canonical
+	return canonical, canonical
 }
 
 func NormalizeGeneration(generation string) string { return strings.TrimSpace(generation) }

@@ -3,8 +3,10 @@ package queryapi
 import (
 	"context"
 	"fmt"
-	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 	"strings"
+
+	httpapi "github.com/calypr/loom/internal/api/http"
+	"github.com/calypr/loom/internal/catalog/fieldcatalog"
 
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/authscope"
@@ -109,8 +111,8 @@ func (r scopedInputResolver) resolveNodeInputRefs(ctx context.Context, input nod
 		if field == nil {
 			continue
 		}
-		if strings.TrimSpace(derefString(field.FieldRef)) != "" {
-			selectorText, err := resolveFieldRef(input.resourceType, discovered, derefString(field.FieldRef))
+		if strings.TrimSpace(httpapi.OptionalString(field.FieldRef)) != "" {
+			selectorText, err := resolveFieldRef(input.resourceType, discovered, httpapi.OptionalString(field.FieldRef))
 			if err != nil {
 				return classifyError(err)
 			}
@@ -133,8 +135,8 @@ func (r scopedInputResolver) resolveNodeInputRefs(ctx context.Context, input nod
 		if pivot == nil {
 			continue
 		}
-		if strings.TrimSpace(derefString(pivot.FieldRef)) != "" {
-			hint, err := resolvePivotFieldRef(input.resourceType, discovered, derefString(pivot.FieldRef))
+		if strings.TrimSpace(httpapi.OptionalString(pivot.FieldRef)) != "" {
+			hint, err := resolvePivotFieldRef(input.resourceType, discovered, httpapi.OptionalString(pivot.FieldRef))
 			if err != nil {
 				return err
 			}
@@ -148,10 +150,10 @@ func (r scopedInputResolver) resolveNodeInputRefs(ctx context.Context, input nod
 	}
 
 	for _, filter := range input.filters {
-		if filter == nil || strings.TrimSpace(derefString(filter.FieldRef)) == "" {
+		if filter == nil || strings.TrimSpace(httpapi.OptionalString(filter.FieldRef)) == "" {
 			continue
 		}
-		selector, err := resolveFieldRef(input.resourceType, discovered, derefString(filter.FieldRef))
+		selector, err := resolveFieldRef(input.resourceType, discovered, httpapi.OptionalString(filter.FieldRef))
 		if err != nil {
 			return err
 		}
@@ -162,15 +164,15 @@ func (r scopedInputResolver) resolveNodeInputRefs(ctx context.Context, input nod
 		if aggregate == nil {
 			continue
 		}
-		if strings.TrimSpace(derefString(aggregate.FieldRef)) != "" {
-			selector, err := resolveFieldRef(input.resourceType, discovered, derefString(aggregate.FieldRef))
+		if strings.TrimSpace(httpapi.OptionalString(aggregate.FieldRef)) != "" {
+			selector, err := resolveFieldRef(input.resourceType, discovered, httpapi.OptionalString(aggregate.FieldRef))
 			if err != nil {
 				return err
 			}
 			aggregate.FhirPath = &selector
 		}
-		if strings.TrimSpace(derefString(aggregate.PredicateFieldRef)) != "" {
-			selector, err := resolveFieldRef(input.resourceType, discovered, derefString(aggregate.PredicateFieldRef))
+		if strings.TrimSpace(httpapi.OptionalString(aggregate.PredicateFieldRef)) != "" {
+			selector, err := resolveFieldRef(input.resourceType, discovered, httpapi.OptionalString(aggregate.PredicateFieldRef))
 			if err != nil {
 				return err
 			}
@@ -182,8 +184,8 @@ func (r scopedInputResolver) resolveNodeInputRefs(ctx context.Context, input nod
 		if slice == nil {
 			continue
 		}
-		if strings.TrimSpace(derefString(slice.WhereFieldRef)) != "" {
-			selector, err := resolveFieldRef(input.resourceType, discovered, derefString(slice.WhereFieldRef))
+		if strings.TrimSpace(httpapi.OptionalString(slice.WhereFieldRef)) != "" {
+			selector, err := resolveFieldRef(input.resourceType, discovered, httpapi.OptionalString(slice.WhereFieldRef))
 			if err != nil {
 				return err
 			}
@@ -193,8 +195,8 @@ func (r scopedInputResolver) resolveNodeInputRefs(ctx context.Context, input nod
 			if field == nil {
 				continue
 			}
-			if strings.TrimSpace(derefString(field.FieldRef)) != "" {
-				selectorText, err := resolveFieldRef(input.resourceType, discovered, derefString(field.FieldRef))
+			if strings.TrimSpace(httpapi.OptionalString(field.FieldRef)) != "" {
+				selectorText, err := resolveFieldRef(input.resourceType, discovered, httpapi.OptionalString(field.FieldRef))
 				if err != nil {
 					return err
 				}

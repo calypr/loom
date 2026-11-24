@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	httpapi "github.com/calypr/loom/internal/api/http"
+
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -99,7 +101,7 @@ func recipeFieldsFromInput(in []*dataframemodel.FhirFieldSelectInput) ([]recipe.
 		if err != nil {
 			return nil, fmt.Errorf("fields[%d] %q: %w", index, item.Name, err)
 		}
-		field := recipe.Field{Name: item.Name, FieldRef: strings.TrimSpace(derefString(item.FieldRef)), Expr: expr, ValueMode: recipe.ValueMode(item.ValueMode.String())}
+		field := recipe.Field{Name: item.Name, FieldRef: strings.TrimSpace(httpapi.OptionalString(item.FieldRef)), Expr: expr, ValueMode: recipe.ValueMode(item.ValueMode.String())}
 		for fallbackIndex, fallback := range item.FallbackSelectors {
 			fallbackExpr, err := recipeSelectorExpression(fallback)
 			if err != nil {
@@ -123,7 +125,7 @@ func recipeFiltersFromInput(in []*dataframemodel.FhirFilterInput) ([]recipe.Filt
 		}
 		filter := recipe.Filter{
 			Select:   strings.TrimSpace(item.Select),
-			FieldRef: strings.TrimSpace(derefString(item.FieldRef)),
+			FieldRef: strings.TrimSpace(httpapi.OptionalString(item.FieldRef)),
 			Operator: recipe.FilterOperator(item.Operator.String()),
 		}
 		if item.Quantifier != nil {
@@ -151,7 +153,7 @@ func recipeFilterValue(input *dataframemodel.FhirFilterValueInput) (recipe.Filte
 		value.String = input.String
 	case dataframemodel.FhirFilterValueKindCode:
 		if input.Code != nil {
-			value.Code = &recipe.CodeValue{System: derefString(input.Code.System), Code: input.Code.Code, Display: derefString(input.Code.Display)}
+			value.Code = &recipe.CodeValue{System: httpapi.OptionalString(input.Code.System), Code: input.Code.Code, Display: httpapi.OptionalString(input.Code.Display)}
 		}
 	case dataframemodel.FhirFilterValueKindBoolean:
 		value.Boolean = input.Boolean
@@ -189,9 +191,9 @@ func recipePivotsFromInput(in []*dataframemodel.FhirPivotInput) ([]recipe.Pivot,
 		if err != nil {
 			return nil, fmt.Errorf("pivots[%d] %q valueSelector: %w", index, item.Name, err)
 		}
-		pivot := recipe.Pivot{Name: item.Name, FieldRef: strings.TrimSpace(derefString(item.FieldRef)), ColumnExpr: column, ValueExpr: value, Columns: cloneStrings(item.Columns)}
+		pivot := recipe.Pivot{Name: item.Name, FieldRef: strings.TrimSpace(httpapi.OptionalString(item.FieldRef)), ColumnExpr: column, ValueExpr: value, Columns: cloneStrings(item.Columns)}
 		if item.Discovery != nil {
-			pivot.Discovery = &recipe.PivotDiscovery{Family: derefString(item.Discovery.Family), Path: derefString(item.Discovery.Path), MaxColumns: item.Discovery.MaxColumns}
+			pivot.Discovery = &recipe.PivotDiscovery{Family: httpapi.OptionalString(item.Discovery.Family), Path: httpapi.OptionalString(item.Discovery.Path), MaxColumns: item.Discovery.MaxColumns}
 		}
 		out = append(out, pivot)
 	}
@@ -204,14 +206,14 @@ func recipeAggregatesFromInput(in []*dataframemodel.FhirAggregateInput) ([]recip
 		if item == nil {
 			continue
 		}
-		aggregate := recipe.Aggregate{Name: item.Name, Operation: recipe.AggregateOperation(item.Operation.String()), FieldRef: strings.TrimSpace(derefString(item.FieldRef)), ValueMode: recipe.ValueMode(item.ValueMode.String())}
-		path := strings.TrimSpace(derefString(item.FhirPath))
+		aggregate := recipe.Aggregate{Name: item.Name, Operation: recipe.AggregateOperation(item.Operation.String()), FieldRef: strings.TrimSpace(httpapi.OptionalString(item.FieldRef)), ValueMode: recipe.ValueMode(item.ValueMode.String())}
+		path := strings.TrimSpace(httpapi.OptionalString(item.FhirPath))
 		if path != "" {
 			expr := recipe.Expression{Select: path}
 			aggregate.Expr = &expr
 		}
-		predicatePath := strings.TrimSpace(derefString(item.PredicatePath))
-		predicateValue := derefString(item.PredicateEquals)
+		predicatePath := strings.TrimSpace(httpapi.OptionalString(item.PredicatePath))
+		predicateValue := httpapi.OptionalString(item.PredicateEquals)
 		if predicatePath != "" || strings.TrimSpace(predicateValue) != "" {
 			if predicatePath == "" || strings.TrimSpace(predicateValue) == "" {
 				return nil, fmt.Errorf("aggregates[%d] %q has an incomplete predicate", index, item.Name)
@@ -234,8 +236,8 @@ func recipeSlicesFromInput(in []*dataframemodel.FhirRepresentativeSliceInput) ([
 			return nil, fmt.Errorf("slices[%d] %q fields: %w", index, item.Name, err)
 		}
 		slice := recipe.RepresentativeSlice{Name: item.Name, Limit: item.Limit, Fields: fields}
-		wherePath := strings.TrimSpace(derefString(item.WherePath))
-		whereValue := derefString(item.WhereEquals)
+		wherePath := strings.TrimSpace(httpapi.OptionalString(item.WherePath))
+		whereValue := httpapi.OptionalString(item.WhereEquals)
 		if wherePath != "" || strings.TrimSpace(whereValue) != "" {
 			if wherePath == "" || strings.TrimSpace(whereValue) == "" {
 				return nil, fmt.Errorf("slices[%d] %q has an incomplete predicate", index, item.Name)
@@ -270,7 +272,7 @@ func recipeSelectorExpression(in *dataframemodel.FhirFieldSelectorInput) (recipe
 	if in == nil {
 		return recipe.Expression{}, fmt.Errorf("selector is required")
 	}
-	selectText := composeSelector(derefString(in.SourcePath), predicatePathFromInput(in.Where), predicateOpFromInput(in.Where), predicateValueFromInput(in.Where), in.ValuePath)
+	selectText := composeSelector(httpapi.OptionalString(in.SourcePath), predicatePathFromInput(in.Where), predicateOpFromInput(in.Where), predicateValueFromInput(in.Where), in.ValuePath)
 	if strings.TrimSpace(selectText) == "" {
 		return recipe.Expression{}, fmt.Errorf("selector valuePath is required")
 	}

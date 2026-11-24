@@ -1049,7 +1049,7 @@ const (
 )
 
 func requiredID(value string) bool {
-	return strings.TrimSpace(value) != "" && value == strings.TrimSpace(value)
+	return value != "" && strings.TrimSpace(value) == value
 }
 
 func (o ConstructionOperation) inputColumnIDs() []string {

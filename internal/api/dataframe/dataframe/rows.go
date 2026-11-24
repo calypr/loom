@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 
+	httpapi "github.com/calypr/loom/internal/api/http"
+
 	dataframemodel "github.com/calypr/loom/internal/api/dataframe"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dfmaterialization "github.com/calypr/loom/internal/dataframe/published"
@@ -63,7 +65,7 @@ func (s *Service) Rows(ctx context.Context, input dataframemodel.DataframeRowsIn
 		return dfmaterialization.Page{}, err
 	}
 	page, err := s.reader.Page(ctx, value, dfmaterialization.PageRequest{
-		Columns: input.Columns, Filters: convertFilters(input.Filters), Sort: convertSort(input), First: intValue(input.First), After: stringValue(input.After),
+		Columns: input.Columns, Filters: convertFilters(input.Filters), Sort: convertSort(input), First: intValue(input.First), After: httpapi.OptionalString(input.After),
 		AuthResourcePaths: access.authResourcePaths, Unrestricted: access.unrestricted,
 	})
 	if err != nil {
@@ -111,13 +113,6 @@ func convertSort(input dataframemodel.DataframeRowsInput) *dfmaterialization.Sor
 func intValue(value *int) int {
 	if value == nil {
 		return 0
-	}
-	return *value
-}
-
-func stringValue(value *string) string {
-	if value == nil {
-		return ""
 	}
 	return *value
 }
