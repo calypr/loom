@@ -155,16 +155,6 @@ func migrateStoredDocumentFixture(document Document) (Document, error) {
 	return result.Workspace.Documents[0], nil
 }
 
-func cloneStoredShapeFixture(shape *storedTableShape) (*storedTableShape, error) {
-	raw, err := json.Marshal(shape)
-	if err != nil {
-		return nil, err
-	}
-	var out *storedTableShape
-	err = json.Unmarshal(raw, &out)
-	return out, err
-}
-
 func storedDigestFixture(workspace Workspace) (string, error) {
 	raw, err := CanonicalStoredWorkspaceForMigration(workspace)
 	if err != nil {

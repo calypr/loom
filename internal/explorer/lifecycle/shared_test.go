@@ -106,23 +106,6 @@ func rs05CloneConstruction(c ws.Construction) ws.Construction {
 	return out
 }
 
-func rs05OtherHelperStep() ws.ConstructionStep {
-	return ws.ConstructionStep{
-		ID: rs05Helper2ID, OwnerStepID: rs05OtherPivotID,
-		Inputs: []ws.ConstructionInputRef{{Kind: ws.ConstructionInputSourceProjection}},
-		Operation: ws.ConstructionOperation{Kind: ws.ConstructionOperationRelatedField, RelatedField: &ws.ConstructionRelatedField{
-			ChoiceID: "seed-choice-two", OutputColumnID: rs05OtherColumn,
-			Source: ws.ConstructionRelatedFieldSource{
-				Kind: capability.ConstructionChoiceSourceField, CandidateID: "seed-cand", NodeID: filterSourceRootNode,
-				ResourceType: filterSourceRootType, Path: filterSourceField,
-				Cardinality: "optional_one", LogicalType: "boolean",
-			},
-		}},
-		Outputs: []ws.StageColumn{{ID: "public-key", Name: "public_key", Label: "Public key", Type: "string"},
-			{ID: rs05OtherColumn, Name: "pv_two_col", Label: "BodyStructure.active", Type: "boolean", Nullable: true}},
-	}
-}
-
 func rs05HelperStep() ws.ConstructionStep {
 	return ws.ConstructionStep{
 		ID: rs05HelperID, OwnerStepID: rs05PivotID,
@@ -193,13 +176,6 @@ func rs05SeedCleared() ws.Construction {
 			rs05SeedPivotStep(),
 		},
 	}
-}
-
-func rs05FilterOwnedDurable() ws.Construction {
-	durable := rs05SeedDurable()
-	durable.Steps[0] = rs05SeedFilterStep(filterSourceColumn, append(filterSourceIdentityColumns(), filterSourceProjectionColumn()))
-	durable.SourceProjections = append(durable.SourceProjections, rs05FilterOwnedProjection())
-	return durable
 }
 
 func rs05FilterOwnedProjection() ws.ConstructionSourceProjection {
@@ -318,15 +294,6 @@ func TestXopPortFilterSetBranchDoesNotReImportClearedPivotProjection(t *testing.
 	if !rs05HasProjection(prepared.SourceProjections, filterSourceColumn, rs05FilterID) {
 		t.Fatalf("filter SET did not materialize its own signed projection: %#v", prepared.SourceProjections)
 	}
-}
-
-func rs05IndexOwned(projections []ws.ConstructionSourceProjection, ownerStepID string) int {
-	for index, projection := range projections {
-		if projection.OwnerStepID == ownerStepID {
-			return index
-		}
-	}
-	return -1
 }
 
 func rs05ProposeService(t *testing.T) (*Service, *fakeStore, capability.Snapshot) {
@@ -610,17 +577,6 @@ func TestProposeConstructionFilterEditAgainstAlreadyClearedDurable(t *testing.T)
 	if reflect.DeepEqual(proposal.CandidateConstruction.Steps, []ws.ConstructionStep(nil)) {
 		t.Fatal("control lost the candidate steps")
 	}
-}
-
-func rs05BaseWithHelperStage(base constructionBase) constructionBase {
-	base.Stages = append(append([]receiptmodel.ReceiptConstructionStage(nil), base.Stages...), receiptmodel.ReceiptConstructionStage{
-		ID: rs05HelperID, InputStageID: recipe.ConstructionSourceProjectionID, Operation: "RELATED_FIELD",
-		Columns: []receiptmodel.ReceiptConstructionStageColumn{
-			{ID: filterSourceIdentity, Name: "body_structure_id", Label: "Body structure ID", Type: "string"},
-			{ID: rs05HelperColumn, Name: "pv_col", Label: "BodyStructure.active", Type: "boolean"},
-		},
-	})
-	return base
 }
 
 const (

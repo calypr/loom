@@ -145,14 +145,14 @@ func TestSemanticCoverageGeneratedTemplatesHavePayloadWitnesses(t *testing.T) {
 			if err != nil {
 				t.Fatalf("census generated witness: %v", err)
 			}
-			concept, found := semanticCoveragePath(census, SemanticCoverageCodeableConcept, template.CanonicalPath)
+			concept, found := semanticCoveragePath(census.Paths, SemanticCoverageCodeableConcept, template.CanonicalPath)
 			if !found {
 				t.Fatalf("generated path %q was not rediscovered by census; paths=%#v", template.CanonicalPath, census.Paths)
 			}
 			if concept.OccurrenceCount != 1 {
 				t.Fatalf("generated concept path %q count = %d, want 1; all counts=%#v", template.CanonicalPath, concept.OccurrenceCount, census.Counts)
 			}
-			coding, found := semanticCoveragePath(census, SemanticCoverageCoding, template.CanonicalPath+".coding[]")
+			coding, found := semanticCoveragePath(census.Paths, SemanticCoverageCoding, template.CanonicalPath+".coding[]")
 			if !found || coding.OccurrenceCount != 1 {
 				t.Fatalf("generated Coding child for %q = %#v, found=%t; want exactly one", template.CanonicalPath, coding, found)
 			}
@@ -366,8 +366,8 @@ func semanticCoverageFillRequired(object map[string]any, definition schema.Defin
 	}
 }
 
-func semanticCoveragePath(census SemanticCoverageCensus, kind SemanticCoverageOccurrenceKind, path string) (SemanticCoveragePathAggregate, bool) {
-	for _, aggregate := range census.Paths {
+func semanticCoveragePath(paths []SemanticCoveragePathAggregate, kind SemanticCoverageOccurrenceKind, path string) (SemanticCoveragePathAggregate, bool) {
+	for _, aggregate := range paths {
 		if aggregate.Kind == kind && aggregate.CanonicalPath == path {
 			return aggregate, true
 		}
@@ -421,18 +421,18 @@ func TestSemanticCoverageCensusRetainsMissingNullEmptyAndBlankEvidence(t *testin
 		census.Counts.NullCodingOccurrences != 1 || census.Counts.EmptyCodingOccurrences != 1 {
 		t.Fatalf("Coding presence counts = %#v", census.Counts)
 	}
-	componentCode := findSemanticCoveragePath(t, census, SemanticCoverageCodeableConcept, "component[].code")
+	componentCode := findSemanticCoveragePath(t, census.Paths, SemanticCoverageCodeableConcept, "component[].code")
 	if componentCode.FacetPresenceCounts["component[].code.text"][SemanticCoverageMissing] != 2 ||
 		componentCode.FacetPresenceCounts["component[].code.coding[]"][SemanticCoverageMissing] != 1 ||
 		componentCode.FacetPresenceCounts["component[].code.coding[]"][SemanticCoveragePopulated] != 1 {
 		t.Fatalf("component code facets = %#v", componentCode.FacetPresenceCounts)
 	}
-	componentValue := findSemanticCoveragePath(t, census, SemanticCoverageCodeableConcept, "component[].valueCodeableConcept")
+	componentValue := findSemanticCoveragePath(t, census.Paths, SemanticCoverageCodeableConcept, "component[].valueCodeableConcept")
 	if componentValue.FacetPresenceCounts["component[].valueCodeableConcept.text"][SemanticCoverageBlank] != 1 ||
 		componentValue.FacetPresenceCounts["component[].valueCodeableConcept.coding[]"][SemanticCoverageEmpty] != 1 {
 		t.Fatalf("component value facets = %#v", componentValue.FacetPresenceCounts)
 	}
-	codingPath := findSemanticCoveragePath(t, census, SemanticCoverageCoding, "component[].code.coding[]")
+	codingPath := findSemanticCoveragePath(t, census.Paths, SemanticCoverageCoding, "component[].code.coding[]")
 	if codingPath.FacetPresenceCounts["component[].code.coding[].system"][SemanticCoverageMissing] != 1 ||
 		codingPath.FacetPresenceCounts["component[].code.coding[].system"][SemanticCoverageBlank] != 1 ||
 		codingPath.FacetPresenceCounts["component[].code.coding[].userSelected"][SemanticCoveragePopulated] != 1 {
@@ -446,12 +446,10 @@ func TestSemanticCoverageCensusRetainsMissingNullEmptyAndBlankEvidence(t *testin
 	}
 }
 
-func findSemanticCoveragePath(t *testing.T, census SemanticCoverageCensus, kind SemanticCoverageOccurrenceKind, path string) SemanticCoveragePathAggregate {
+func findSemanticCoveragePath(t *testing.T, paths []SemanticCoveragePathAggregate, kind SemanticCoverageOccurrenceKind, path string) SemanticCoveragePathAggregate {
 	t.Helper()
-	for _, aggregate := range census.Paths {
-		if aggregate.Kind == kind && aggregate.CanonicalPath == path {
-			return aggregate
-		}
+	if aggregate, ok := semanticCoveragePath(paths, kind, path); ok {
+		return aggregate
 	}
 	t.Fatalf("missing coverage path %s %q", kind, path)
 	return SemanticCoveragePathAggregate{}
@@ -540,7 +538,7 @@ func TestSemanticCoverageCensusDispatchesContainedResourceAndLegacyWalkerStaysAb
 	if census.Status != SemanticCoverageCensusComplete || len(census.IncompleteGaps) != 0 {
 		t.Fatalf("resolved contained Observation was incomplete: status=%q gaps=%#v", census.Status, census.IncompleteGaps)
 	}
-	containedCode := findSemanticCoveragePath(t, census, SemanticCoverageCodeableConcept, "contained[].code")
+	containedCode := findSemanticCoveragePath(t, census.Paths, SemanticCoverageCodeableConcept, "contained[].code")
 	if containedCode.ResourceBoundarySignature == "" || containedCode.OccurrenceCount != 1 ||
 		!containsString(containedCode.OwnerPathWitnesses, "contained[0].code") {
 		t.Fatalf("contained code aggregate lost its exact owner/boundary: %#v", containedCode)
@@ -943,7 +941,7 @@ func TestSemanticCoverageCollapsesSupportedCodedConceptsByExactFamilyScope(t *te
 	if codingPath.Disposition != SemanticCoverageSemanticDisposition || len(codingPath.References) != 2 {
 		t.Fatalf("Coding path disposition/references = %q/%#v, want semantic with one family per version", codingPath.Disposition, codingPath.References)
 	}
-	conceptPath := findContributionCoveragePath(t, contribution, SemanticCoverageCodeableConcept, "code")
+	conceptPath := findSemanticCoveragePath(t, contribution.Paths, SemanticCoverageCodeableConcept, "code")
 	var codingFacet *SemanticCoverageFacetAggregate
 	for index := range conceptPath.Facets {
 		if conceptPath.Facets[index].Path == "code.coding[]" {
@@ -1003,7 +1001,7 @@ func TestSemanticCoverageDirectCodingChoiceLeafFacetsUseExactOwnerEvidence(t *te
 	); err != nil {
 		t.Fatalf("observe direct Coding choice coverage: %v", err)
 	}
-	path := findContributionCoveragePath(t, contribution, SemanticCoverageCoding, "input[].valueCoding")
+	path := findSemanticCoveragePath(t, contribution.Paths, SemanticCoverageCoding, "input[].valueCoding")
 	if path.Disposition != SemanticCoverageSemanticDisposition || len(path.References) != 1 || path.References[0].Kind != SemanticCoverageFamilyReference {
 		t.Fatalf("direct Coding path disposition/references = %q/%#v", path.Disposition, path.References)
 	}
@@ -1028,17 +1026,6 @@ func TestSemanticCoverageDirectCodingChoiceLeafFacetsUseExactOwnerEvidence(t *te
 			t.Errorf("direct Coding leaf facet %q lacks owner-matched semantic reference: %#v", leaf, path.Facets)
 		}
 	}
-}
-
-func findContributionCoveragePath(t *testing.T, contribution SemanticCoverageSourceContribution, kind SemanticCoverageOccurrenceKind, path string) SemanticCoveragePathAggregate {
-	t.Helper()
-	for _, aggregate := range contribution.Paths {
-		if aggregate.Kind == kind && aggregate.CanonicalPath == path {
-			return aggregate
-		}
-	}
-	t.Fatalf("missing contribution coverage path %s %q", kind, path)
-	return SemanticCoveragePathAggregate{}
 }
 
 func TestSemanticCoverageEmitsSourceSentinelWithoutSemanticOccurrences(t *testing.T) {
@@ -1336,7 +1323,7 @@ func TestSemanticInventoryKeepsIdentifierTypeCodingRaw(t *testing.T) {
 	if identifierTypeEmission || len(semanticContributions) != 1 {
 		t.Fatalf("Identifier.type Coding must remain raw beside Identifier.system/value; contributions=%#v", semanticContributions)
 	}
-	coding := findContributionCoveragePath(t, coverage, SemanticCoverageCoding, "identifier[].type.coding[]")
+	coding := findSemanticCoveragePath(t, coverage.Paths, SemanticCoverageCoding, "identifier[].type.coding[]")
 	if coding.Kind != SemanticCoverageCoding || coding.Disposition == SemanticCoverageSemanticDisposition || len(emissions) != 1 || emissions[0].SourcePath != "identifier[]" {
 		t.Fatalf("Identifier.type census/emission evidence = %#v/%#v, want one raw Coding owner and only Identifier system/value emission", coding, emissions)
 	}

@@ -178,12 +178,6 @@ func r14TakeSnapshot(t *testing.T, ctx context.Context, client *arangostore.Clie
 	return s
 }
 
-func (s r14Snapshot) log(label string) {
-	fmt.Printf("OBSERVED [%s] totalDocs=%d releaseDocs=%d releaseIDs=%v activeErr=%s activeRevision=%d activeID=%s\n  releasePointer=%s\n  genPointer=%s\n  canonicalDocs=\n%s\n",
-		label, s.totalDocs, s.releaseDocCount, s.releaseIDs, s.activeErr, s.activeRevision, s.activeID,
-		s.releasePointer, s.genPointer, s.canonical)
-}
-
 func TestReleaseRequirementsUnmetActivateAgainstArango(t *testing.T) {
 	ctx, client, lifecycle := r14Open(t, 180*time.Second)
 

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -274,20 +273,6 @@ func generationDocumentIDMust(t *testing.T, project, generation, documentID stri
 		t.Fatal(err)
 	}
 	return value
-}
-
-func repoRoot(t *testing.T) string {
-	t.Helper()
-	_, source, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve ingest test source")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(source), "..", ".."))
-}
-
-func repoPath(t *testing.T, elems ...string) string {
-	t.Helper()
-	return filepath.Join(append([]string{repoRoot(t)}, elems...)...)
 }
 
 type parityRowBuilder struct {
