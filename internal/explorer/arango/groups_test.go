@@ -427,3 +427,20 @@ func (c *explicitGroupDefinitionClient) QueryRows(_ context.Context, query strin
 		return fmt.Errorf("unexpected explicit-group query: %s", query)
 	}
 }
+
+func TestExplicitGroupDefinitionKeysPreservePersistedFraming(t *testing.T) {
+	for _, tc := range []struct {
+		revision explorerselection.ExplicitGroupRevisionID
+		group    explorerselection.ExplicitGroupID
+		want     string
+	}{
+		{"", "", "groupdef_374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb"},
+		{"a", "bc", "groupdef_3fafa1cf2f19a7c1129beb20cf0983f73a489a221fc0dd2f16d1be292d089205"},
+		{"ab", "c", "groupdef_601d5476e2ccfe2c87a2bba7a322659734a05749d5b5aa781f513e4912db0d5f"},
+		{"rév", "x\x00y", "groupdef_f43a1e971adc0b430b4e31e5a8791e8d000703b511202cd45cbf9a111bbc128f"},
+	} {
+		if got := explicitGroupDefinitionKey(tc.revision, tc.group); got != tc.want {
+			t.Fatalf("definition key for %q/%q = %q, want %q", tc.revision, tc.group, got, tc.want)
+		}
+	}
+}

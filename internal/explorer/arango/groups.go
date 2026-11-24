@@ -3,7 +3,6 @@ package arango
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/digest"
 	"github.com/calypr/loom/internal/explorer/arango/db"
 	"github.com/calypr/loom/internal/explorer/arango/selectiondb"
 	explorerselection "github.com/calypr/loom/internal/explorer/selection"
@@ -28,23 +28,12 @@ const (
 var _ explorerselection.ExplicitGroupRepository = (*Store)(nil)
 
 func explicitGroupDefinitionKey(revisionID explorerselection.ExplicitGroupRevisionID, groupID explorerselection.ExplicitGroupID) string {
-	return "groupdef_" + explicitGroupStorageKey(string(revisionID), string(groupID))
+	return "groupdef_" + digest.Digest(string(revisionID), string(groupID))
 }
 
 func explicitGroupMembershipKey(revisionID explorerselection.ExplicitGroupRevisionID, membership explorerselection.ExplicitGroupMembership) string {
 	membership = membership.Canonical()
-	return "groupmember_" + explicitGroupStorageKey(string(revisionID), string(membership.GroupID), membership.Ref.Project, membership.Ref.Generation, membership.Ref.ResourceType, membership.Ref.ID)
-}
-
-func explicitGroupStorageKey(parts ...string) string {
-	hash := sha256.New()
-	for _, part := range parts {
-		var length [8]byte
-		binary.BigEndian.PutUint64(length[:], uint64(len(part)))
-		_, _ = hash.Write(length[:])
-		_, _ = hash.Write([]byte(part))
-	}
-	return hex.EncodeToString(hash.Sum(nil))
+	return "groupmember_" + digest.Digest(string(revisionID), string(membership.GroupID), membership.Ref.Project, membership.Ref.Generation, membership.Ref.ResourceType, membership.Ref.ID)
 }
 
 func (s *ExplicitGroupStore) BeginExplicitGroupRevision(ctx context.Context, revision explorerselection.ExplicitGroupRevision, source explorerselection.SelectionRevision, writerToken string) (*explorerselection.ExplicitGroupRevision, error) {
