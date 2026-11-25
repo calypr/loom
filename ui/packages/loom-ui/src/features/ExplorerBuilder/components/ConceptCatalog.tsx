@@ -890,9 +890,7 @@ const ConceptCatalogContent = ({
     catalogRequestScopeKey, pageIndex, semanticResponse, loadState, resolveChoiceGroup: resolveCatalogChoiceGroup,
     activeChoiceRequest, activeMoreRouteRequest, startChoiceRequest, startContinuation,
   } = useCatalogRequests({
-    project, explorerId, authResourcePath, snapshotToken, outputId, tableContextKey,
-    rowRoot, catalog, presentationContext, presentationRequest, searchGeneration, viewRevision,
-    browseResourceType, semanticSelectionMode, query, pageNavigation, view, browseRouteContext,
+    presentationRequest, searchGeneration, browseResourceType, query, pageNavigation, browseRouteContext,
     onCatalogChanged() {
       setSelected(new Map());
       setPendingSelection(undefined);

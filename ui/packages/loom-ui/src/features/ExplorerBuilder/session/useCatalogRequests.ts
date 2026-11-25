@@ -1,10 +1,11 @@
+import { useConceptCatalogSession } from './ConceptCatalogSession';
 import { sameCatalogSnapshot } from '../../../contracts/identity';
 import { useRef, useState } from 'react';
 import { useLoomClient, useQuery } from '../../../react';
 import { RequestOwner } from '../../../data/requests';
 import type {
-  ConstructionChoice, ConstructionChoiceSearchSource, ExplorerBuilderCatalog, FieldPresentation,
-  FieldPresentationRequest, SemanticInventoryBrowseResponse, SemanticInventorySelectionMode,
+  ConstructionChoice, ConstructionChoiceSearchSource, FieldPresentation,
+  FieldPresentationRequest, SemanticInventoryBrowseResponse,
 } from '../../../contracts/types';
 import { catalogItemConstructionChoice, fieldPresentationMatchesRequest, type CatalogChoiceGroup, type CatalogItem } from '../model/catalogItems';
 
@@ -42,31 +43,21 @@ interface CatalogPageNavigation {
 type CatalogRequest = NonNullable<ReturnType<RequestOwner['start']>>;
 
 export function useCatalogRequests({
-  project, explorerId, authResourcePath, snapshotToken, outputId, tableContextKey,
-  rowRoot, catalog, presentationContext, presentationRequest, searchGeneration, viewRevision,
-  browseResourceType, semanticSelectionMode, query, pageNavigation, view, browseRouteContext,
-  onCatalogChanged,
+  presentationRequest, searchGeneration, browseResourceType, query, pageNavigation,
+  browseRouteContext, onCatalogChanged,
 }: {
-  readonly project: string;
-  readonly explorerId: string;
-  readonly authResourcePath?: string;
-  readonly snapshotToken: string;
-  readonly outputId: string;
-  readonly tableContextKey: string;
-  readonly rowRoot: string;
-  readonly catalog: ExplorerBuilderCatalog;
-  readonly presentationContext?: Omit<FieldPresentationRequest, 'candidateIds'>;
   readonly presentationRequest?: FieldPresentationRequest;
   readonly searchGeneration: number;
-  readonly viewRevision?: number;
   readonly browseResourceType?: string;
-  readonly semanticSelectionMode?: SemanticInventorySelectionMode;
   readonly query: string;
   readonly pageNavigation?: CatalogPageNavigation;
-  readonly view: 'all' | 'coded' | 'fields';
   readonly browseRouteContext?: { readonly occurrenceId: string };
   readonly onCatalogChanged: () => void;
 }) {
+  const {
+    project, explorerId, authResourcePath, snapshotToken, outputId, tableContextKey = '',
+    rowRoot, catalog, presentationContext, viewRevision = 0, semanticSelectionMode, view = 'all',
+  } = useConceptCatalogSession(session => session);
   const client = useLoomClient();
   const [requests] = useState(() => {
     const owner = new RequestOwner();
