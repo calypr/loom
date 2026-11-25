@@ -16,7 +16,7 @@ const renderedPopulationStates = vi.hoisted(
 );
 const renderedExplorerIds = vi.hoisted((): Array<string | undefined> => []);
 
-vi.mock('./features/ExplorerBuilder/BuilderWorkspace', () => ({
+vi.mock('./features/ExplorerBuilder/ui/workspace/BuilderWorkspace', () => ({
   default: ({
     populationSelection,
     populationSelectionLoading,

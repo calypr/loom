@@ -1,0 +1,1292 @@
+// @vitest-environment jsdom
+import React from 'react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { ConstructionHistory } from './ConstructionHistory';
+import { ConstructionTableNavigation } from './ConstructionTableNavigation';
+import { ConstructionWorkspaceSessionProvider } from '../../session/ConstructionWorkspaceSession';
+import { ConstructionActionBar, ConstructionWorkspace as ConnectedConstructionWorkspace } from './ConstructionWorkspace';
+import type { ConstructionOperationFamily } from '../../model/constructionOperationFamily';
+import { constructionHistorySteps, constructionRowMeaning } from '../../model/constructionHistory';
+import { ConstructionColumnSelection } from './ConstructionColumnSelection';
+import { constructionProposalIsApplicable } from '../../model/constructionProposal';
+import { sourceProjectionAvailability } from '../../model/sourceProjectionAvailability';
+import type { Construction, ConstructionProposalResponse, ExplorerBuilderPreviewResult } from '../../../../contracts/types';
+
+const ConstructionWorkspace = (props: import('react').ComponentProps<typeof ConnectedConstructionWorkspace> &
+  import('react').ComponentProps<typeof ConstructionWorkspaceSessionProvider>['value']) => (
+  <ConstructionWorkspaceSessionProvider value={props}>
+    <ConnectedConstructionWorkspace {...props} />
+  </ConstructionWorkspaceSessionProvider>
+);
+
+
+describe('ConstructionWorkspace', () => {
+  it('collapses a 100-operation run without crossing source scopes or semantic boundaries', () => {
+    const columns = Array.from({ length: 100 }, (_, index) => ({
+      id: `column-${index}`, title: `Column ${index}`, summary: `Value ${index}`,
+      hierarchy: 'COLUMN_ADJUSTMENT' as const, scopeKey: index < 50 ? 'source:subject' : 'source:patient',
+    }));
+    const steps = [...columns.slice(0, 75), { id: 'filter', title: 'Filter rows', summary: 'Required output filter' }, ...columns.slice(75)];
+    render(<ConstructionHistory resourceType="ResearchSubject" steps={steps} selected={{ kind: 'source' }} onSelect={vi.fn()} />);
+    const groups = screen.getAllByTestId(/construction-history-adjustment-group-/);
+    expect(groups).toHaveLength(3);
+    expect(groups[0]).toHaveTextContent('(50)');
+    expect(groups[1]).toHaveTextContent('(25)');
+    expect(groups[2]).toHaveTextContent('(25)');
+    const orderedIds = [...document.querySelectorAll('[data-testid^="construction-history-step-"]')].map((node) => node.getAttribute('data-testid'));
+    expect(orderedIds).toEqual(steps.map((step) => `construction-history-step-${step.id}`));
+    expect(screen.getByText('Required output filter')).toBeInTheDocument();
+  });
+
+  it('keeps the visible row meaning aligned with the last row-changing step', () => {
+    const sourceColumns = [
+      { id: 'status', name: 'status', label: 'Status' },
+      { id: 'codes', name: 'codes', label: 'Diagnosis codes' },
+    ];
+    const grouped: Construction = {
+      version: 1,
+      steps: [
+        {
+          id: 'group-status', inputs: [{ kind: 'SOURCE_PROJECTION' }],
+          operation: { kind: 'GROUP', group: {
+            constructionId: 'group-status', keys: [{ inputColumnId: 'status', outputColumnId: 'status' }],
+          } },
+          outputs: [{ id: 'status', name: 'status', label: 'Status' }],
+        },
+        {
+          id: 'filter-status', inputs: [{ kind: 'STEP_OUTPUT', stepId: 'group-status' }],
+          operation: { kind: 'FILTER', filter: { columnId: 'status', operator: 'EXISTS' } },
+          outputs: [{ id: 'status', name: 'status', label: 'Status' }],
+        },
+      ],
+    };
+    expect(constructionRowMeaning('One row per Patient.', grouped, sourceColumns))
+      .toBe('One row per distinct combination of Status.');
+    const semanticGrouped: Construction = {
+      version: 1,
+      steps: [{
+        id: 'group-specimen-type', inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'GROUP', group: {
+          constructionId: 'group-specimen-type',
+          keys: [
+            { inputColumnId: 'status', outputColumnId: 'grouped-status' },
+            { semanticCategory: {
+              kind: 'BINDING', bindingId: 'binding-specimen-type', ruleVersion: '5',
+              familyId: 'family-specimen-type', sourceKind: 'retained_vertex',
+              system: 'urn:specimen-type', version: '', resourceType: 'Specimen', codingPath: 'type.coding[]',
+            }, outputColumnId: 'specimen-type' },
+          ],
+        } },
+        outputs: [
+          { id: 'grouped-status', name: 'status', label: 'Status' },
+          { id: 'specimen-type', name: 'specimen_type', label: 'Specimen type' },
+        ],
+      }],
+    };
+    expect(constructionRowMeaning('One row per Patient.', semanticGrouped, sourceColumns))
+      .toBe('One row per distinct combination of Status, Specimen type.');
+    expect(constructionHistorySteps(semanticGrouped, sourceColumns)[0]?.summary)
+      .toBe('Group rows by Status, Specimen type.');
+    const expanded: Construction = {
+      version: 1,
+      steps: [{
+        id: 'expand-codes', inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'EXPAND', expand: {
+          constructionId: 'expand-codes', inputColumnId: 'codes', outputColumnId: 'code', emptyPolicy: 'PRESERVE_PARENT',
+        } },
+        outputs: [{ id: 'code', name: 'code', label: 'Diagnosis code' }],
+      }],
+    };
+    expect(constructionRowMeaning('One row per Patient.', expanded, sourceColumns))
+      .toBe('One row per value in Diagnosis codes from each input row.');
+    const coded: Construction = {
+      version: 1,
+      steps: [{
+        id: 'group-codes', inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'CODED_GROUP', codedGroup: {
+          constructionId: 'group-codes',
+          source: { occurrenceId: 'base', resourceType: 'Observation', codingPath: 'component[].code.coding[]', fhirType: 'Coding', cardinality: 'MANY', shape: 'ARRAY', route: [] },
+          missingKeyPolicy: 'GROUP',
+          systemOutputColumnId: 'system', versionOutputColumnId: 'version', codeOutputColumnId: 'code', distinctSourceCountOutputColumnId: 'count',
+        } },
+        outputs: [{ id: 'system', name: 'system', label: 'Code system' }, { id: 'version', name: 'version', label: 'Code version' }, { id: 'code', name: 'code', label: 'Code' }, { id: 'count', name: 'count', label: 'Source records' }],
+      }],
+    };
+    expect(constructionRowMeaning('One row per Observation record.', coded, sourceColumns))
+      .toBe('One row per distinct code, including its system and version.');
+  });
+
+  it('describes the current related-record grain, route, and unmatched-row behavior', () => {
+    const related: Construction = {
+      version: 1,
+      steps: [{
+        id: 'related-medication-administration',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: {
+          kind: 'RELATED_EXPAND',
+          relatedExpand: {
+            anchorColumnId: '_key',
+            choiceId: 'observation-to-medication-administration',
+            targetNodeId: 'medication-administration-node',
+            targetResourceType: 'MedicationAdministration',
+            route: [
+              {
+                edgeId: 'observation-subject-patient',
+                fromNodeId: 'observation-node',
+                fromResourceType: 'Observation',
+                relationship: 'subject_Patient',
+                storageDirection: 'OUTBOUND',
+                toNodeId: 'patient-node',
+                toResourceType: 'Patient',
+                matchMode: 'OPTIONAL',
+              },
+              {
+                edgeId: 'patient-subject-medication-administration',
+                fromNodeId: 'patient-node',
+                fromResourceType: 'Patient',
+                relationship: 'subject_Patient',
+                storageDirection: 'INBOUND',
+                toNodeId: 'medication-administration-node',
+                toResourceType: 'MedicationAdministration',
+                matchMode: 'OPTIONAL',
+              },
+            ],
+            contributorRule: { policy: 'ALL_MATCHES' },
+            emptyPolicy: 'PRESERVE_PARENT',
+            relatedRecordColumnId: 'medication-administration-id',
+          },
+        },
+        outputs: [{ id: 'medication-administration-id', name: 'medication_administration_id', label: 'MedicationAdministration FHIR resource ID', type: 'string', nullable: true }],
+      }],
+    };
+
+    expect(constructionRowMeaning('One row per Observation record.', related, []))
+      .toBe('For each Observation, one row per matching MedicationAdministration through the same Patient; existing row fields repeat on each match; keep one Observation row with an empty MedicationAdministration FHIR resource ID when no match exists.');
+    expect(constructionHistorySteps(related, [])).toMatchObject([
+      { id: 'related-medication-administration', title: 'Rows from MedicationAdministration' },
+    ]);
+
+    const originalStep = related.steps[0]!;
+    if (originalStep.operation.kind !== 'RELATED_EXPAND') throw new Error('Expected a related expansion');
+    const [firstRouteStep, lastRouteStep] = originalStep.operation.relatedExpand.route;
+    const repeatedIntermediaryRoute: Construction = {
+      version: 1,
+      steps: [{
+        ...originalStep,
+        operation: {
+          kind: 'RELATED_EXPAND',
+          relatedExpand: {
+            ...originalStep.operation.relatedExpand,
+            route: [
+              firstRouteStep!,
+              { ...firstRouteStep!, edgeId: 'patient-care-team', fromNodeId: 'patient-node', fromResourceType: 'Patient', toNodeId: 'care-team-node', toResourceType: 'CareTeam' },
+              { ...firstRouteStep!, edgeId: 'care-team-patient', fromNodeId: 'care-team-node', fromResourceType: 'CareTeam', toNodeId: 'patient-node', toResourceType: 'Patient' },
+              lastRouteStep!,
+            ],
+          },
+        },
+      }],
+    };
+    expect(constructionRowMeaning('One row per Observation record.', repeatedIntermediaryRoute, []))
+      .toContain('through Patient → CareTeam → Patient');
+
+    const groupedThenRelated: Construction = {
+      version: 1,
+      steps: [
+        {
+          id: 'group-status', inputs: [{ kind: 'SOURCE_PROJECTION' }],
+          operation: { kind: 'GROUP', group: { constructionId: 'group-status', keys: [{ inputColumnId: 'status', outputColumnId: 'status' }] } },
+          outputs: [{ id: 'status', name: 'status', label: 'Status' }],
+        },
+        { ...related.steps[0]!, id: 'related-after-group', inputs: [{ kind: 'STEP_OUTPUT', stepId: 'group-status' }] },
+      ],
+    };
+    expect(constructionRowMeaning('One row per Observation record.', groupedThenRelated, [
+      { id: 'status', name: 'status', label: 'Status' },
+    ])).toBe('For each current row (one row per distinct combination of Status), one row per matching MedicationAdministration through the same Patient; existing row fields repeat on each match; keep the current row once with an empty MedicationAdministration FHIR resource ID when no match exists.');
+  });
+
+  it('lists all five operation families with unavailable calculations explained', () => {
+    const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
+
+    render(<ConstructionActionBar onSelect={onSelect} />);
+
+    const actions = [
+      ['ADD_COLUMNS', 'Add columns'],
+      ['KEEP_ROWS', 'Filter rows'],
+      ['CALCULATE', 'Add a calculated column'],
+      ['RESHAPE', 'Pivot / reshape'],
+      ['COMBINE', 'Combine'],
+    ] as const;
+    expect(screen.queryByTestId('construction-more-actions')).not.toBeInTheDocument();
+    for (const [family, label] of actions) {
+      const button = screen.getByTestId(
+        `construction-action-${family.toLowerCase().replace('_', '-')}`,
+      );
+      expect(button.getAttribute('aria-label')).toContain(label);
+      if (family === 'CALCULATE') {
+        expect(button).toBeDisabled();
+        expect(button).toHaveAttribute('title', 'Calculation is unavailable for the current table stage.');
+        continue;
+      }
+      fireEvent.click(button);
+      expect(onSelect).toHaveBeenLastCalledWith(family);
+    }
+  });
+
+  it('keeps Calculate, Reshape, and Combine reachable when calculation is supported', () => {
+    const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
+    render(<ConstructionActionBar onSelect={onSelect} calculateAvailable />);
+
+    const calculate = screen.getByTestId('construction-action-calculate');
+    const reshape = screen.getByTestId('construction-action-reshape');
+    const combine = screen.getByTestId('construction-action-combine');
+    expect(calculate).toBeEnabled();
+    expect(reshape).toBeEnabled();
+    expect(combine).toBeEnabled();
+    fireEvent.click(calculate);
+    expect(onSelect).toHaveBeenCalledWith('CALCULATE');
+  });
+
+  it('selects operation input columns from a searchable dropdown', () => {
+    const onToggleColumn = vi.fn();
+    render(<ConstructionColumnSelection
+      columns={[{ id: 'alpha', label: 'Alpha', type: 'string' }, { id: 'beta', label: 'Beta', type: 'integer' }]}
+      selectedColumnIds={[]} onToggleColumn={onToggleColumn} onClear={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Choose input columns' }));
+    fireEvent.change(screen.getByLabelText('Search input columns'), { target: { value: 'beta' } });
+    expect(screen.queryByTestId('construction-column-alpha')).toBeNull();
+    fireEvent.click(screen.getByTestId('construction-column-beta'));
+    expect(onToggleColumn).toHaveBeenCalledWith('beta');
+  });
+
+  it('groups only contiguous column adjustments and opens the selected group', () => {
+    const steps = [
+      { id: 'expand-first', title: 'Expand diagnoses', summary: 'Expand summary', editable: true, hierarchy: 'COLUMN_ADJUSTMENT' as const },
+      { id: 'derive-first', title: 'Calculate risk', summary: 'Calculate summary', editable: true, hierarchy: 'COLUMN_ADJUSTMENT' as const },
+      { id: 'group-rows', title: 'Group by Patient', summary: 'Group summary', editable: true },
+      { id: 'related-field', title: 'Field from related record', summary: 'Related field summary', editable: true, hierarchy: 'COLUMN_ADJUSTMENT' as const },
+      { id: 'pivot-rows', title: 'Pivot Specimens', summary: 'Pivot summary', editable: true },
+      { id: 'related-source', title: 'Related Observation', summary: 'Related source summary', removeActionLabel: 'Remove connection to Observation', editable: true, hierarchy: 'COLUMN_ADJUSTMENT' as const },
+    ];
+    const onSelect = vi.fn();
+    const onEditStep = vi.fn();
+    const onRemoveStep = vi.fn();
+
+    const view = render(
+      <ConstructionHistory
+        resourceType="Patient"
+        steps={steps}
+        selected={{ kind: 'step', stepId: 'related-field' }}
+        onSelect={onSelect}
+        onEditStep={onEditStep}
+        onRemoveStep={onRemoveStep}
+      />,
+    );
+
+    const adjustmentGroups = screen.getAllByTestId(/^construction-history-adjustment-group-/);
+    expect(adjustmentGroups.map((group) => group.querySelector('h4')?.textContent?.trim())).toEqual([
+      'Column adjustments (2)',
+      'Column adjustments (1)',
+      'Column adjustments (1)',
+    ]);
+    expect(adjustmentGroups[0]).toHaveTextContent('Expand summary');
+    expect(adjustmentGroups[1]).toHaveTextContent('Related field summary');
+    expect(adjustmentGroups[2]).toHaveTextContent('Related source summary');
+
+    const renderedSteps = screen.getAllByTestId(/^construction-history-step-/);
+    expect(renderedSteps.map((button) => button.getAttribute('data-testid'))).toEqual([
+      'construction-history-step-expand-first',
+      'construction-history-step-derive-first',
+      'construction-history-step-group-rows',
+      'construction-history-step-related-field',
+      'construction-history-step-pivot-rows',
+      'construction-history-step-related-source',
+    ]);
+    expect(renderedSteps.map((button) => button.parentElement?.querySelector('[aria-hidden="true"]')?.textContent))
+      .toEqual(['1', '2', '3', '4', '5', '6']);
+    expect(screen.getByText('Source')).toBeInTheDocument();
+    expect(screen.getByText('Transformations')).toBeInTheDocument();
+    for (const majorStepId of ['group-rows', 'pivot-rows']) {
+      expect(screen.getByTestId(`construction-history-step-${majorStepId}`).closest('details')).toBeNull();
+    }
+
+    const selectedStep = screen.getByTestId('construction-history-step-related-field');
+    expect(selectedStep).toHaveTextContent('Related field summary');
+    expect(selectedStep).toHaveAttribute('title', 'Related field summary');
+    expect(selectedStep).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(selectedStep);
+    expect(onEditStep).toHaveBeenCalledWith('related-field');
+    fireEvent.click(screen.getByTestId('construction-edit-step-related-field'));
+    expect(onEditStep).toHaveBeenLastCalledWith('related-field');
+    fireEvent.click(screen.getByTestId('construction-remove-step-related-field'));
+    expect(onRemoveStep).toHaveBeenCalledWith('related-field');
+
+    view.rerender(
+      <ConstructionHistory
+        resourceType="Patient"
+        steps={steps}
+        selected={{ kind: 'step', stepId: 'related-source' }}
+        onSelect={onSelect}
+        onEditStep={onEditStep}
+        onRemoveStep={onRemoveStep}
+      />,
+    );
+    const removeConnection = screen.getByTestId('construction-remove-step-related-source');
+    expect(removeConnection).toHaveTextContent('Remove connection');
+    expect(removeConnection).toHaveAttribute('aria-label', 'Remove connection to Observation');
+    fireEvent.click(removeConnection);
+    expect(onRemoveStep).toHaveBeenLastCalledWith('related-source');
+
+    fireEvent.click(screen.getByTestId('construction-history-source'));
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'source' });
+  });
+
+  it('offers calculations only when the selected constructed stage supports them', () => {
+    const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
+    render(<ConstructionActionBar onSelect={onSelect} calculateAvailable />);
+
+    const calculate = screen.getByTestId('construction-action-calculate');
+    expect(calculate).toBeEnabled();
+    expect(calculate).toHaveTextContent('Calculate');
+    fireEvent.click(calculate);
+    expect(onSelect).toHaveBeenCalledWith('CALCULATE');
+  });
+
+  it('blocks Add columns during preview loading without blocking row filters', () => {
+    const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
+    render(<ConstructionActionBar onSelect={onSelect} addColumnsDisabled />);
+
+    const addColumns = screen.getByTestId('construction-action-add-columns');
+    const filterRows = screen.getByTestId('construction-action-keep-rows');
+    expect(addColumns).toBeDisabled();
+    expect(filterRows).toBeEnabled();
+    fireEvent.click(filterRows);
+    expect(onSelect).toHaveBeenCalledWith('KEEP_ROWS');
+  });
+
+  it('offers a new-table Combine entry without asking users to clear their current table', () => {
+    const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
+    render(<ConstructionActionBar onSelect={onSelect} />);
+
+    const combine = screen.getByTestId('construction-action-combine');
+    expect(combine).toBeEnabled();
+    expect(combine).toHaveAttribute('aria-label', 'Combine tables: Create a new table by joining or stacking table versions.');
+    fireEvent.click(combine);
+    expect(onSelect).toHaveBeenCalledWith('COMBINE');
+  });
+
+  it('navigates named tables and keeps the source row available when there are no authored steps', () => {
+    const onSelectTable = vi.fn();
+    const onNewTable = vi.fn();
+    const onRenameTable = vi.fn();
+    const onDuplicateTable = vi.fn();
+    const onDeleteTable = vi.fn();
+    render(
+      <>
+        <ConstructionTableNavigation
+          tables={[
+            { outputId: 'patients', title: 'Patients' },
+            { outputId: 'visits', title: 'Visits' },
+          ]}
+          selectedOutputId="patients"
+          onSelectTable={onSelectTable}
+          onNewTable={onNewTable}
+          onDuplicateTable={onDuplicateTable}
+          onDeleteTable={onDeleteTable}
+          onRenameTable={onRenameTable}
+        />
+        <ConstructionHistory
+          resourceType="Patient"
+          steps={[]}
+          selected={{ kind: 'source' }}
+          onSelect={vi.fn()}
+        />
+      </>,
+    );
+
+    expect(screen.getByTestId('construction-table-patients')).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    fireEvent.click(screen.getByTestId('construction-table-visits'));
+    expect(onSelectTable).toHaveBeenCalledWith('visits');
+    fireEvent.click(screen.getByTestId('construction-new-table'));
+    expect(onNewTable).toHaveBeenCalledOnce();
+    expect(screen.getByRole('button', { name: 'New table' })).toHaveTextContent('+');
+    expect(screen.queryByTestId('construction-rename-table-visits')).toBeNull();
+    const tableActions = screen.getByTestId('construction-table-actions-patients');
+    expect(tableActions).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTestId('construction-table-patients')).toHaveClass('construction-table-tab', 'bg-transparent');
+    expect(screen.getByTestId('construction-table-patients')).not.toHaveClass('bg-emerald-100');
+    expect(screen.queryByTestId('construction-rename-table-patients')).toBeNull();
+    fireEvent.click(tableActions);
+    expect(tableActions).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('construction-table-patients').parentElement?.contains(tableActions)).toBe(true);
+    expect(screen.getByTestId('construction-table-actions-menu')).toBeInTheDocument();
+    fireEvent.keyDown(tableActions, { key: 'Escape' });
+    expect(screen.queryByTestId('construction-table-actions-menu')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(tableActions);
+    fireEvent.click(tableActions);
+    fireEvent.click(screen.getByTestId('construction-rename-table-patients'));
+    expect(onRenameTable).toHaveBeenCalledWith('patients');
+    fireEvent.click(tableActions);
+    fireEvent.click(screen.getByTestId('construction-duplicate-table'));
+    expect(onDuplicateTable).toHaveBeenCalledOnce();
+    fireEvent.click(tableActions);
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByTestId('construction-table-actions-menu')).not.toBeInTheDocument();
+    fireEvent.click(tableActions);
+    fireEvent.click(screen.getByTestId('construction-delete-table'));
+    expect(onDeleteTable).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('button', { name: 'Move Patients down' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Move Patients up' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-history')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-history-source')).toHaveTextContent('Patient');
+  });
+
+  it('opens an editable query step directly and retains its existing edit and remove controls', () => {
+    const step = { id: 'filter', title: 'Filter rows', summary: 'Keep matching observations.', editable: true };
+    const onSelect = vi.fn();
+    const onEditStep = vi.fn();
+    const onRemoveStep = vi.fn();
+    const view = render(<ConstructionHistory resourceType="Patient" steps={[step]} selected={{ kind: 'source' }} onSelect={onSelect} onEditStep={onEditStep} onRemoveStep={onRemoveStep} />);
+    expect(screen.getByRole('region', { name: 'Dataframe steps' })).toBeInTheDocument();
+    expect(screen.getByTestId('construction-history-step-filter')).toHaveTextContent('Filter rows');
+    expect(screen.getByTestId('construction-history-step-filter')).toHaveTextContent('Keep matching observations.');
+    expect(screen.queryByTestId('construction-edit-step-filter')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('construction-history-step-filter'));
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onEditStep).toHaveBeenCalledWith('filter');
+    view.rerender(<ConstructionHistory resourceType="Patient" steps={[step]} selected={{ kind: 'step', stepId: 'filter' }} onSelect={onSelect} onEditStep={onEditStep} onRemoveStep={onRemoveStep} />);
+    expect(screen.getByTestId('construction-edit-step-filter')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('construction-edit-step-filter'));
+    expect(onEditStep).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByTestId('construction-remove-step-filter'));
+    expect(onRemoveStep).toHaveBeenCalledWith('filter');
+  });
+
+  it('exposes preview status and its receipt identity separately from the current draft', () => {
+    const onSelectFamily = vi.fn();
+    render(
+      <ConstructionWorkspace
+        tables={[{ outputId: 'patients', title: 'Patients' }]}
+        selectedOutputId="patients"
+        onSelectTable={vi.fn()}
+        onNewTable={vi.fn()}
+        onDuplicateTable={vi.fn()}
+        onDeleteTable={vi.fn()}
+        onRenameTable={vi.fn()}
+        activeFamily="CALCULATE"
+        onSelectFamily={onSelectFamily}
+        rowSetup={<button type="button">Configure rows</button>}
+        preview={<div role="table">Current rows</div>}
+        editor={<div>Calculate editor</div>}
+        previewStatus="ready"
+        previewReceiptId="receipt-123"
+        previewOutputId="patients"
+        proposalId="proposal-456"
+        draftVersion={7}
+        draftDigest="digest-789"
+      />,
+    );
+
+    const preview = screen.getByTestId('construction-preview');
+    expect(preview).toHaveAttribute('data-preview-status', 'ready');
+    expect(preview).toHaveAttribute('data-preview-receipt-id', 'receipt-123');
+    expect(preview).toHaveAttribute('data-preview-proposal-id', 'proposal-456');
+    expect(preview).toHaveAttribute('data-current-draft-version', '7');
+    expect(preview).toHaveAttribute('data-current-draft-digest', 'digest-789');
+    expect(screen.queryByText('Preview rows')).not.toBeInTheDocument();
+    expect(screen.queryByText('Full count not measured')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('construction-undo')).not.toBeInTheDocument();
+    expect(screen.getByText('Calculate editor').closest('[aria-label="Change editor"]')).toBeInTheDocument();
+    expect(screen.queryByTestId('construction-row-meaning')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'What each row represents' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('construction-row-setup')).toBeNull();
+    expect(screen.queryByTestId('construction-action-add-columns')).toBeNull();
+    expect(screen.getByText('Current rows')).toBeInTheDocument();
+  });
+
+  it('keeps secondary operation history within the recipe editor', () => {
+    render(<ConstructionWorkspace
+      tables={[{ outputId: 'patients', title: 'Patients' }]}
+      selectedOutputId="patients"
+      onSelectTable={vi.fn()}
+      onNewTable={vi.fn()}
+      onDuplicateTable={vi.fn()}
+      onDeleteTable={vi.fn()}
+      onRenameTable={vi.fn()}
+      onSelectFamily={vi.fn()}
+      history={{
+        resourceType: 'Patient',
+        steps: [{ id: 'filter', title: 'Filter rows', summary: 'Keep active patients.', editable: true }],
+        selected: { kind: 'source' },
+        onSelect: vi.fn(),
+      }}
+      preview={<div>Preview table</div>}
+      previewStatus="ready"
+      draftVersion={1}
+      draftDigest="digest-1"
+    />);
+
+    expect(screen.getByTestId('construction-history')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-history-source')).toHaveTextContent('Patient');
+    expect(within(screen.getByRole('navigation', { name: 'Tables' })).queryByTestId('construction-history')).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-action-add-columns').compareDocumentPosition(screen.getByTestId('construction-history')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole('complementary', { name: 'Recipe editor' }).contains(screen.getByTestId('construction-history'))).toBe(true);
+    expect(screen.getByRole('complementary', { name: 'Recipe editor' }).contains(screen.getByTestId('construction-preview'))).toBe(false);
+  });
+
+  it('keeps secondary operation history reachable while an operation editor is open', () => {
+    render(<ConstructionWorkspace
+      tables={[{ outputId: 'patients', title: 'Patients' }]}
+      selectedOutputId="patients"
+      onSelectTable={vi.fn()}
+      onNewTable={vi.fn()}
+      onDuplicateTable={vi.fn()}
+      onDeleteTable={vi.fn()}
+      onRenameTable={vi.fn()}
+      onSelectFamily={vi.fn()}
+      history={{
+        resourceType: 'Patient',
+        steps: [{ id: 'filter-current', title: 'Filter rows', summary: 'Keep adults.', editable: true }],
+        selected: { kind: 'source' },
+        onSelect: vi.fn(),
+      }}
+      editor={<div>Filter editor</div>}
+      preview={<div>Preview table</div>}
+      previewStatus="ready"
+      draftVersion={1}
+      draftDigest="digest-1"
+    />);
+
+    fireEvent.click(screen.getByText('Ordered operation history (1)'));
+    expect(screen.getByRole('heading', { name: 'Dataframe steps' })).toBeInTheDocument();
+    expect(screen.getByTestId('construction-history-step-filter-current')).toHaveTextContent('Keep adults.');
+    expect(screen.getByText('Filter editor')).toBeInTheDocument();
+  });
+
+  it('keeps the starting-record source chip visible when there are no saved row operations', () => {
+    render(<ConstructionWorkspace
+      tables={[{ outputId: 'patients', title: 'Patients' }]}
+      selectedOutputId="patients"
+      onSelectTable={vi.fn()}
+      onNewTable={vi.fn()}
+      onDuplicateTable={vi.fn()}
+      onDeleteTable={vi.fn()}
+      onRenameTable={vi.fn()}
+      onSelectFamily={vi.fn()}
+      rowSetup={<button type="button" data-testid="source-settings">Patient</button>}
+      history={{ resourceType: 'Patient', steps: [], selected: { kind: 'source' }, onSelect: vi.fn() }}
+      preview={<div>Preview table</div>}
+      previewStatus="ready"
+      draftVersion={1}
+      draftDigest="digest-1"
+    />);
+
+    expect(screen.getByTestId('construction-history')).toBeInTheDocument();
+    expect(screen.getByTestId('source-settings')).toHaveTextContent('Patient');
+    expect(screen.queryByTestId(/^construction-history-step-/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-history-empty')).toHaveTextContent('Add a step to shape this dataframe.');
+  });
+
+  it('summarizes actual typed construction steps using stable source and stage column identities', () => {
+    const construction: Construction = {
+      version: 1,
+      steps: [
+        {
+          id: 'derive_bmi',
+          inputs: [{ kind: 'SOURCE_PROJECTION' }],
+          operation: {
+            kind: 'DERIVE',
+            derive: {
+              constructionId: 'derive_bmi',
+              outputColumnId: 'bmi',
+              operation: 'DIVIDE',
+              left: { kind: 'COLUMN', columnId: 'weight' },
+              right: { kind: 'COLUMN', columnId: 'height' },
+              missingInputPolicy: 'PROPAGATE_NULL',
+              divisionByZeroPolicy: 'NULL',
+            },
+          },
+          outputs: [
+            { id: 'weight', name: 'weight', label: 'Weight', type: 'decimal' },
+            { id: 'height', name: 'height', label: 'Height', type: 'decimal' },
+            { id: 'bmi', name: 'bmi', label: 'BMI', type: 'decimal' },
+          ],
+        },
+        {
+          id: 'filter_bmi',
+          inputs: [{ kind: 'STEP_OUTPUT', stepId: 'derive_bmi' }],
+          operation: {
+            kind: 'FILTER',
+            filter: {
+              columnId: 'bmi',
+              operator: 'GTE',
+              values: [{ kind: 'DECIMAL', decimal: 25 }],
+            },
+          },
+          outputs: [
+            { id: 'weight', name: 'weight', label: 'Weight', type: 'decimal' },
+            { id: 'height', name: 'height', label: 'Height', type: 'decimal' },
+            { id: 'bmi', name: 'bmi', label: 'BMI', type: 'decimal' },
+          ],
+        },
+      ],
+    };
+
+    expect(constructionHistorySteps(construction, [
+      { id: 'weight', name: 'weight', label: 'Weight', type: 'decimal' },
+      { id: 'height', name: 'height', label: 'Height', type: 'decimal' },
+    ])).toEqual([
+      { id: 'derive_bmi', title: 'Calculate', summary: 'BMI = Weight ÷ Height.', editable: true, hierarchy: 'COLUMN_ADJUSTMENT', scopeKey: 'source' },
+      { id: 'filter_bmi', title: 'Filter BMI', summary: 'Filter output rows where BMI is at least 25.', editable: true },
+    ]);
+  });
+
+  it('describes the saved related result form accurately', () => {
+    for (const [form, summary] of [
+      ['ALL', 'Add all matching values from Observation.status as Observation result.'],
+      ['COUNT', 'Count matching Observation records as Observation result.'],
+      ['PRESENCE', 'Show whether matching Observation records exist as Observation result.'],
+    ] as const) {
+      const construction: Construction = {
+        version: 1,
+        steps: [{
+          id: 'related-observation',
+          inputs: [{ kind: 'SOURCE_PROJECTION' }],
+          operation: {
+            kind: 'RELATED_SOURCE',
+            relatedSource: {
+              anchorColumnId: 'patient-id',
+              choiceId: 'observation-choice',
+              sourceOccurrenceId: 'observation-node',
+              source: {
+                kind: 'FIELD', candidateId: 'observation-status', nodeId: 'observation-node',
+                resourceType: 'Observation', path: 'status', cardinality: 'optional_one', logicalType: 'string',
+              },
+              route: [],
+              contributorRule: { policy: 'ALL_MATCHES' },
+              form,
+              outputColumnId: 'observation-result',
+            },
+          },
+          outputs: [{ id: 'observation-result', name: 'observation_result', label: 'Observation result' }],
+        }],
+      };
+      expect(constructionHistorySteps(construction, [])).toEqual([
+        { id: 'related-observation', title: 'Related Observation', summary, removeActionLabel: 'Remove connection to Observation', editable: true, hierarchy: 'COLUMN_ADJUSTMENT', scopeKey: 'source:related:observation-node:patient-id:' },
+      ]);
+    }
+  });
+
+  it('marks fields from a related record as column adjustments', () => {
+    const construction: Construction = {
+      version: 1,
+      steps: [{
+        id: 'related-observation-status',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: {
+          kind: 'RELATED_FIELD',
+          relatedField: {
+            choiceId: 'observation-status',
+            source: {
+              kind: 'FIELD',
+              candidateId: 'observation-status',
+              nodeId: 'observation-node',
+              resourceType: 'Observation',
+              path: 'status',
+              cardinality: 'optional_one',
+              logicalType: 'string',
+            },
+            outputColumnId: 'observation-status-output',
+          },
+        },
+        outputs: [{ id: 'observation-status-output', name: 'observation_status', label: 'Observation status' }],
+      }],
+    };
+
+    expect(constructionHistorySteps(construction, [])).toEqual([{
+      id: 'related-observation-status',
+      title: 'Field from this row’s related record',
+      summary: 'Add Observation.status as Observation status.',
+      editable: true,
+      hierarchy: 'COLUMN_ADJUSTMENT',
+      scopeKey: 'source:related-field:observation-node',
+    }]);
+  });
+
+  it('labels saved expansions from their exact chained input columns', () => {
+    const longFieldLabel = 'American Joint Committee on Cancer pathological N category allowable value';
+    const construction: Construction = {
+      version: 1,
+      steps: [
+        {
+          id: 'related-research-subject',
+          inputs: [{ kind: 'SOURCE_PROJECTION' }],
+          operation: {
+            kind: 'RELATED_SOURCE',
+            relatedSource: {
+              anchorColumnId: 'specimen-id',
+              choiceId: 'research-subject-status',
+              sourceOccurrenceId: 'research-subject',
+              source: {
+                kind: 'FIELD', candidateId: 'research-subject-status', nodeId: 'research-subject',
+                resourceType: 'ResearchSubject', path: 'status', cardinality: 'optional_one', logicalType: 'string',
+              },
+              route: [],
+              contributorRule: { policy: 'ALL_MATCHES' },
+              form: 'ALL',
+              outputColumnId: 'type-coding-code',
+            },
+          },
+          outputs: [{ id: 'type-coding-code', name: 'type_coding_code', label: 'Type Coding Code' }],
+        },
+        {
+          id: 'expand-type-coding-code',
+          inputs: [{ kind: 'STEP_OUTPUT', stepId: 'related-research-subject' }],
+          operation: { kind: 'EXPAND', expand: {
+            constructionId: 'expand-type-coding-code', inputColumnId: 'type-coding-code', outputColumnId: 'allowed-value',
+          } },
+          outputs: [{ id: 'allowed-value', name: 'allowed_value', label: longFieldLabel }],
+        },
+        {
+          id: 'expand-allowed-value',
+          inputs: [{ kind: 'STEP_OUTPUT', stepId: 'expand-type-coding-code' }],
+          operation: { kind: 'EXPAND', expand: {
+            constructionId: 'expand-allowed-value', inputColumnId: 'allowed-value', outputColumnId: 'identifier-value',
+          } },
+          outputs: [{ id: 'identifier-value', name: 'identifier_value', label: 'Identifier Value' }],
+        },
+        {
+          id: 'expand-identifier-value',
+          inputs: [{ kind: 'STEP_OUTPUT', stepId: 'expand-allowed-value' }],
+          operation: { kind: 'EXPAND', expand: {
+            constructionId: 'expand-identifier-value', inputColumnId: 'identifier-value', outputColumnId: 'identifier',
+          } },
+          outputs: [{ id: 'identifier', name: 'identifier', label: 'Identifier' }],
+        },
+      ],
+    };
+    const steps = constructionHistorySteps(construction, []);
+    const expectedTitles = [
+      'Related ResearchSubject',
+      'Expand Type Coding Code',
+      `Expand ${longFieldLabel}`,
+      'Expand Identifier Value',
+    ];
+
+    expect(steps.map(({ title }) => title)).toEqual(expectedTitles);
+    expect(steps.slice(1).map((step) => step.hierarchy)).toEqual([undefined, undefined, undefined]);
+    expect(new Set(expectedTitles.slice(1)).size).toBe(3);
+
+    render(
+      <ConstructionHistory
+        resourceType="Specimen"
+        steps={steps}
+        selected={{ kind: 'source' }}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    for (const step of steps) {
+      const button = screen.getByTestId(`construction-history-step-${step.id}`);
+      expect(button).toHaveAttribute('data-testid', `construction-history-step-${step.id}`);
+    }
+
+    const longTitleButton = screen.getByTestId('construction-history-step-expand-allowed-value');
+    expect(within(longTitleButton).getByText(`Expand ${longFieldLabel}`))
+      .toHaveClass('block', 'break-words');
+    expect(longTitleButton).toHaveAttribute(
+      'title',
+      `One row per value from ${longFieldLabel}; Identifier Value contains that value. Other fields repeat on each row.`,
+    );
+  });
+
+  it('keeps a pivot with many categories readable in the step history', () => {
+    const categories = Array.from({ length: 5 }, (_, index) => ({
+      key: { kind: 'STRING' as const, string: `specimen-${index}` },
+      outputColumnId: `pivot-${index}`,
+    }));
+    const construction: Construction = {
+      version: 1,
+      steps: [{
+        id: 'pivot-specimens',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'PIVOT', pivot: {
+          constructionId: 'pivot-specimens',
+          groupKeyIds: ['patient'],
+          categoryColumnId: 'specimen',
+          valueColumnId: 'value',
+          categories,
+          duplicatePolicy: 'ERROR',
+          missingCellPolicy: 'NULL',
+          unlistedCategoryPolicy: 'ERROR',
+        } },
+        outputs: [
+          { id: 'patient', name: 'patient', label: 'Patient Reference' },
+          ...categories.map(({ outputColumnId }, index) => ({
+            id: outputColumnId, name: outputColumnId, label: `specimen-${index}`,
+          })),
+        ],
+      }],
+    };
+
+    const [step] = constructionHistorySteps(construction, [
+      { id: 'patient', name: 'patient', label: 'Patient Reference' },
+      { id: 'specimen', name: 'specimen', label: 'Specimen ID' },
+      { id: 'value', name: 'value', label: 'Value' },
+    ]);
+    expect(step?.title).toBe('Pivot Specimen ID from Value');
+    expect(step?.summary).toBe('Group by Patient Reference; use Specimen ID to create 5 columns from Value.');
+  });
+
+  it('identifies configured input fields in the Unpivot history title', () => {
+    const construction: Construction = {
+      version: 1,
+      steps: [{
+        id: 'unpivot-visits',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'UNPIVOT', unpivot: {
+          constructionId: 'unpivot-visits',
+          inputs: [
+            { columnId: 'baseline', key: { kind: 'STRING', string: 'baseline' } },
+            { columnId: 'follow-up', key: { kind: 'INTEGER', integer: 2 } },
+          ],
+          keyOutputColumnId: 'visit',
+          valueOutputColumnId: 'result',
+          nullRowPolicy: 'PRESERVE',
+        } },
+        outputs: [
+          { id: 'visit', name: 'visit', label: 'Visit' },
+          { id: 'result', name: 'result', label: 'Result' },
+        ],
+      }],
+    };
+
+    const [step] = constructionHistorySteps(construction, [
+      { id: 'baseline', name: 'baseline', label: 'Baseline' },
+      { id: 'follow-up', name: 'follow_up', label: 'Follow up' },
+    ]);
+    expect(step?.title).toBe('Unpivot Baseline, Follow up');
+  });
+
+  it('summarizes and exposes saved Group and Expand steps while describing Combine inputs', () => {
+    const construction: Construction = {
+      version: 1,
+      steps: [
+        {
+          id: 'group_cohorts',
+          inputs: [{ kind: 'SOURCE_PROJECTION' }],
+          operation: {
+            kind: 'GROUP',
+            group: {
+              constructionId: 'group_cohorts',
+              keys: [{ inputColumnId: 'cohort_id', outputColumnId: 'cohort' }],
+              aggregates: [{ operation: 'SUM', inputColumnId: 'score', outputColumnId: 'total_score' }],
+            },
+          },
+          outputs: [
+            { id: 'cohort', name: 'cohort', label: 'Cohort' },
+            { id: 'total_score', name: 'total_score', label: 'Total score', type: 'decimal' },
+            { id: 'items', name: 'items', label: 'Items', type: 'string' },
+          ],
+        },
+        {
+          id: 'expand_items',
+          inputs: [{ kind: 'STEP_OUTPUT', stepId: 'group_cohorts' }],
+          operation: {
+            kind: 'EXPAND',
+            expand: {
+              constructionId: 'expand_items',
+              inputColumnId: 'items',
+              outputColumnId: 'item',
+              ordinalColumnId: 'position',
+              emptyPolicy: 'EXCLUDE',
+            },
+          },
+          outputs: [
+            { id: 'cohort', name: 'cohort', label: 'Cohort' },
+            { id: 'total_score', name: 'total_score', label: 'Total score', type: 'decimal' },
+            { id: 'item', name: 'item', label: 'Item', type: 'string' },
+            { id: 'position', name: 'position', label: 'Position', type: 'integer' },
+          ],
+        },
+        {
+          id: 'append_visits',
+          inputs: [
+            { kind: 'STEP_OUTPUT', stepId: 'expand_items' },
+            { kind: 'TABLE_REVISION', tableId: 'visits', revisionId: 'revision-7', outputId: 'visits-output' },
+          ],
+          operation: {
+            kind: 'COMBINE',
+            combine: {
+              kind: 'APPEND',
+              projections: [{ outputColumnId: 'combined_item', inputIndex: 0, inputColumnId: 'item' }],
+            },
+          },
+          outputs: [{ id: 'combined_item', name: 'combined_item', label: 'Combined item' }],
+        },
+      ],
+    };
+
+    expect(constructionHistorySteps(construction, [
+      { id: 'cohort_id', name: 'cohort_id', label: 'Cohort ID', type: 'string' },
+      { id: 'score', name: 'score', label: 'Score', type: 'decimal' },
+    ])).toEqual([
+      {
+        id: 'group_cohorts',
+        title: 'Group by Cohort ID',
+        summary: 'Group rows by Cohort ID; Total score sums Score.',
+        editable: true,
+      },
+      {
+        id: 'expand_items',
+        title: 'Expand Items',
+        summary: "One row per value from Items; Item contains that value. Other fields repeat on each row. Position records each item's position. Empty lists: exclude.",
+        editable: true,
+      },
+      {
+        id: 'append_visits',
+        title: 'Combine',
+        summary: 'Append rows from visits (revision revision-7).',
+        editable: true,
+      },
+    ]);
+  });
+
+  it('requires a matching compiler proof before enabling source fields after a row change', () => {
+    const direct = [{
+      id: 'source_projection',
+      inputStageId: '',
+      rowIdentityColumn: 'source_row_id',
+      columns: [],
+      capabilities: [],
+    }];
+    const transformed = [
+      ...direct,
+      {
+        id: 'related_expand',
+        inputStageId: 'source_projection',
+        rowIdentityColumn: 'related_row_id',
+        columns: [],
+        capabilities: [],
+      },
+    ];
+    const grouped = [
+      ...direct,
+      {
+        id: 'group_cohorts',
+        inputStageId: 'source_projection',
+        rowIdentityColumn: 'cohort_row_id',
+        columns: [],
+        capabilities: [{ kind: 'ROW_VALUES' as const, supported: true }],
+      },
+    ];
+    expect(sourceProjectionAvailability(direct).available).toBe(true);
+    expect(sourceProjectionAvailability(undefined).available).toBe(false);
+    expect(sourceProjectionAvailability(transformed).available).toBe(false);
+    expect(sourceProjectionAvailability(grouped, {
+      stageId: 'group_cohorts', supported: false,
+    }, 'group_cohorts')).toMatchObject({
+      available: true,
+      reason: expect.stringContaining('contributing to each grouped row'),
+    });
+    expect(sourceProjectionAvailability(grouped, {
+      stageId: 'group_cohorts', supported: false,
+    }, 'stale_stage').available).toBe(false);
+    expect(sourceProjectionAvailability(transformed, {
+      stageId: 'related_expand', supported: true,
+    }, 'related_expand').available).toBe(true);
+    expect(sourceProjectionAvailability(transformed, {
+      stageId: 'source_projection', supported: true,
+    }, 'related_expand')).toMatchObject({
+      available: false,
+      reason: expect.stringContaining('does not match'),
+    });
+    expect(sourceProjectionAvailability(transformed, {
+      stageId: 'related_expand', supported: false,
+    }, 'related_expand')).toMatchObject({
+      available: false,
+      reason: expect.stringContaining('not available'),
+    });
+  });
+
+  it('gates proposal Apply on an exact ready preview receipt and current draft identity', () => {
+    const response: ConstructionProposalResponse = {
+      proposalId: 'proposal-123',
+      outputId: 'patients',
+      snapshotToken: 'snapshot-1',
+      draftVersion: 7,
+      draftDigest: 'draft-7',
+      baseDocumentDigest: 'document-7',
+      candidateWorkspaceDigest: 'candidate-8',
+      changedStepId: 'derive_bmi',
+      candidateConstruction: { version: 1, steps: [] },
+      dependencyImpact: { affectedStepIds: [] },
+      stages: [],
+      previewStatus: 'READY',
+      previewDurationMs: 20,
+    };
+    const preview: ExplorerBuilderPreviewResult = {
+      apiVersion: 'loom.calypr.org/explorer-authoring/v2',
+      kind: 'ExplorerBuilderPreview',
+      rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+      receiptId: 'proposal-123',
+      outputId: 'patients',
+      columns: [],
+      rows: [],
+      rowCount: 0,
+      diagnostics: [],
+    };
+    const state = { status: 'ready' as const, response, preview };
+    const identity = {
+      outputId: 'patients',
+      snapshotToken: 'snapshot-1',
+      draftVersion: 7,
+      draftDigest: 'draft-7',
+    };
+    expect(constructionProposalIsApplicable(state, identity)).toBe(true);
+    expect(constructionProposalIsApplicable(state, { ...identity, draftVersion: 8 })).toBe(false);
+    expect(constructionProposalIsApplicable(state, {
+      ...identity,
+      outputId: 'visits',
+    })).toBe(false);
+    expect(constructionProposalIsApplicable({
+      ...state,
+      preview: { ...preview, receiptId: 'base-receipt' },
+    }, identity)).toBe(false);
+  });
+});
+
+it('compares the two compositions without remounting the actual editor, controllers or preview', () => {
+  const props = {
+    tables: [{ outputId: 'subjects', title: 'Subjects' }], selectedOutputId: 'subjects',
+    onSelectTable: vi.fn(), onNewTable: vi.fn(), onDuplicateTable: vi.fn(), onDeleteTable: vi.fn(), onRenameTable: vi.fn(),
+    onSelectFamily: vi.fn(), draftVersion: 3, draftDigest: 'draft3', previewStatus: 'ready' as const,
+    previewReceiptId: 'candidate-receipt', previewOutputId: 'subjects', proposalId: 'candidate-receipt',
+    network: <div>Authored subject path</div>, navigation: <button>Observation scope</button>,
+    controllers: <input aria-label="Mounted source controller" defaultValue="source" />,
+    rowSetup: <button>Source options</button>, rowExpression: <div>Deferred row expression</div>,
+    editor: <input aria-label="Existing operation parameter" defaultValue="original" />,
+    preview: <div>Literal candidate rows</div>,
+  };
+  const view = render(<ConstructionWorkspace {...props} composition="inspector-right" />);
+  const parameter = screen.getByRole('textbox', { name: 'Existing operation parameter' });
+  const controller = screen.getByRole('textbox', { name: 'Mounted source controller' });
+  fireEvent.change(parameter, { target: { value: 'pending parameter' } });
+  fireEvent.change(controller, { target: { value: 'pending source' } });
+  view.rerender(<ConstructionWorkspace {...props} composition="inspector-below" />);
+  expect(screen.getByRole('textbox', { name: 'Existing operation parameter' })).toBe(parameter);
+  expect((parameter as HTMLInputElement).value).toBe('pending parameter');
+  expect(screen.getByRole('textbox', { name: 'Mounted source controller' })).toBe(controller);
+  expect((controller as HTMLInputElement).value).toBe('pending source');
+  expect(controller.closest('details,[hidden]')).toBeNull();
+  expect(screen.getAllByRole('button', { name: 'Source options' })).toHaveLength(1);
+  expect(screen.queryByRole('navigation', { name: 'Recipe presentation' })).toBeNull();
+  expect(screen.queryByText('Deferred row expression')).toBeNull();
+  expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-preview-receipt-id', 'candidate-receipt');
+  expect(screen.getByTestId('recipe-result-identity')).toHaveTextContent('Proposed recipe result');
+  expect(screen.getByLabelText('Related records')).toHaveTextContent('Authored subject path');
+});
+
+it('keeps all 100 exact operations ordered behind one secondary history disclosure', () => {
+  const select = vi.fn();
+  const steps = Array.from({length:100},(_,index)=>({id:`operation-${index}`,title:`Calculate ${index}`,summary:`Value ${index}`}));
+  render(<ConstructionWorkspace tables={[]} onSelectTable={vi.fn()} onNewTable={vi.fn()} onDuplicateTable={vi.fn()}
+    onDeleteTable={vi.fn()} onRenameTable={vi.fn()} onSelectFamily={vi.fn()}
+    history={{resourceType:'Observation',steps,selected:{kind:'source'},onSelect:select,sourceSteps:<input aria-label="Source-step controller"/>}}
+    preview={<div>Exact saved rows</div>}
+    previewStatus="ready" draftVersion={1} draftDigest="draft" />);
+  const disclosure=screen.getByText('Ordered operation history (100)').closest('details')!;
+  expect(disclosure).not.toHaveAttribute('open');
+  expect(screen.getByRole('textbox',{name:'Source-step controller'}).closest('details')).toBeNull();
+  fireEvent.click(screen.getByText('Ordered operation history (100)'));
+  const history=within(screen.getByTestId('construction-history'));
+  const buttons=history.getAllByRole('button').filter(button=>button.dataset.testid?.startsWith('construction-history-step-'));
+  expect(buttons.map(button=>button.dataset.testid)).toEqual(steps.map(step=>`construction-history-step-${step.id}`));
+  fireEvent.click(buttons[99]!);
+  expect(select).toHaveBeenCalledWith({kind:'step',stepId:'operation-99'});
+});
+
+it('keeps table switching available while a proposed change inspector is open', () => {
+ const select=vi.fn();
+ render(<ConstructionWorkspace tables={[{outputId:'subjects',title:'Subjects'},{outputId:'visits',title:'Visits'}]} selectedOutputId="subjects"
+ onSelectTable={select} onNewTable={vi.fn()} onDuplicateTable={vi.fn()} onDeleteTable={vi.fn()} onRenameTable={vi.fn()}
+ onSelectFamily={vi.fn()} editor={<p>Proposed change</p>} preview={<p>Proposed result</p>} previewStatus="ready" proposalId="candidate" draftVersion={1} draftDigest="draft"/>);
+ const tabs=screen.getByRole('navigation',{name:'Tables'});
+ fireEvent.click(within(tabs).getByRole('button',{name:'Visits'}));
+ expect(select).toHaveBeenCalledWith('visits');
+});
+
+it('uses one bounded shared fact slot and gives mutation editors precedence', () => {
+ const props={preview:<p>Rows</p>,previewStatus:'ready' as const,draftVersion:1,draftDigest:'draft',tables:[{outputId:'subjects',title:'Subjects'}],selectedOutputId:'subjects',onSelectTable:vi.fn(),onNewTable:vi.fn(),onDuplicateTable:vi.fn(),onDeleteTable:vi.fn(),onRenameTable:vi.fn(),onSelectFamily:vi.fn()};
+ const view=render(<ConstructionWorkspace {...props} inspection={<p>Selected fact</p>}/>);
+ expect(screen.getByLabelText('Recipe fact inspector')).toHaveClass('construction-fact-inspector','min-h-0');
+ expect(screen.getByRole('complementary', { name: 'Recipe editor' }).contains(screen.getByLabelText('Recipe fact inspector'))).toBe(true);
+ expect(screen.queryByLabelText('Change editor')).toBeNull();
+ view.rerender(<ConstructionWorkspace {...props} inspection={<p>Selected fact</p>} editor={<p>Pending mutation</p>}/>);
+ expect(screen.queryByLabelText('Recipe fact inspector')).toBeNull();
+ expect(screen.getByLabelText('Change editor')).toHaveTextContent('Pending mutation');
+});
+
+it('hides the operation navigator while an editor is open and restores it on close', () => {
+ const navigation = <nav aria-label="Existing traversal operations"><button type="button">Fields from Patient</button></nav>;
+ const props={preview:<p>Rows</p>,previewStatus:'ready' as const,draftVersion:1,draftDigest:'draft',tables:[{outputId:'subjects',title:'Subjects'}],selectedOutputId:'subjects',onSelectTable:vi.fn(),onNewTable:vi.fn(),onDuplicateTable:vi.fn(),onDeleteTable:vi.fn(),onRenameTable:vi.fn(),onSelectFamily:vi.fn()};
+ const view = render(<ConstructionWorkspace {...props} navigation={navigation} editor={<p>Source step editor</p>} />);
+ expect(screen.queryByRole('navigation',{name:'Existing traversal operations'})).toBeNull();
+ expect(screen.getByRole('region', { name: 'Change editor' })).toHaveTextContent('Source step editor');
+ view.rerender(<ConstructionWorkspace {...props} navigation={navigation} />);
+ expect(screen.getByRole('navigation',{name:'Existing traversal operations'})).toBeInTheDocument();
+});
+
+it('expands each workspace panel to the viewport and restores it with Escape or its close button without remounting content', () => {
+  const view = render(<ConstructionWorkspace
+    tables={[]} onSelectTable={vi.fn()} onNewTable={vi.fn()} onDuplicateTable={vi.fn()}
+    onDeleteTable={vi.fn()} onRenameTable={vi.fn()} onSelectFamily={vi.fn()}
+    network={<button>Traversal node</button>}
+    editor={<input aria-label="Expanded editor field" defaultValue="pending edit" />}
+    preview={<div>Rows preview</div>} previewStatus="ready" draftVersion={1} draftDigest="draft" />);
+  const graphPanel = screen.getByRole('region', { name: 'Related records' });
+  const traversalNode = screen.getByRole('button', { name: 'Traversal node' });
+  expect(screen.getByRole('button', { name: 'Expand Related records' })).toBeInTheDocument();
+  fireEvent.click(traversalNode);
+  expect(graphPanel).not.toHaveAttribute('data-expanded');
+  fireEvent.click(graphPanel, { detail: 1 });
+  expect(graphPanel).toHaveAttribute('data-expanded', 'true');
+  expect(traversalNode).toBeInTheDocument();
+  fireEvent.keyDown(traversalNode, { key: 'Tab' });
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Back from expanded Related records' }));
+  fireEvent.keyDown(graphPanel, { key: 'Tab', shiftKey: true });
+  expect(document.activeElement).toBe(traversalNode);
+  fireEvent.keyDown(traversalNode, { key: 'Escape' });
+  expect(graphPanel).not.toHaveAttribute('data-expanded');
+  expect(document.activeElement).toBe(graphPanel);
+
+  const preview = screen.getByTestId('construction-preview');
+  fireEvent.click(screen.getByText('Rows preview'));
+  expect(preview).not.toHaveAttribute('data-expanded');
+  fireEvent.click(screen.getByText('Rows preview'), { detail: 1 });
+  expect(preview).toHaveAttribute('data-expanded', 'true');
+  expect(screen.getByText('Rows preview')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Back from expanded Table result' }));
+  expect(preview).not.toHaveAttribute('data-expanded');
+  expect(document.activeElement).toBe(preview);
+
+  const panel = screen.getByRole('complementary', { name: 'Recipe editor' });
+  const editorField = screen.getByRole('textbox', { name: 'Expanded editor field' });
+  fireEvent.change(editorField, { target: { value: 'edited while compact' } });
+  fireEvent.click(editorField);
+  expect(panel).not.toHaveAttribute('data-expanded');
+  fireEvent.click(screen.getByRole('button', { name: 'Expand Recipe editor' }));
+  expect(panel).toHaveAttribute('data-expanded', 'true');
+  expect(preview).toHaveAttribute('inert');
+  fireEvent.keyDown(editorField, { key: 'Escape' });
+  expect(panel).not.toHaveAttribute('data-expanded');
+  expect(document.activeElement).toBe(panel);
+  expect(screen.getByRole('textbox', { name: 'Expanded editor field' })).toBe(editorField);
+  expect((editorField as HTMLInputElement).value).toBe('edited while compact');
+  expect(view.container.querySelector('[data-expanded="true"]')).toBeNull();
+});
+
+it('does not expand from interactive content or a dragged panel background', () => {
+  render(<ConstructionWorkspace
+    tables={[]} onSelectTable={vi.fn()} onNewTable={vi.fn()} onDuplicateTable={vi.fn()}
+    onDeleteTable={vi.fn()} onRenameTable={vi.fn()} onSelectFamily={vi.fn()}
+    network={<button>Traversal node</button>}
+    editor={<input aria-label="Editor field" />}
+    preview={<div role="table"><div role="row"><div role="cell">Preview cell</div></div><button>Preview action</button></div>} previewStatus="ready" draftVersion={1} draftDigest="draft" />);
+  const editor = screen.getByRole('complementary', { name: 'Recipe editor' });
+  const editorField = screen.getByRole('textbox', { name: 'Editor field' });
+  fireEvent.click(editorField);
+  expect(editor).not.toHaveAttribute('data-expanded');
+  fireEvent.pointerDown(editorField, { button: 0, pointerId: 8, clientX: 10, clientY: 10 });
+  fireEvent.click(editor, { button: 0, detail: 1, clientX: 11, clientY: 10 });
+  expect(editor).not.toHaveAttribute('data-expanded');
+  const preview = screen.getByTestId('construction-preview');
+  fireEvent.click(screen.getByRole('button', { name: 'Preview action' }), { detail: 1 });
+  expect(preview).not.toHaveAttribute('data-expanded');
+  fireEvent.click(screen.getByRole('cell', { name: 'Preview cell' }), { detail: 1 });
+  expect(preview).toHaveAttribute('data-expanded', 'true');
+  fireEvent.keyDown(preview, { key: 'Escape' });
+  fireEvent.pointerDown(editor, { button: 0, pointerId: 7, clientX: 10, clientY: 10 });
+  fireEvent.pointerMove(editor, { pointerId: 7, clientX: 40, clientY: 10 });
+  fireEvent.pointerMove(editor, { pointerId: 7, clientX: 10, clientY: 10 });
+  fireEvent.pointerUp(editor, { pointerId: 7, clientX: 10, clientY: 10 });
+  fireEvent.click(editor, { button: 0, detail: 1, clientX: 10, clientY: 10 });
+  expect(editor).not.toHaveAttribute('data-expanded');
+  fireEvent.click(editor, { button: 0, detail: 1, clientX: 10, clientY: 10 });
+  expect(editor).toHaveAttribute('data-expanded', 'true');
+});
+
+it('clears graph expansion when its optional network disappears without changing the persistent editor panel', () => {
+  const props = {
+    tables: [], onSelectTable: vi.fn(), onNewTable: vi.fn(), onDuplicateTable: vi.fn(),
+    onDeleteTable: vi.fn(), onRenameTable: vi.fn(), onSelectFamily: vi.fn(),
+    network: <button>Traversal node</button>, editor: <input aria-label="Field editor" />,
+    preview: <p>Rows</p>, previewStatus: 'ready' as const, draftVersion: 1, draftDigest: 'draft',
+  };
+  const view = render(<ConstructionWorkspace {...props} />);
+  fireEvent.click(screen.getByRole('region', { name: 'Related records' }), { detail: 1 });
+  view.rerender(<ConstructionWorkspace {...props} network={undefined} />);
+  view.rerender(<ConstructionWorkspace {...props} />);
+  expect(screen.getByRole('region', { name: 'Related records' })).not.toHaveAttribute('data-expanded');
+
+  fireEvent.click(screen.getByRole('complementary', { name: 'Recipe editor' }), { detail: 1 });
+  view.rerender(<ConstructionWorkspace {...props} editor={undefined} />);
+  view.rerender(<ConstructionWorkspace {...props} />);
+  expect(screen.getByRole('complementary', { name: 'Recipe editor' })).toHaveAttribute('data-expanded', 'true');
+});
+
+
+it('uses one side panel for scope operations and edits while keeping controllers and the result mounted', () => {
+  const props = {
+    tables: [], onSelectTable: vi.fn(), onNewTable: vi.fn(), onDuplicateTable: vi.fn(),
+    onDeleteTable: vi.fn(), onRenameTable: vi.fn(), onSelectFamily: vi.fn(),
+    draftVersion: 4, draftDigest: 'saved-draft', previewStatus: 'ready' as const,
+    network: <button>Patient traversal</button>,
+    navigation: <details><summary>Patient operations</summary><button>Edit patient field</button></details>,
+    rowSetup: <input aria-label="Source controller" defaultValue="pending source" />,
+    inspection: <p>Patient match policy</p>, preview: <p>Saved patient rows</p>,
+  };
+  const view = render(<ConstructionWorkspace {...props} />);
+  const panel = screen.getByRole('complementary', { name: 'Recipe editor' });
+  expect(screen.getAllByRole('complementary')).toEqual([panel]);
+  expect(screen.queryByRole('complementary', { name: 'Recipe navigation' })).toBeNull();
+  expect(within(panel).getByText('Patient match policy')).toBeInTheDocument();
+  const operations = within(panel).getByText('Patient operations').closest('details')!;
+  fireEvent.click(within(panel).getByText('Patient operations'));
+  const controller = screen.getByRole('textbox', { name: 'Source controller' });
+  const result = screen.getByTestId('construction-preview');
+  expect(panel.contains(result)).toBe(false);
+  expect(panel.contains(screen.getByRole('button', { name: 'Patient traversal' }))).toBe(false);
+
+  view.rerender(<ConstructionWorkspace {...props} editor={<input aria-label="Field name" defaultValue="patient_id" />} />);
+  expect(screen.getByRole('complementary', { name: 'Recipe editor' })).toBe(panel);
+  expect(within(panel).getByRole('textbox', { name: 'Field name' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Edit patient field' })).toBeNull();
+  expect(screen.getByRole('textbox', { name: 'Source controller' })).toBe(controller);
+  expect(controller.closest('[hidden]')).toBeNull();
+  expect(screen.getByTestId('construction-preview')).toBe(result);
+
+  view.rerender(<ConstructionWorkspace {...props} />);
+  expect(screen.getByText('Patient operations').closest('details')).toBe(operations);
+  expect(operations).toHaveAttribute('open');
+  expect(screen.getByRole('button', { name: 'Edit patient field' })).toBeInTheDocument();
+  expect(controller instanceof HTMLInputElement && controller.value).toBe('pending source');
+});
+
+it('uses supplied scoped navigation as the sole ordered-history owner while keeping source controllers mounted', () => {
+ render(<ConstructionWorkspace tables={[]} onSelectTable={vi.fn()} onNewTable={vi.fn()} onDuplicateTable={vi.fn()}
+ onDeleteTable={vi.fn()} onRenameTable={vi.fn()} onSelectFamily={vi.fn()} preview={<div>Rows</div>} previewStatus="ready" draftVersion={1} draftDigest="draft"
+ navigation={<nav aria-label="Actual scoped navigation">Scoped operations</nav>}
+ rowSetup={<input aria-label="Rows controller"/>}
+ history={{resourceType:'Patient',steps:[{id:'filter',title:'Filter',summary:'Keep active'}],selected:{kind:'source'},onSelect:vi.fn(),sourceSteps:<input aria-label="Imported controller"/>}}/>);
+ expect(screen.getByRole('navigation',{name:'Actual scoped navigation'})).toBeInTheDocument();
+ expect(screen.queryByTestId('construction-history')).toBeNull();
+ for(const label of ['Rows controller','Imported controller']){
+  const controller=screen.getByRole('textbox',{name:label});expect(controller.closest('details,[hidden]')).toBeNull();expect(screen.getAllByRole('textbox',{name:label})).toHaveLength(1);
+ }
+});

@@ -1,8 +1,10 @@
 import { useState, type Dispatch, type SetStateAction } from 'react';
 import type { Construction, ConstructionOperation, ConstructionStep } from '../../../contracts/types';
 import { derivedOccurrences, selectedTable, type BuilderAuthoringState, type DraftTable } from '../model/authoring';
-import { constructionOperationFamilies, type ConstructionHistorySelection, type ConstructionOperationFamily } from '../constructionWorkspace/ConstructionWorkspace';
-import { createReshapeEditorEntry, publicScalarListColumnIds, type ConstructionReshapeEditorEntry, type ReshapeEntryKind, type ReshapeForm } from '../constructionOperations/ConstructionReshapeEditor';
+import { constructionOperationFamilies, type ConstructionOperationFamily } from '../model/constructionOperationFamily';
+import type { ConstructionHistorySelection } from '../model/constructionHistory';
+import { createReshapeEditorEntry } from '../model/reshapeCandidate';
+import { publicScalarListColumnIds, type ConstructionReshapeEditorEntry, type ReshapeEntryKind, type ReshapeForm } from '../model/reshapeForms';
 import { constructionAppendStageFor } from '../model/constructionStages';
 import { admitAuthoringRequest } from '../model/admission';
 import type { useConstructionLifecycle } from './useConstructionLifecycle';

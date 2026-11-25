@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { act, fireEvent, render as renderUI, screen, waitFor, within } from '@testing-library/react';
 import { useGetExplorerAuthoringCapabilityV2Query, useGetExplorerAuthoringExplorersQuery, LoomProvider } from '../../../react';
 import { useGetExplorerBuilderStateV2Query } from '../session/useBuilderLoad';
-import BuilderWorkspace from '../BuilderWorkspace';
+import BuilderWorkspace from '../ui/workspace/BuilderWorkspace';
 import { LoomExplorerBuilder } from '../Builder';
 import { ordinaryNetworkFixture } from '../../../../testSupport/ordinaryNetworkFixture';
 import type { SelectionRevision } from '../../../contracts/selection';
@@ -145,7 +145,7 @@ const render = (
   ),
 });
 
-vi.mock('../components/BuilderToolbar', () => ({
+vi.mock('../ui/toolbar/BuilderToolbar', () => ({
   BuilderToolbar: () => {
     const props = useBuilderToolbarSession(session => session);
     const renderMockToolbar = ({
@@ -202,7 +202,7 @@ vi.mock('../components/BuilderToolbar', () => ({
   },
 }));
 
-vi.mock('../components/GuidedGraphWorkspace', () => {
+vi.mock('../ui/traversal/GuidedGraphWorkspace', () => {
   const renderGraph = ({
     onChangeEdge,
     onChangeBase,
@@ -230,7 +230,7 @@ vi.mock('../components/GuidedGraphWorkspace', () => {
   } };
 });
 
-vi.mock('../components/ConceptCatalog', () => ({
+vi.mock('../ui/catalog/ConceptCatalog', () => ({
   ConceptCatalog: (presentation: object) => {
     const scope = useConceptCatalogSession(session => session);
     const renderMockCatalog = ({
@@ -293,8 +293,8 @@ vi.mock('../components/ConceptCatalog', () => ({
   },
 }));
 
-vi.mock('../components/PreviewTable', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../components/PreviewTable')>();
+vi.mock('../ui/preview/PreviewTable', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../ui/preview/PreviewTable')>();
   return {
     ...actual,
     PreviewTable: (props: Parameters<typeof actual.PreviewTable>[0]) => mockUseActualPreviewTable.enabled
@@ -309,8 +309,8 @@ vi.mock('../components/PreviewTable', async (importOriginal) => {
   };
 });
 
-vi.mock('../constructionOperations/ConstructionReshapeEditor', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../constructionOperations/ConstructionReshapeEditor')>();
+vi.mock('../ui/reshape/ConstructionReshapeEditor', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../ui/reshape/ConstructionReshapeEditor')>();
   const MockConstructionReshapeEditor = ({
     editingStep,
     initialKind,

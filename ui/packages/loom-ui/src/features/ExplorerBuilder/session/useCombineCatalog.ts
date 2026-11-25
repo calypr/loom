@@ -2,7 +2,7 @@ import { sameCatalogSnapshot, sameDraftVersion, sameDraftDigest } from '../../..
 import { RequestOwner } from '../../../data/requests';
 import { useRef, useState } from 'react';
 import type { useLoomClient } from '../../../react';
-import type { ConstructionCombineCatalog, ConstructionCombinePublishedRevision } from '../constructionOperations/combineEditorTypes';
+import type { ConstructionCombineCatalog, ConstructionCombinePublishedRevision } from '../model/combineEditorTypes';
 import { selectedTable, type BuilderAuthoringState } from '../model/authoring';
 
 type ConstructionCombineCatalogLoad = {

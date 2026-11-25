@@ -13,7 +13,7 @@ import type {
   ExplorerBuilderWorkspace,
 } from '../../src/contracts/types';
 import { constructionCapabilitiesResponseSchema, constructionProposalRequestSchema } from '../../src/contracts/types';
-import BuilderWorkspace from '../../src/features/ExplorerBuilder/BuilderWorkspace';
+import BuilderWorkspace from '../../src/features/ExplorerBuilder/ui/workspace/BuilderWorkspace';
 import { coreAdapters } from './core';
 
 type CapturedRequest = Readonly<{ url: string; method: string; body: string | null }>;
@@ -67,15 +67,14 @@ vi.mock('../../src/react', async (importOriginal) => {
 vi.mock('../../src/features/ExplorerBuilder/session/useAutomaticPreviewResource', () => ({ useAutomaticPreview: () => ({ error: undefined, isLoading: false }) }));
 vi.mock('../../src/features/ExplorerBuilder/hooks/useDirtyBeforeUnload', () => ({ useDirtyBeforeUnload: () => undefined }));
 vi.mock('../../src/features/ExplorerBuilder/hooks/usePortalHost', () => ({ usePortalHost: () => null }));
-vi.mock('../../src/features/ExplorerBuilder/components/DatasetReviewPanel', () => ({ DatasetReviewPanel: () => null }));
-vi.mock('../../src/features/ExplorerBuilder/components/PreviewTable', async (importOriginal) => ({
-  ...await importOriginal<typeof import('../../src/features/ExplorerBuilder/components/PreviewTable')>(),
+vi.mock('../../src/features/ExplorerBuilder/ui/review/DatasetReviewPanel', () => ({ DatasetReviewPanel: () => null }));
+vi.mock('../../src/features/ExplorerBuilder/ui/preview/PreviewTable', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../src/features/ExplorerBuilder/ui/preview/PreviewTable')>(),
   PreviewTable: () => null,
 }));
-vi.mock('../../src/features/ExplorerBuilder/components/DataframeContractPanel', () => ({ DataframeContractPanel: () => null }));
-vi.mock('../../src/features/ExplorerBuilder/components/PopulationPanel', () => ({ PopulationPanel: () => null }));
-vi.mock('../../src/features/ExplorerBuilder/components/RowChangePreviewPanel', () => ({ RowChangePreviewPanel: () => null }));
-vi.mock('../../src/features/ExplorerBuilder/components/InterpretationPanel', () => ({ InterpretationPanel: () => null }));
+vi.mock('../../src/features/ExplorerBuilder/ui/review/DataframeContractPanel', () => ({ DataframeContractPanel: () => null }));
+vi.mock('../../src/features/ExplorerBuilder/ui/population/PopulationPanel', () => ({ PopulationPanel: () => null }));
+vi.mock('../../src/features/ExplorerBuilder/ui/review/RowChangePreviewPanel', () => ({ RowChangePreviewPanel: () => null }));
 
 const apiVersion = 'loom.calypr.org/explorer-authoring/v2' as const;
 const outputId = 'patients';

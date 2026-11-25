@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { MantineProvider } from '@mantine/core';
 import '@mantine/core/styles.css';
 import '../../src/styles.css';
-import { PreviewTable } from '../../src/features/ExplorerBuilder/components/PreviewTable';
+import { PreviewTable } from '../../src/features/ExplorerBuilder/ui/preview/PreviewTable';
 import { OutputTable } from '../../src/features/ExplorerViewer/components';
 import { createViewerReducerState } from '../../src/features/ExplorerViewer/reducer';
 import type { DraftTable } from '../../src/features/ExplorerBuilder/model/authoring';

@@ -5,7 +5,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoomProvider } from '../../../react';
 import { createLoomClient } from '../../../client/api';
-import BuilderWorkspace from '../BuilderWorkspace';
+import BuilderWorkspace from '../ui/workspace/BuilderWorkspace';
 import { reconcileResultIsCurrent } from '../model/reconcileRecovery';
 import { EXPLORER_AUTHORING_API_VERSION } from '../../../contracts/types';
 import { publication_acknowledgement as cases, publication_identity_guards as identityGuards } from '../../../../testdata/schedules/publication_acknowledgement';
@@ -54,7 +54,7 @@ vi.mock('../../../react', async (importOriginal) => {
   };
 });
 
-vi.mock('../components/BuilderToolbar', () => ({
+vi.mock('../ui/toolbar/BuilderToolbar', () => ({
   BuilderToolbar: () => {
     const props = useBuilderToolbarSession(session => session);
     const renderMockToolbar = ({ onPublish, onReview, publishDisabled }: { readonly onPublish: () => void; readonly onReview: () => void; readonly publishDisabled: boolean }) =>
