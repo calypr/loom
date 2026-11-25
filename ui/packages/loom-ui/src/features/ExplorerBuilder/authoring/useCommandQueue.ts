@@ -87,7 +87,7 @@ type UseCommandQueueOptions = {
   readonly appliedChoicePreview: MutableRefObject<AppliedPreviewHandoff | undefined>;
   readonly setRestorableDraft: (draft: { readonly ownerKey: string; readonly revisionId?: string }) => void;
   readonly setActiveConstructionSelection: (value: undefined) => void;
-  readonly setLocalState: Dispatch<SetStateAction<{ readonly key: string; readonly value: BuilderAuthoringState } | undefined>>;
+  readonly setLocalState: (draft: { readonly key: string; readonly value: BuilderAuthoringState }) => void;
   readonly setMessage: Dispatch<SetStateAction<string | undefined>>;
 };
 
@@ -129,6 +129,7 @@ export const useCommandQueue = ({
       proposedCommandId?: string,
       constructionApplyIdentity?: ConstructionApplyPreviewIdentity,
       admitCommand?: () => boolean,
+      settleBeforeDraftPublish?: () => void,
     ) => {
       if (!commandRecipeAdmission.current(commands)) return Promise.resolve(undefined);
       const admission = admitAuthoringRequest(draftAccess.getState().tables, { kind: 'commands', commands });
@@ -218,6 +219,7 @@ export const useCommandQueue = ({
             rememberSelectedTable(selectedOutputId);
             setActiveConstructionSelection(undefined);
           }
+          settleBeforeDraftPublish?.();
           draftAccess.setCurrentDraft(next);
           setLocalState({ key: builderDataKey, value: next });
           setMessage(undefined);
@@ -276,7 +278,8 @@ export const useCommandQueue = ({
       commands: ReadonlyArray<ExplorerBuilderCommand>,
       proposedCommandId?: string,
       admitCommand?: () => boolean,
-    ) => applyCommandsWithResult(commands, proposedCommandId, undefined, admitCommand).then(Boolean),
+      settleBeforeDraftPublish?: () => void,
+    ) => applyCommandsWithResult(commands, proposedCommandId, undefined, admitCommand, settleBeforeDraftPublish).then(Boolean),
     [applyCommandsWithResult],
   );
 

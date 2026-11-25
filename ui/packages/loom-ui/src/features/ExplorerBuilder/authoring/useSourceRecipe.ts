@@ -197,12 +197,19 @@ export const useSourceRecipe = () => {
     const applySourceRecipe = async (commands: ExplorerBuilderCommand[]) => {
       const token = recipeEditToken.current;
       if (!token || commands.some((command) => command.proposalId !== recipeOwner.state.candidate?.receiptId) || !recipeOwner.applying(token)) return false;
+      const settleBeforeDraftPublish = () => {
+        recipeOwner.applied(token);
+        recipeEditToken.current = undefined;
+        setSourceProposal(undefined);
+        setRelationshipEdit(undefined);
+        setEditingRecipeColumn(undefined);
+        restoreRecipeFocus();
+      };
       let applied = false;
-      try { applied = await applyCommands(commands); } catch (error) {
+      try { applied = await applyCommands(commands, undefined, undefined, settleBeforeDraftPublish); } catch (error) {
         recipeOwner.fail(token, error instanceof Error ? error.message : 'The proposal was not saved.'); return false;
       }
-      if (applied) { recipeOwner.applied(token); recipeEditToken.current = undefined; setSourceProposal(undefined); setRelationshipEdit(undefined); setEditingRecipeColumn(undefined); restoreRecipeFocus(); }
-      else recipeOwner.fail(token, 'The change was not saved. Review the current draft.');
+      if (!applied) recipeOwner.fail(token, 'The change was not saved. Review the current draft.');
       return applied;
     };
 

@@ -1,10 +1,10 @@
-import { builderDataKeyFor, hydrateDraft, type LocalDraft } from '../session/draftHydration';
+import { builderDataKeyFor, hydrateDraft } from '../session/draftHydration';
 import { useGetExplorerBuilderStateV2Query } from '../session/useBuilderLoad';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { ExplorerBuilderState } from '../../../contracts/types';
 import { builderAuthoringReducer } from '../model/reducer';
 import { shouldSyncServerDraft } from '../model/serverDraftSync';
-import { createBuilderDraftAccess, createRememberedTable } from '../session/draftAccess';
+import { createBuilderDraftAccess, createLocalDraftStore, createRememberedTable } from '../session/draftAccess';
 
 type UseBuilderDraftOptions = {
   readonly projectId: string;
@@ -41,7 +41,8 @@ export const useBuilderDraft = ({
     : '';
   const builderDataRef = useRef(builder.data);
   builderDataRef.current = builder.data;
-  const [localState, setLocalState] = useState<LocalDraft>();
+  const [{ getSnapshot, subscribe, update: setLocalState }] = useState(createLocalDraftStore);
+  const localState = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const [restorableDraft, setRestorableDraft] = useState<{
     readonly ownerKey: string;
     readonly revisionId?: string;
@@ -66,7 +67,7 @@ export const useBuilderDraft = ({
         };
       });
     },
-    [authResourcePath, builderDataKey, draftScope],
+    [authResourcePath, builderDataKey, draftScope, setLocalState],
   );
   const serverDraft = useRef({ version: 0, digest: '' });
   const [draftAccess] = useState(() => createBuilderDraftAccess(state));
@@ -105,7 +106,7 @@ export const useBuilderDraft = ({
         return { key: nextKey, value: nextValue };
       });
     },
-    [builderDataKey, draftAccess, draftScope, ownerKey],
+    [builderDataKey, draftAccess, draftScope, ownerKey, setLocalState],
   );
 
   return {

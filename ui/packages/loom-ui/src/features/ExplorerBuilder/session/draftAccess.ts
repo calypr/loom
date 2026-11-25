@@ -1,4 +1,6 @@
+import { createStore } from '../../../data/createStore';
 import type { BuilderAuthoringState } from '../model/authoring';
+import type { LocalDraft } from './draftHydration';
 
 export function createBuilderDraftAccess(initialState: BuilderAuthoringState) {
   let state = initialState;
@@ -24,6 +26,17 @@ export function createRememberedTable(ownerKey: string, getStorage: () => Pick<S
       } catch {
         // Essential: Persistence is optional when browser storage is disabled.
       }
+    },
+  };
+}
+
+export function createLocalDraftStore() {
+  const store = createStore<LocalDraft | undefined>(undefined);
+  return {
+    getSnapshot: store.getSnapshot,
+    subscribe: store.subscribe,
+    update(update: LocalDraft | ((draft: LocalDraft | undefined) => LocalDraft)) {
+      store.setSnapshot(typeof update === 'function' ? update(store.getSnapshot()) : update);
     },
   };
 }
