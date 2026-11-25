@@ -113,6 +113,7 @@ export const useBuilderSessionDraft = ({
   );
 
   return {
+    ownerKey,
     builderQueryArgs,
     builder,
     refetchBuilder,

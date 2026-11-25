@@ -6,12 +6,8 @@ import React, { useCallback, useRef, useState } from 'react';
 import { useDismissibleLayer } from '../hooks/useDismissibleLayer';
 import { useBrowserSubscription } from '../hooks/useBrowserSubscription';
 
-export type ConstructionOperationFamily =
-  | 'ADD_COLUMNS'
-  | 'KEEP_ROWS'
-  | 'CALCULATE'
-  | 'RESHAPE'
-  | 'COMBINE';
+import type { ConstructionOperationFamily } from '../model/constructionOperationFamily';
+export type { ConstructionOperationFamily } from '../model/constructionOperationFamily';
 
 const allOperationFamilies = [
   {

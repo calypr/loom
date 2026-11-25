@@ -1,5 +1,5 @@
-import type { LoomClient } from '../../../client/api';
 import { useQuery } from '../../../react';
+import { useBuilderSession } from './BuilderSessionProvider';
 import type { SemanticInventoryItem } from '../../../contracts/types';
 
 export interface ColumnRuleInventoryScope {
@@ -11,7 +11,8 @@ export interface ColumnRuleInventoryScope {
   readonly resourceType: string;
 }
 
-export function useColumnRuleInventory(client: LoomClient, scope: ColumnRuleInventoryScope, query: string, enabled: boolean) {
+export function useColumnRuleInventory(scope: ColumnRuleInventoryScope, query: string, enabled: boolean) {
+  const client = useBuilderSession(session => session.transport);
   const { project, explorerId, authResourcePath, snapshotToken, rowRoot, resourceType } = scope;
   return useQuery(async (signal) => {
     const entries: SemanticInventoryItem[] = [];

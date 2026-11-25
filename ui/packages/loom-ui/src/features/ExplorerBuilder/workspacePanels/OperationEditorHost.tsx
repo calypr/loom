@@ -1,12 +1,14 @@
+import { useBuilderSession } from '../session/BuilderSessionProvider';
+import { useWorkspaceUi, useWorkspaceUiActions } from '../session/useWorkspaceUi';
+import { selectedTable } from '../model/authoring';
 import React, { useId, useState } from 'react';
 import { useColumnRuleInventory, type ColumnRuleInventoryScope } from '../session/columnRuleInventory';
 import { observedCategorySystems, observedExtensionPaths, observedIdentifierSystems } from '../model/columnRuleInventory';
 import { columnRulePresets, type ColumnRulePreset } from '../model/sourceColumnRule';
 import type { AddColumnsGraphSource, AddColumnsView } from '../session/useAddColumns';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
-import type { Construction, ConstructionCapabilitiesResponse, ConstructionChoiceSelection, ConstructionStep } from '../../../contracts/types';
-import type { LoomClient } from '../../../client/api';
-import type { BuilderAuthoringState } from '../model/authoring';
+import type { ConstructionCapabilitiesResponse, ConstructionStep } from '../../../contracts/types';
+import { useCodedPivotContext } from '../session/codedPivotContext';
 import { sanitizeReasonText } from '../model/catalogItems';
 import type { ConstructionOperationFamily } from '../constructionWorkspace/ConstructionWorkspace';
 import type { ConstructionSelectableColumn } from '../constructionWorkspace/ConstructionColumnSelection';
@@ -22,7 +24,6 @@ import { FilterRowsEditor } from '../constructionOperations/FilterRowsEditor';
 import { RelatedFieldEditor } from '../constructionOperations/RelatedFieldEditor';
 import { ConstructionCombineEditor } from '../constructionOperations/ConstructionCombineEditor';
 
-type Table = BuilderAuthoringState['tables'][number];
 type Lifecycle = ReturnType<typeof useConstructionLifecycle>;
 type CombineCatalog = ReturnType<typeof useCombineCatalog>;
 type CatalogProps = React.ComponentProps<typeof ConceptCatalog>;
@@ -65,8 +66,7 @@ function ColumnSourceRows({ entries, disabled, onSelect, selected }: {
   </ul>;
 }
 
-function ColumnRulePicker({ client, inventoryScope, fieldPaths, disabled, reviewing, selection, onSelect, onClear, renderRule }: {
-  readonly client: LoomClient;
+function ColumnRulePicker({ inventoryScope, fieldPaths, disabled, reviewing, selection, onSelect, onClear, renderRule }: {
   readonly inventoryScope: ColumnRuleInventoryScope;
   readonly fieldPaths: ReadonlyArray<string>;
   readonly disabled: boolean;
@@ -79,9 +79,9 @@ function ColumnRulePicker({ client, inventoryScope, fieldPaths, disabled, review
   const categoryHelpId = useId();
   const [categoryHelpOpen, setCategoryHelpOpen] = useState(false);
   const [sourceKind, setSourceKind] = useState<ColumnRuleSelection['kind']>();
-  const identifiers = useColumnRuleInventory(client, inventoryScope, 'identifier', true);
-  const extensions = useColumnRuleInventory(client, inventoryScope, 'extension', true);
-  const categories = useColumnRuleInventory(client, inventoryScope, 'category', true);
+  const identifiers = useColumnRuleInventory(inventoryScope, 'identifier', true);
+  const extensions = useColumnRuleInventory(inventoryScope, 'extension', true);
+  const categories = useColumnRuleInventory(inventoryScope, 'category', true);
   const inventory = {
     systems: observedIdentifierSystems(identifiers.data ?? []),
     categorySystems: observedCategorySystems(categories.data ?? []),
@@ -162,13 +162,9 @@ function ColumnRulePicker({ client, inventoryScope, fieldPaths, disabled, review
 }
 
 interface OperationEditorHostProps {
-  readonly table: Table;
   readonly activeOperation: FamilyOperation;
-  readonly state: BuilderAuthoringState;
-  readonly ownerKey: string;
   readonly rowIntentSession: boolean;
   readonly editingConstructionStep?: ConstructionStep;
-  readonly construction?: Construction;
   readonly lifecycle: Lifecycle;
   readonly pendingCommands: number;
   readonly publishing: boolean;
@@ -180,11 +176,7 @@ interface OperationEditorHostProps {
   readonly onToggleSelectedColumn: (columnId: string) => void;
   readonly setColumnSelection: (selection: { readonly kind: 'empty' }) => void;
   readonly rowValuesSupported: boolean;
-  readonly rowValuePolicy: NonNullable<ConstructionChoiceSelection['rowValuePolicy']>;
-  readonly setRowValuePolicy: (value: NonNullable<ConstructionChoiceSelection['rowValuePolicy']>) => void;
   readonly graphSource?: AddColumnsGraphSource;
-  readonly project: string;
-  readonly authResourcePath?: string;
   readonly addSourceRouteContext: CatalogProps['routeContext'];
   readonly addColumnsViewRevision: number;
   readonly fieldPresentationContext: CatalogProps['presentationContext'];
@@ -193,8 +185,6 @@ interface OperationEditorHostProps {
   readonly columnRuleInventoryScope: ColumnRuleInventoryScope;
   readonly columnRuleFieldPaths: ReadonlyArray<string>;
   readonly configuredAdvancedColumns?: React.ReactNode;
-  readonly advancedView: 'add' | 'saved';
-  readonly onAdvancedViewChange: (view: 'add' | 'saved') => void;
   readonly renderColumnRule?: (preset: ColumnRulePreset, inventory: RuleInventory, path?: string, onClear?: () => void, inline?: InlineSystemRule) => React.ReactNode;
   readonly reviewingAdvancedColumns?: boolean;
   readonly onBackFromColumnRuleReview: () => boolean;
@@ -214,7 +204,6 @@ interface OperationEditorHostProps {
   readonly activeReshapeInitialEntry: ConstructionReshapeEditorEntry | undefined;
   readonly onReshapeFormKindChange: NonNullable<ReshapeProps['onFormKindChange']>;
   readonly relatedExpandQueryOwnerRef: ReshapeProps['relatedExpandQueryOwnerRef'];
-  readonly loomClient: LoomClient;
   readonly combineCatalog: CombineCatalog;
   readonly onEditConstructionStep: NonNullable<ReshapeProps['onEditStep']>;
   readonly onCancelConstructionEditor: NonNullable<ReshapeProps['onCancel']>;
@@ -222,13 +211,9 @@ interface OperationEditorHostProps {
 }
 
 export const OperationEditorHost = ({
-  table,
   activeOperation,
-  state,
-  ownerKey,
   rowIntentSession,
   editingConstructionStep,
-  construction,
   lifecycle: constructionLifecycle,
   pendingCommands,
   publishing,
@@ -240,11 +225,7 @@ export const OperationEditorHost = ({
   onToggleSelectedColumn: toggleSelectedColumn,
   setColumnSelection,
   rowValuesSupported,
-  rowValuePolicy,
-  setRowValuePolicy,
   graphSource,
-  project: projectId,
-  authResourcePath,
   addSourceRouteContext,
   addColumnsViewRevision,
   fieldPresentationContext,
@@ -253,8 +234,6 @@ export const OperationEditorHost = ({
   columnRuleInventoryScope,
   columnRuleFieldPaths,
   configuredAdvancedColumns,
-  advancedView,
-  onAdvancedViewChange,
   renderColumnRule,
   reviewingAdvancedColumns,
   onBackFromColumnRuleReview,
@@ -274,12 +253,25 @@ export const OperationEditorHost = ({
   activeReshapeInitialEntry,
   onReshapeFormKindChange: setReshapeFormKind,
   relatedExpandQueryOwnerRef,
-  loomClient,
   combineCatalog,
   onEditConstructionStep: editConstructionStep,
   onCancelConstructionEditor: cancelConstructionEditor,
   onClose: closeConstructionWorkspace,
 }: OperationEditorHostProps) => {
+  const { state, ownerKey, builderQueryArgs } = useBuilderSession(draft => draft);
+  const { project: projectId, authResourcePath } = builderQueryArgs;
+  const table = selectedTable(state)!;
+  const construction = table.document.construction;
+  const codedPivotContext = useCodedPivotContext({
+    project: projectId, explorerId: state.explorerId, authResourcePath,
+    snapshotToken: state.catalog.snapshotToken, outputId: table.outputId, rowRoot: table.document.rootResourceType,
+  });
+  const { advancedView, rowValuePolicy } = useWorkspaceUi(view => view);
+  const { setPendingSavedRuleRemoval, setAdvancedView, setRowValuePolicy } = useWorkspaceUiActions();
+  const onAdvancedViewChange = (view: 'add' | 'saved') => {
+    setPendingSavedRuleRemoval(undefined);
+    setAdvancedView(view);
+  };
   const columnPickerId = useId();
   const advanced = columnKind === 'advanced' && !graphSource?.exactRelated;
   const columnRuleOwner = JSON.stringify([ownerKey, table.outputId, graphSource?.occurrenceId]);
@@ -430,7 +422,7 @@ export const OperationEditorHost = ({
                     {advancedView === 'saved' && !selectedRule ? configuredAdvancedColumns
                       : !columnRulesUnavailableReason ? <ColumnRulePicker
                         key={columnRuleOwner}
-                        client={loomClient} inventoryScope={columnRuleInventoryScope} fieldPaths={columnRuleFieldPaths}
+                        inventoryScope={columnRuleInventoryScope} fieldPaths={columnRuleFieldPaths}
                         disabled={columnControlsDisabled} reviewing={Boolean(reviewingAdvancedColumns)} selection={selectedRule} renderRule={renderColumnRule}
                         onSelect={(selection) => {
                           if (selection.kind === selectedRule?.kind
@@ -574,15 +566,7 @@ export const OperationEditorHost = ({
                 catalog: state.catalog,
               }}
               relatedExpandQueryOwnerRef={relatedExpandQueryOwnerRef}
-              codedPivotContext={{
-                client: loomClient,
-                project: projectId,
-                explorerId: state.explorerId,
-                authResourcePath,
-                snapshotToken: state.catalog.snapshotToken,
-                outputId: table.outputId,
-                rowRoot: table.document.rootResourceType,
-              }}
+              codedPivotContext={codedPivotContext}
               disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
               onCandidateChange={constructionLifecycle.onCandidateChange}
               onEditStep={editConstructionStep}

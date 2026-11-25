@@ -1,8 +1,7 @@
 import { useResolveConfiguredColumnContextsQuery, useResolvePopulationSelectionQuery } from '../../data/builderQueries';
-import { useWorkspaceUi } from './session/useWorkspaceUi';
+import { useWorkspaceUi, useWorkspaceUiActions, WorkspaceUiProvider } from './session/useWorkspaceUi';
 import type { DatasetReviewTarget } from './model/datasetReviewSelection';
 import { useWorkspaceSelection } from './session/useWorkspaceSelection';
-import type { ColumnSelectionState } from './session/workspaceSelection';
 import { admitAuthoringRequest } from './model/admission';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -102,7 +101,6 @@ import { fieldCatalogItems, sanitizeReasonText, unavailableOperationReason } fro
 import {
   ConstructionWorkspace,
   ConstructionActionBar,
-  type ConstructionOperationFamily,
 } from './constructionWorkspace/ConstructionWorkspace';
 import {
   ConstructionColumnSelection,
@@ -124,7 +122,7 @@ import {
 } from './session/useConstructionLifecycle';
 import { ConstructionOperationEditor } from './constructionOperations/ConstructionOperationEditor';
 import { FilterRowsEditor } from './constructionOperations/FilterRowsEditor';
-import { ConstructionReshapeEditor, type ReshapeEntryKind, type ReshapeForm } from './constructionOperations/ConstructionReshapeEditor';
+import { ConstructionReshapeEditor } from './constructionOperations/ConstructionReshapeEditor';
 import type { RelatedSourceStep } from './constructionOperations/RelatedSourceStepEditor';
 import { RelatedFieldEditor, type RelatedFieldStep } from './constructionOperations/RelatedFieldEditor';
 import { ConstructionCombineEditor } from './constructionOperations/ConstructionCombineEditor';
@@ -142,14 +140,6 @@ const receiptContainsOutputIds = (
 
 const isRelatedFieldStep = (step: ConstructionStep): step is RelatedFieldStep =>
   step.operation.kind === 'RELATED_FIELD';
-
-type OccurrencePanel = {
-  readonly family: ConstructionOperationFamily | undefined;
-  readonly addColumns: ReturnType<typeof useAddColumns>['panel'];
-  readonly reshapeEntryKind: ReshapeEntryKind;
-  readonly reshapeFormKind: ReshapeForm['kind'];
-  readonly columnSelection: ColumnSelectionState;
-};
 
 const suppressedBuilderDiagnostic = (diagnostic: ExplorerAuthoringDiagnostic): boolean =>
   diagnostic.code === 'CONSTRUCTION_PREVIEW_FAILED';
@@ -273,8 +263,10 @@ function BuilderWorkspaceScope(props: BuilderWorkspaceProps) {
     if (fallback) setSelectedExplorerId(fallback.explorerId);
   }
   return (
-    <BuilderSessionProvider draft={draft}>
-      <BuilderWorkspaceContent {...props} scope={scope} />
+    <BuilderSessionProvider draft={draft} transport={scope.loomClient}>
+      <WorkspaceUiProvider>
+        <BuilderWorkspaceContent {...props} scope={scope} />
+      </WorkspaceUiProvider>
     </BuilderSessionProvider>
   );
 }
@@ -312,13 +304,16 @@ const BuilderWorkspaceContent = ({
   const [getSuggestions, suggestionsStatus] =
     useBuilderMutation('suggestions');
   const {
-    message, setMessage, pendingSavedRuleRemoval, setPendingSavedRuleRemoval, advancedView, setAdvancedView,
-    cancelingConstructionProposal, beginConstructionCancellation, finishConstructionCancellation,
-    isCancelingConstructionProposal, populationSelectionOverride, setPopulationSelectionOverride,
-    clearedPopulationSelection, setClearedPopulationSelection, featureMode, setFeatureMode, occurrencePanelsFor,
-    rowValuePolicy, setRowValuePolicy, reviewOpen, setReviewOpen, reviewFocusTarget, setReviewFocusTarget,
-    reviewFocusColumn, setReviewFocusColumn, interpretationContextRefreshVersion, setInterpretationContextRefreshVersion,
-  } = useWorkspaceUi<OccurrencePanel, typeof loomClient>();
+    message, pendingSavedRuleRemoval, cancelingConstructionProposal, populationSelectionOverride,
+    clearedPopulationSelection, featureMode, rowValuePolicy, reviewOpen, reviewFocusTarget,
+    reviewFocusColumn, interpretationContextRefreshVersion,
+  } = useWorkspaceUi(view => view);
+  const {
+    setMessage, setPendingSavedRuleRemoval, beginConstructionCancellation, finishConstructionCancellation,
+    isCancelingConstructionProposal, setPopulationSelectionOverride, setClearedPopulationSelection, setFeatureMode,
+    occurrencePanelsFor, setRowValuePolicy, setReviewOpen, setReviewFocusTarget, setReviewFocusColumn,
+    setInterpretationContextRefreshVersion,
+  } = useWorkspaceUiActions();
   const traversalState = useTraversalState();
   const { occurrenceInspectorHost, setOccurrenceInspectorHost, editingRecipeColumn, setEditingRecipeColumn,
     sourceStepInspectorHost, setSourceStepInspectorHost, activeSourceStepId, setActiveSourceStepId,
@@ -1254,13 +1249,9 @@ const BuilderWorkspaceContent = ({
   });
   const operationEditor = table && activeOperation ? (
     <OperationEditorHost
-      table={table}
       activeOperation={activeOperation}
-      state={state}
-      ownerKey={ownerKey}
       rowIntentSession={rowIntentSession}
       editingConstructionStep={editingConstructionStep}
-      construction={construction}
       lifecycle={constructionLifecycle}
       pendingCommands={pendingCommands}
       publishing={publishing}
@@ -1272,11 +1263,7 @@ const BuilderWorkspaceContent = ({
       onToggleSelectedColumn={toggleSelectedColumn}
       setColumnSelection={setColumnSelection}
       rowValuesSupported={rowValuesSupported}
-      rowValuePolicy={rowValuePolicy}
-      setRowValuePolicy={setRowValuePolicy}
       graphSource={graphSource}
-      project={projectId}
-      authResourcePath={authResourcePath}
       addSourceRouteContext={addSourceRouteContext}
       addColumnsView={addColumnsView}
       reviewingAdvancedColumns={reviewingAdvancedColumns}
@@ -1284,8 +1271,6 @@ const BuilderWorkspaceContent = ({
       columnRulesUnavailableReason={ruleUnavailableReason}
       columnRuleInventoryScope={ruleInventoryScope}
       columnRuleFieldPaths={ruleFieldPaths}
-      advancedView={advancedView}
-      onAdvancedViewChange={(view) => { setPendingSavedRuleRemoval(undefined); setAdvancedView(view); }}
       configuredAdvancedColumns={<section aria-label="Configured column rules" className="grid min-w-0 content-start gap-2"
         ref={(node) => { if (node && table.document.importedRecipe) loadRecipeNetwork(); }}>
         <h3 className="sr-only">Saved rules</h3>
@@ -1410,7 +1395,6 @@ const BuilderWorkspaceContent = ({
       activeReshapeInitialEntry={activeReshapeInitialEntry}
       onReshapeFormKindChange={setReshapeFormKind}
       relatedExpandQueryOwnerRef={relatedExpandQueryOwnerRef}
-      loomClient={loomClient}
       combineCatalog={combineCatalog}
       onEditConstructionStep={editConstructionStep}
       onCancelConstructionEditor={cancelConstructionEditor}

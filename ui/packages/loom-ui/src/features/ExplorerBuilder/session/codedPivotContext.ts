@@ -1,3 +1,4 @@
+import { useBuilderSession } from './BuilderSessionProvider';
 import type { LoomClient } from '../../../client/api';
 
 export type CodedPivotContext = {
@@ -9,3 +10,7 @@ export type CodedPivotContext = {
   readonly outputId: string;
   readonly rowRoot: string;
 };
+
+export function useCodedPivotContext(scope: Omit<CodedPivotContext, 'client'>): CodedPivotContext {
+  return { ...scope, client: useBuilderSession(session => session.transport) };
+}
