@@ -2,7 +2,7 @@ import { replacementConsumerPresentations } from '../model/replacementConsumers'
 import { createPortal } from 'react-dom';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import React, { useRef, useState, type ReactNode } from 'react';
-import type { LoomClient } from '../../../client/api';
+import { useRowDefinitionRequests, type RowDefinitionTransport, type SelectionOption } from '../session/useRowDefinitionRequests';
 import type {
   ConstructionStep,
   ExplorerBuilderPreviewResult,
@@ -20,7 +20,6 @@ import type {
 import type { SelectionRevision } from '../../../contracts/selection';
 import type { ConstructionHistoryStep } from '../model/constructionHistory';
 import { ExplicitGroupAuthoring } from './ExplicitGroupAuthoring';
-import { useBrowserSubscription } from '../hooks/useBrowserSubscription';
 import { TraversalPath } from '../constructionWorkspace/TraversalPath';
 
 const rowChangingOperationKinds = new Set<ConstructionStep['operation']['kind']>([
@@ -28,14 +27,6 @@ const rowChangingOperationKinds = new Set<ConstructionStep['operation']['kind']>
 ]);
 
 type RowChangeIntent = 'records' | 'group' | 'reshape';
-
-type SelectionOption = {
-  readonly value: string;
-  readonly shapeValue: string;
-  readonly shapeLabel: string;
-  readonly policyLabel?: string;
-  readonly selection: RowDefinitionSelection;
-};
 
 const emptyCollectionLabel = (policy: string): string => {
   switch (policy) {
@@ -69,17 +60,6 @@ const expandedRowLabel = (path: string): string => {
     ? `One row per code in ${label.slice(0, -' → Coding'.length)}`
     : `One row per value in ${label}`;
 };
-
-type SettingsState =
-  | { readonly kind: 'closed' }
-  | { readonly kind: 'loading' }
-  | {
-      readonly kind: 'editing';
-      readonly choices: RowDefinitionChoicesResponse;
-      readonly options: ReadonlyArray<SelectionOption>;
-      readonly selectionId: string;
-    }
-  | { readonly kind: 'error'; readonly message: string };
 
 type ProposalState =
   | { readonly kind: 'none' }
@@ -377,8 +357,7 @@ export const RowDefinitionSettingsPanel = ({
   readonly onCancelProposal?: () => void;
   readonly openActionRef?: { current: (() => void) | undefined };
   readonly closeActionRef?: { current: (() => void) | undefined };
-  readonly client: Pick<LoomClient, 'listRowDefinitionChoices' | 'proposeRowDefinition' | 'getSelection' | 'createExplicitGroupRevision'> &
-    Partial<Pick<LoomClient, 'assessRowChange' | 'preview'>>;
+  readonly client: RowDefinitionTransport;
   readonly project: string;
   readonly explorerId: string;
   readonly authResourcePath?: string;
@@ -431,7 +410,6 @@ export const RowDefinitionSettingsPanel = ({
   const [panelPosition, setPanelPosition] = useState({ top: 80, left: 16 });
   const inspectorMode = inspectorHost !== undefined;
   const presentPanel = (panel: ReactNode) => inspectorMode ? (inspectorHost ? createPortal(panel, inspectorHost) : null) : compact && typeof document !== 'undefined' ? createPortal(panel, document.body) : panel;
-  const [settings, setSettings] = useState<SettingsState>({ kind: 'closed' });
   const controllerRef = useRef<HTMLDivElement | null>(null);
   const controllerIdentity = JSON.stringify([project, explorerId, authResourcePath ?? '', snapshotToken, table.outputId, draftVersion, draftDigest]);
   const latestControllerIdentity = useRef(controllerIdentity);
@@ -440,32 +418,13 @@ export const RowDefinitionSettingsPanel = ({
   const [proposalState, setProposalState] = useState<ProposalState>({ kind: 'none' });
   const [replacementState, setReplacementState] = useState<ReplacementState>({ kind: 'idle' });
   const [groupAuthoringOpen, setGroupAuthoringOpen] = useState(false);
-  const settingsRequestEpoch = useRef(0);
-  const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const proposalController = useRef<AbortController | undefined>(undefined);
-  const proposalRequestEpoch = useRef(0);
-  const replacementController = useRef<AbortController | undefined>(undefined);
-  const replacementRequestEpoch = useRef(0);
-
+  const requests = useRowDefinitionRequests(client, JSON.stringify([table.outputId, snapshotToken, draftVersion, draftDigest]));
+  const { settings, setSettings, cancelPendingPreview, cancelReplacementRequest, invalidateSettings } = requests;
   const settingsOpen = settings.kind !== 'closed';
-
-  const cancelPendingPreview = () => {
-    if (previewTimer.current) clearTimeout(previewTimer.current);
-    previewTimer.current = undefined;
-    proposalController.current?.abort();
-    proposalController.current = undefined;
-    proposalRequestEpoch.current += 1;
-  };
-
-  const cancelReplacementRequest = () => {
-    replacementController.current?.abort();
-    replacementController.current = undefined;
-    replacementRequestEpoch.current += 1;
-  };
 
   const closeSettings = () => {
     if (settings.kind === 'closed') return;
-    settingsRequestEpoch.current += 1;
+    invalidateSettings();
     cancelPendingPreview();
     cancelReplacementRequest();
     setProposalState({ kind: 'none' });
@@ -474,14 +433,6 @@ export const RowDefinitionSettingsPanel = ({
     setSettings({ kind: 'closed' });
     onCloseRowIntentSession?.();
   };
-
-  useBrowserSubscription((_onStoreChange) => () => {
-    if (previewTimer.current) clearTimeout(previewTimer.current);
-    proposalController.current?.abort();
-    proposalRequestEpoch.current += 1;
-    replacementController.current?.abort();
-    replacementRequestEpoch.current += 1;
-  }, [table.outputId, snapshotToken, draftVersion, draftDigest]);
 
   const [staleCheck, setStaleCheck] = useState({ table, snapshotToken, draftVersion, draftDigest });
   if (staleCheck.table !== table ||
@@ -519,15 +470,16 @@ export const RowDefinitionSettingsPanel = ({
         left: Math.max(8, Math.min(bounds.left, window.innerWidth - 496)) });
     }
     cancelPendingPreview();
-    const requestEpoch = ++settingsRequestEpoch.current;
+    invalidateSettings();
+    const settingsCurrent = requests.captureSettings();
     setRowChangeIntent('records');
     setSettings({ kind: 'loading' });
     setProposalState({ kind: 'none' });
     try {
-      const choices = await client.listRowDefinitionChoices({
+      const choices = await requests.loadChoices({
         project, explorerId, authResourcePath, snapshotToken, outputId: table.outputId,
       });
-      if (requestEpoch !== settingsRequestEpoch.current) return;
+      if (!settingsCurrent()) return;
       if (choices.outputId !== table.outputId || choices.snapshotToken !== snapshotToken) {
         setSettings({ kind: 'error', message: 'The server returned row choices for a different table or catalog snapshot.' });
         return;
@@ -551,7 +503,7 @@ export const RowDefinitionSettingsPanel = ({
       });
       setSettings({ kind: 'editing', choices, options, selectionId: selected?.value ?? '' });
     } catch (error) {
-      if (requestEpoch !== settingsRequestEpoch.current) return;
+      if (!settingsCurrent()) return;
       setSettings({
         kind: 'error',
         message: requestFailureMessage(error, 'Loom could not load row-definition choices. Reload the Builder and try again.'),
@@ -563,19 +515,18 @@ export const RowDefinitionSettingsPanel = ({
     const ownership = onBeginProposal?.();
     if (onBeginProposal && !ownership) return;
     cancelPendingPreview();
-    const requestEpoch = proposalRequestEpoch.current;
-    const controller = new AbortController();
-    proposalController.current = controller;
+    const request = requests.startProposal();
+    if (!request) return;
     setProposalState({
       kind: 'proposing', selection: selected, outputId: table.outputId,
       snapshotToken, draftVersion, draftDigest,
     });
     try {
-      const proposal = await client.proposeRowDefinition({
+      const proposal = await requests.proposeRowDefinition({
         project, explorerId, authResourcePath, snapshotToken, expectedDraftVersion: draftVersion,
         expectedDraftDigest: draftDigest, outputId: table.outputId, selection: selected,
-      }, controller.signal);
-      if (controller.signal.aborted || requestEpoch !== proposalRequestEpoch.current) return;
+      }, request.signal);
+      if (!request.isCurrent()) return;
       if (!isCurrentProposal(proposal, table, snapshotToken, draftVersion, draftDigest)) {
         setProposalState({ kind: 'stale', selection: selected });
         return;
@@ -585,21 +536,20 @@ export const RowDefinitionSettingsPanel = ({
         return;
       }
       if (ownership) {
-        if (!client.preview) throw new Error('The candidate preview is unavailable.');
-        const preview = await client.preview({ project, explorerId, authResourcePath, receiptId: proposal.proposalId, outputId: table.outputId }, controller.signal);
-        if (controller.signal.aborted || requestEpoch !== proposalRequestEpoch.current ||
+        const preview = await requests.loadCandidatePreview({ project, explorerId, authResourcePath, receiptId: proposal.proposalId, outputId: table.outputId }, request.signal);
+        if (!request.isCurrent() ||
           preview.receiptId !== proposal.proposalId || preview.outputId !== table.outputId || !ownership.ready(proposal, preview)) return;
       }
       setProposalState({ kind: 'fresh', selection: selected, proposal });
     } catch (error) {
-      if (controller.signal.aborted || requestEpoch !== proposalRequestEpoch.current) return;
+      if (!request.isCurrent()) return;
       ownership?.failed(requestFailureMessage(error, 'The row proposal failed.'));
       setProposalState({
         kind: 'failed', selection: selected,
         message: requestFailureMessage(error, 'Loom could not preview this row definition. The saved draft was not changed.'),
       });
     } finally {
-      if (proposalController.current === controller) proposalController.current = undefined;
+      request.finish();
     }
   };
 
@@ -607,7 +557,7 @@ export const RowDefinitionSettingsPanel = ({
     const ownership = onBeginRootProposal?.(rootNodeId);
     if (onBeginRootProposal && !ownership) return;
     if (replacementPresentation === 'shared') {
-      settingsRequestEpoch.current += 1;
+      invalidateSettings();
       setSettings({kind:'closed'});
       onOpenChange?.(false);
     }
@@ -617,22 +567,21 @@ export const RowDefinitionSettingsPanel = ({
     };
     cancelPendingPreview();
     cancelReplacementRequest();
-    const assessRowChange = client.assessRowChange;
-    const loadPreview = client.preview;
-    if (!assessRowChange || !loadPreview) {
+    const replacement = requests.replacementTransport();
+    if (!replacement) {
       fail('Replacement review is unavailable in this Builder session. The saved draft was not changed.');
       return;
     }
-    const requestEpoch = replacementRequestEpoch.current;
-    const controller = new AbortController();
-    replacementController.current = controller;
+    const { assessRowChange, preview: loadPreview } = replacement;
+    const request = requests.startReplacement();
+    if (!request) return;
     setReplacementState({ kind: 'assessing', rootNodeId });
     try {
       const assessment = await assessRowChange({
         project, explorerId, authResourcePath, mode: 'REPLACE', snapshotToken,
         draftVersion, draftDigest, outputId: table.outputId, rootNodeId,
-      }, controller.signal);
-      if (controller.signal.aborted || requestEpoch !== replacementRequestEpoch.current) return;
+      }, request.signal);
+      if (!request.isCurrent()) return;
       if (assessment.snapshotToken !== snapshotToken || assessment.draftVersion !== draftVersion ||
           assessment.draftDigest !== draftDigest) {
         fail('The draft changed while checking this replacement. Cancel and review the current table.', true);
@@ -657,8 +606,8 @@ export const RowDefinitionSettingsPanel = ({
       const preview = await loadPreview({
         project, explorerId, authResourcePath, receiptId: candidateReceiptId,
         outputId: assessment.proposal.outputId,
-      }, controller.signal);
-      if (controller.signal.aborted || requestEpoch !== replacementRequestEpoch.current) return;
+      }, request.signal);
+      if (!request.isCurrent()) return;
       if (preview.receiptId !== candidateReceiptId || preview.outputId !== table.outputId || preview.rows === null) {
         fail('Loom returned a preview for a different replacement receipt or table. The saved draft was not changed.');
         return;
@@ -679,10 +628,10 @@ export const RowDefinitionSettingsPanel = ({
       }
       setReplacementState({ kind: 'ready', assessment, preview, idColumn });
     } catch (error) {
-      if (controller.signal.aborted || requestEpoch !== replacementRequestEpoch.current) return;
+      if (!request.isCurrent()) return;
       fail(requestFailureMessage(error, 'Loom could not review this replacement. The saved draft was not changed.'));
     } finally {
-      if (replacementController.current === controller) replacementController.current = undefined;
+      request.finish();
     }
   };
 
@@ -703,7 +652,7 @@ export const RowDefinitionSettingsPanel = ({
     setReplacementState({ kind: 'applying', assessment });
     if (await onApplyRootReplacement(assessment)) {
       setReplacementState({ kind: 'idle' });
-      settingsRequestEpoch.current += 1;
+      invalidateSettings();
       setSettings({ kind: 'closed' });
       onOpenChange?.(false);
       setGroupAuthoringOpen(false);
@@ -716,10 +665,7 @@ export const RowDefinitionSettingsPanel = ({
   const schedulePreview = (selection: RowDefinitionSelection) => {
     cancelPendingPreview();
     setProposalState({ kind: 'none' });
-    previewTimer.current = setTimeout(() => {
-      previewTimer.current = undefined;
-      void propose(selection);
-    }, 300);
+    requests.schedulePreview(() => { void propose(selection); });
   };
 
   const apply = async () => {
@@ -732,7 +678,7 @@ export const RowDefinitionSettingsPanel = ({
     if (!proposalId) return;
     setProposalState({ kind: 'applying', selection: proposalState.selection });
     if (await onApply(proposalId)) {
-      settingsRequestEpoch.current += 1;
+      invalidateSettings();
       setSettings({ kind: 'closed' });
       onOpenChange?.(false);
       setProposalState({ kind: 'none' });
@@ -750,7 +696,7 @@ export const RowDefinitionSettingsPanel = ({
     cancelReplacementRequest();
     if (rootChangeState.kind !== 'idle' || rootChangePreviewOpen) onCancelRootChange();
     setReplacementState({ kind: 'idle' });
-    settingsRequestEpoch.current += 1;
+    invalidateSettings();
     setSettings({ kind: 'closed' });
     onOpenChange?.(false);
     setProposalState({ kind: 'none' });
@@ -788,7 +734,7 @@ export const RowDefinitionSettingsPanel = ({
     cancelLocalRowProposals();
     setRowChangeIntent('records');
     if (operationInspectorPresentation === 'workspace' || inspectorMode) {
-      settingsRequestEpoch.current += 1;
+      invalidateSettings();
       setSettings({ kind: 'closed' });
       onOpenChange?.(false);
     }
@@ -798,7 +744,7 @@ export const RowDefinitionSettingsPanel = ({
     cancelLocalRowProposals();
     setRowChangeIntent(kind === 'group' || kind === 'source-group' || kind === 'coded-group' ? 'group' : 'reshape');
     if (operationInspectorPresentation === 'workspace' || inspectorMode) {
-      settingsRequestEpoch.current += 1;
+      invalidateSettings();
       setSettings({ kind: 'closed' });
       onOpenChange?.(false);
     }
@@ -839,14 +785,14 @@ export const RowDefinitionSettingsPanel = ({
   const historyByStepId = new Map(constructionHistory.map((step) => [step.id, step] as const));
   const appliedRowSteps = (table.document.construction?.steps ?? [])
     .filter((step) => rowChangingOperationKinds.has(step.operation.kind));
-  const groupCreationEpoch = settingsRequestEpoch.current;
+  const groupCreationCurrent = requests.captureSettings();
   const onExplicitGroupsCreated = async (revision: ExplicitGroupRevisionSummary) => {
     const isCurrent = () => Boolean(controllerRef.current?.isConnected) &&
-      groupCreationEpoch === settingsRequestEpoch.current && latestControllerIdentity.current === controllerIdentity;
+      groupCreationCurrent() && latestControllerIdentity.current === controllerIdentity;
     if (!isCurrent()) return;
     let choices: RowDefinitionChoicesResponse;
     try {
-      choices = await client.listRowDefinitionChoices({
+      choices = await requests.loadChoices({
         project, explorerId, authResourcePath, snapshotToken, outputId: table.outputId,
       });
     } catch (error) {
