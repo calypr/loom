@@ -46,7 +46,7 @@ type UseAddColumnsOptions = {
   readonly loomClient: ReturnType<typeof useLoomClient>;
   readonly sourceStageDescriptors: ConstructionCapabilitiesResponse['stages'] | undefined;
   readonly rowValuePolicy: NonNullable<ConstructionChoiceSelection['rowValuePolicy']>;
-  readonly cancelingConstructionProposalRef: MutableRefObject<boolean>;
+  readonly isCancelingConstructionProposal: () => boolean;
   readonly appliedChoicePreview: MutableRefObject<AppliedPreviewHandoff | undefined>;
   readonly automaticPreviewRequest: MutableRefObject<AutomaticPreviewIdentity | undefined>;
   readonly applyCommandsWithResult: ReturnType<typeof useCommandQueueActions>['applyCommandsWithResult'];
@@ -73,7 +73,7 @@ export const useAddColumns = ({
   loomClient,
   sourceStageDescriptors,
   rowValuePolicy,
-  cancelingConstructionProposalRef,
+  isCancelingConstructionProposal,
   appliedChoicePreview,
   automaticPreviewRequest,
   applyCommandsWithResult,
@@ -362,7 +362,7 @@ export const useAddColumns = ({
     expectedProposal?: Parameters<typeof constructionLifecycle.beginApply>[0],
     fromColumnPicker = false,
   ): Promise<boolean> => {
-    if (cancelingConstructionProposalRef.current) {
+    if (isCancelingConstructionProposal()) {
       if (fromColumnPicker) constructionLifecycle.cancel();
       return false;
     }

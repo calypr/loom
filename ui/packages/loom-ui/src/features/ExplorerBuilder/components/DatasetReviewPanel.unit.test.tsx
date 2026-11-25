@@ -10,7 +10,8 @@ import {
   type ExplorerBuilderPreviewResult,
 } from '../../../contracts/types';
 import type { DraftTable } from '../model/authoring';
-import { DatasetReviewPanel, type DatasetReviewTarget } from './DatasetReviewPanel';
+import { DatasetReviewPanel } from './DatasetReviewPanel';
+import type { DatasetReviewTarget } from '../model/datasetReviewSelection';
 
 const catalog: ExplorerBuilderCatalog = {
   snapshotToken: 'snapshot-1',

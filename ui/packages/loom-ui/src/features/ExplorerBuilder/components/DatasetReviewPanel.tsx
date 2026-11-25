@@ -11,7 +11,7 @@ import {
   type DraftTable,
 } from '../model/authoring';
 import { lossLabel } from './DataframeContractPanel';
-import { hasSingleScopedRowTable } from '../model/datasetReviewSelection';
+import { hasSingleScopedRowTable, type DatasetReviewTarget } from '../model/datasetReviewSelection';
 
 type ResultShape =
   | { readonly kind: 'scalar' }
@@ -21,22 +21,6 @@ type ResultShape =
       readonly itemKind: 'scalar' | 'record' | 'unknown';
     }
   | { readonly kind: 'unknown'; readonly reason: string };
-
-export type DatasetReviewTarget =
-  | {
-      readonly kind: 'column';
-      readonly outputId: string;
-      readonly column: string;
-      readonly label: string;
-      readonly occurrenceId: string;
-    }
-  | {
-      readonly kind: 'row';
-      readonly outputId: string;
-      readonly control: 'row-type' | 'row-definition';
-    }
-  | { readonly kind: 'new-table' }
-  | { readonly kind: 'table'; readonly outputId: string };
 
 type DatasetReviewItem =
   | {

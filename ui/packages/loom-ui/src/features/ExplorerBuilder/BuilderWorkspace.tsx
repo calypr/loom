@@ -1,3 +1,5 @@
+import { useWorkspaceUi } from './session/useWorkspaceUi';
+import type { DatasetReviewTarget } from './model/datasetReviewSelection';
 import { useWorkspaceSelection } from './session/useWorkspaceSelection';
 import type { ColumnSelectionState } from './session/workspaceSelection';
 import { admitAuthoringRequest } from './model/admission';
@@ -41,7 +43,6 @@ import type {
 import { BuilderToolbar, NewExplorerControl } from './components/BuilderToolbar';
 import {
   DatasetReviewPanel,
-  type DatasetReviewTarget,
 } from './components/DatasetReviewPanel';
 import { sameRecipeEditingIdentity, useRecipeEditingOwner, projectRecipeCandidate, type RecipeEditToken } from './session/recipeEditingOwner';
 import { CreateColumnRule } from './CreateColumnRule';
@@ -311,34 +312,26 @@ const BuilderWorkspaceContent = ({
   const [assessRowChange, rowChangeStatus] = useAssessExplorerRowChangeMutation();
   const [getSuggestions, suggestionsStatus] =
     useGetExplorerCandidateSuggestionsV2Mutation();
-  const [message, setMessage] = useState<string>();
+  const {
+    message, setMessage, pendingSavedRuleRemoval, setPendingSavedRuleRemoval, advancedView, setAdvancedView,
+    cancelingConstructionProposal, beginConstructionCancellation, finishConstructionCancellation,
+    isCancelingConstructionProposal, populationSelectionOverride, setPopulationSelectionOverride,
+    clearedPopulationSelection, setClearedPopulationSelection, featureMode, setFeatureMode, occurrencePanelsFor,
+    rowValuePolicy, setRowValuePolicy, reviewOpen, setReviewOpen, reviewFocusTarget, setReviewFocusTarget,
+    reviewFocusColumn, setReviewFocusColumn, interpretationContextRefreshVersion, setInterpretationContextRefreshVersion,
+  } = useWorkspaceUi<OccurrencePanel, typeof loomClient>();
   const { occurrenceInspectorHost, setOccurrenceInspectorHost, editingRecipeColumn, setEditingRecipeColumn,
     sourceStepInspectorHost, setSourceStepInspectorHost, activeSourceStepId, setActiveSourceStepId,
     columnPolicyRequest, sourceStepEditAction, sourceStepSwitchOccurrenceAction, sourceFieldEditAction, sourceOutputEditAction,
     rowSettingsOpenAction, rowSettingsCloseAction, actionsFor: traversalActionsFor } = useTraversalProjectedFields();
   const [sourceChangeReviewHost, setSourceChangeReviewHost] = useState<HTMLDivElement | null>(null);
   const sourceStepEditDirty = useRef(false);
-  const [pendingSavedRuleRemoval, setPendingSavedRuleRemoval] = useState<string>();
-  const [advancedView, setAdvancedView] = useState<'add' | 'saved'>('add');
   const advancedRuleEditorReturn = useRef<string | undefined>(undefined);
   const sourceStepEditCancelAction = useRef<(() => void) | undefined>(undefined);
-  const [cancelingConstructionProposal, setCancelingConstructionProposal] = useState(false);
-  const cancelingConstructionProposalRef = useRef(false);
-  const [populationSelectionOverride, setPopulationSelectionOverride] = useState<{
-    readonly contextKey: string;
-    readonly baseSelectionID: string;
-    readonly selection: SelectionRevision;
-  }>();
-  const [clearedPopulationSelection, setClearedPopulationSelection] = useState<{
-    readonly contextKey: string;
-    readonly client: typeof loomClient;
-    readonly selectionID: string;
-  }>();
   const { firstTableName, setFirstTableName, tableCreatorOpen, setTableCreatorOpen,
     firstTableProgress, firstTableActionPending, actionsFor: firstTableActionsFor } = useFirstTable({
     draftAccess, getSuggestions, projectId, authResourcePath, setMessage,
   });
-  const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
   const { sourceRelationshipRequest, recipeEditToken, sourceProposal, setSourceProposal,
     lastAcceptedOutputPreview, connectingRelationship, setConnectingRelationship, savedNetwork,
     recipeNotice, setRecipeNotice, setRelationshipEdit, actionsFor: sourceRecipeActionsFor } = useSourceRecipe();
@@ -346,14 +339,6 @@ const BuilderWorkspaceContent = ({
     reshapeEntryKind, setReshapeEntryKind, reshapeFormKind, setReshapeFormKind, actionsFor: constructionNavigationActionsFor } = useConstructionNavigation({
     ownerKey, state, draftAccess,
   });
-  const occurrencePanels = useRef<{ key: string; panels: Map<string, OccurrencePanel> } | undefined>(undefined);
-  const [rowValuePolicy, setRowValuePolicy] = useState<NonNullable<ConstructionChoiceSelection['rowValuePolicy']>>('ALL');
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [reviewFocusTarget, setReviewFocusTarget] =
-    useState<Exclude<DatasetReviewTarget, { readonly kind: 'new-table' }>>();
-  const [reviewFocusColumn, setReviewFocusColumn] = useState<
-    Extract<DatasetReviewTarget, { readonly kind: 'column' }>
-  >();
   const toolbarHost = usePortalHost('explorer-builder-toolbar-host');
   const [tableToolbarHost, setTableToolbarHost] = useState<HTMLElement | null>(
     null,
@@ -372,7 +357,6 @@ const BuilderWorkspaceContent = ({
     rememberSelectedTable(outputId);
     dispatch({ type: 'selectTable', outputId });
   }, [dispatch, rememberSelectedTable]);
-  const [interpretationContextRefreshVersion, setInterpretationContextRefreshVersion] = useState(0);
 
   const deferInterpretationContext = firstTableProgress.kind === 'running';
   const interpretationContextKey = !deferInterpretationContext &&
@@ -989,7 +973,7 @@ const BuilderWorkspaceContent = ({
     loomClient,
     sourceStageDescriptors,
     rowValuePolicy,
-    cancelingConstructionProposalRef,
+    isCancelingConstructionProposal,
     appliedChoicePreview,
     automaticPreviewRequest,
     applyCommandsWithResult,
@@ -1483,17 +1467,14 @@ const BuilderWorkspaceContent = ({
           closeProposal();
           return;
         }
-        if (cancelingConstructionProposalRef.current) return;
-        cancelingConstructionProposalRef.current = true;
-        setCancelingConstructionProposal(true);
+        if (!beginConstructionCancellation()) return;
         void (async () => {
           let ownsEditor = false;
           try {
             await queryOwner.pauseAndDrain();
             ownsEditor = relatedExpandQueryOwnerRef.current === queryOwner;
           } finally {
-            cancelingConstructionProposalRef.current = false;
-            setCancelingConstructionProposal(false);
+            finishConstructionCancellation();
           }
           if (ownsEditor) closeProposal();
         })();
@@ -1521,8 +1502,7 @@ const BuilderWorkspaceContent = ({
     },
     onSwitchSavedOccurrence: (occurrenceId, restoredEditor) => {
       const key = JSON.stringify([relationshipOwner, state.draftVersion, state.draftDigest]);
-      if (occurrencePanels.current?.key !== key) occurrencePanels.current = { key, panels: new Map() };
-      const { panels } = occurrencePanels.current;
+      const panels = occurrencePanelsFor(key);
       panels.set(state.selectedOccurrenceId, {
         family: activeConstructionFamily, addColumns: addColumnsPanel, reshapeEntryKind, reshapeFormKind, columnSelection,
       });
