@@ -17,6 +17,20 @@ export type AutomaticPreviewRun = {
   readonly preview: ExplorerBuilderPreviewResult;
 };
 
+export type PreviewRequest = {
+  readonly outputId: string;
+  readonly limit: PreviewLimit;
+  readonly receiptRefreshes: number;
+};
+
+export type AutomaticPreviewExecution = {
+  cancelled: boolean;
+  compileGeneration?: number;
+  compileRequest?: { readonly abort: () => void };
+  previewGeneration?: number;
+  previewRequest?: { readonly abort: () => void };
+};
+
 type Refresh = (
   request: AutomaticPreviewIdentity,
   signal: AbortSignal,
@@ -56,7 +70,7 @@ export function createAutomaticPreview() {
     },
     read(
       resource: PreviewResource,
-      snapshot = resource.getSnapshot(),
+      snapshot: ReturnType<PreviewResource['getSnapshot']> = resource.getSnapshot(),
     ): QueryResult<AutomaticPreviewRun | undefined> {
       const request = current?.request;
       return {

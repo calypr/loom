@@ -5,23 +5,9 @@ import type { ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult } from 
 import { selectedTable, type BuilderAuthoringState } from '../model/authoring';
 import type { builderAuthoringReducer } from '../model/reducer';
 import type { PreviewLimit } from '../model/previewRecovery';
-import type { AutomaticPreviewIdentity, AutomaticPreviewRun } from '../session/automaticPreview';
+import type { AutomaticPreviewExecution, AutomaticPreviewIdentity, AutomaticPreviewRun, PreviewRequest } from '../session/automaticPreview';
 import type { useAutomaticPreview } from '../session/useAutomaticPreviewResource';
 import { matchesAcceptedPreviewHandoff, type AppliedPreviewHandoff } from '../constructionWorkspace/appliedChoicePreview';
-
-export type PreviewRequest = {
-  readonly outputId: string;
-  readonly limit: PreviewLimit;
-  readonly receiptRefreshes: number;
-};
-
-export type AutomaticPreviewExecution = {
-  cancelled: boolean;
-  compileGeneration?: number;
-  compileRequest?: { readonly abort: () => void };
-  previewGeneration?: number;
-  previewRequest?: { readonly abort: () => void };
-};
 
 type UseAutomaticPreviewOwnerOptions = {
   readonly ownerKey: string;
