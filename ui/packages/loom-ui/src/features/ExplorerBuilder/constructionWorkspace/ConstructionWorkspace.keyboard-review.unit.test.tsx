@@ -3,7 +3,16 @@ import React from 'react';
 import {cleanup,fireEvent,render,screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {afterEach,expect,it,vi} from 'vitest';
-import {ConstructionWorkspace} from './ConstructionWorkspace';
+import { ConstructionWorkspaceSessionProvider } from '../session/ConstructionWorkspaceSession';
+import {ConstructionWorkspace as ConnectedConstructionWorkspace} from './ConstructionWorkspace';
+
+const ConstructionWorkspace = (props: import('react').ComponentProps<typeof ConnectedConstructionWorkspace> &
+  import('react').ComponentProps<typeof ConstructionWorkspaceSessionProvider>['value']) => (
+  <ConstructionWorkspaceSessionProvider value={props}>
+    <ConnectedConstructionWorkspace {...props} />
+  </ConstructionWorkspaceSessionProvider>
+);
+
 afterEach(cleanup);
 const view=(editor:React.ReactNode=<input aria-label="Draft field" defaultValue="draft"/>)=><ConstructionWorkspace tables={[]} onSelectTable={vi.fn()} onNewTable={vi.fn()} onDuplicateTable={vi.fn()} onDeleteTable={vi.fn()} onRenameTable={vi.fn()} onSelectFamily={vi.fn()} network={<button>Graph node</button>} editor={editor} preview={<button>Preview row</button>} previewStatus="ready" draftVersion={1} draftDigest="draft"/>;
 it('review: keyboard Tab stays in the visible expanded graph panel',async()=>{

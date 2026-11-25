@@ -1,3 +1,4 @@
+import { useImportedSourceStepsSession } from './session/ImportedSourceStepsSession';
 import { groupSourceSteps, type SourceStepEntry } from './model/groupSourceSteps';
 import { useRef, useState, type ReactNode } from 'react';
 import { useEscapeToClose } from './hooks/useEscapeToClose';
@@ -68,43 +69,18 @@ interface ImportedSourceStepEditorState extends ImportedSourceStepEditorValues {
   readonly dependentEdits?: ReadonlyArray<ImportedSourceStepEditorValues>;
 }
 
-interface ImportedSourceStepsProps {
-  readonly outputId: string;
-  readonly importedSource: ExplorerBuilderDocument['importedSource'];
-  readonly disabled?: boolean;
+interface ImportedSourceStepsPresentation {
   readonly navigatorOnly?: boolean;
   readonly reviewOwnsCancel?: boolean;
   readonly reviewInEditor?: boolean;
   readonly fieldEditActionRef?: { current: ((stepId: string, fieldId: string) => void) | undefined };
   readonly outputEditActionRef?: { current: ((stepId: string, outputKey: string) => void) | undefined };
-  readonly catalogOutputsForStep?: (stepId: string) => ReadonlyArray<{ readonly outputKey: string; readonly columnId?: string; readonly defaultName: string; readonly enabled: boolean }>;
-  readonly pivotOutputsForStep?: (stepId: string) => ReadonlyArray<{ readonly outputKey: string; readonly columnId?: string; readonly defaultName: string; readonly enabled: boolean }>;
-  readonly projectedFieldsForStep?: (stepId: string) => ReadonlyArray<ProjectedField>;
-  readonly onRemoveProjectedField?: (field: ProjectedField) => void;
-  readonly canRemoveProjectedField?: (field: ProjectedField) => boolean;
-  readonly onEditProjectedField?: (field: ProjectedField) => void;
-  readonly onRenameProjectedField?: (columnId: string, label: string) => void;
-  readonly editableProjectedFieldIds?: ReadonlySet<string>;
-  readonly projectedFieldRemovalDisabledReason?: string;
-  readonly outputRevision?: string;
-  readonly resourceTypeChoices?: ReadonlyArray<string>;
-  readonly sourcePathChoices?: ReadonlyArray<string>;
-  readonly fieldPathChoices?: ReadonlyArray<string>;
-  readonly fieldKindChoices?: ReadonlyArray<string>;
   readonly editActionRef?: { current: ((stepId: string) => void) | undefined };
   readonly cancelEditActionRef?: { current: (() => void) | undefined };
   readonly switchOccurrenceActionRef?: { current: ((occurrenceId: string) => boolean) | undefined };
-  readonly occurrenceForStep?: (stepId: string) => string | undefined;
-  readonly onSuspendEdit?: () => boolean;
-  readonly onBeginEdit?: (stepId: string) => boolean;
-  readonly onActiveOperationChange?: (stepId: string) => void;
-  readonly onCancelEdit?: () => void;
-  readonly onDraftChange?: () => void;
   readonly editorHost?: HTMLElement | null;
   readonly reviewHost?: HTMLElement | null;
   readonly renderReview?: (sourceStep: NonNullable<ExplorerBuilderCommand['sourceStep']>, onCancel: () => void, sourceSteps?: ReadonlyArray<NonNullable<ExplorerBuilderCommand['sourceStep']>>) => ReactNode;
-  readonly onRefresh: () => Promise<boolean>;
-  readonly onApply: (command: ExplorerBuilderCommand) => Promise<boolean>;
 }
 
 const editorStateFor = (step: ImportedSourceStep): ImportedSourceStepEditorState => ({
@@ -117,17 +93,45 @@ const editorStateFor = (step: ImportedSourceStep): ImportedSourceStepEditorState
 });
 
 export const ImportedSourceSteps = ({
-  outputId,
-  importedSource,
-  disabled = false,
   navigatorOnly = false,
   reviewOwnsCancel = false,
   reviewInEditor = false,
-  onRefresh,
-  onApply,
   renderReview,
-  editActionRef, cancelEditActionRef, switchOccurrenceActionRef, occurrenceForStep, onSuspendEdit, fieldEditActionRef, outputEditActionRef, catalogOutputsForStep, pivotOutputsForStep, projectedFieldsForStep, onRemoveProjectedField, canRemoveProjectedField, onEditProjectedField, onRenameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason, outputRevision, onBeginEdit, onActiveOperationChange, onCancelEdit, onDraftChange, editorHost, reviewHost, resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices,
-}: ImportedSourceStepsProps) => {
+  editActionRef,
+  cancelEditActionRef,
+  switchOccurrenceActionRef,
+  fieldEditActionRef,
+  outputEditActionRef,
+  editorHost,
+  reviewHost,
+}: ImportedSourceStepsPresentation) => {
+  const {
+    outputId,
+    importedSource,
+    disabled = false,
+    onRefresh,
+    onApply,
+    occurrenceForStep,
+    onSuspendEdit,
+    catalogOutputsForStep,
+    pivotOutputsForStep,
+    projectedFieldsForStep,
+    onRemoveProjectedField,
+    canRemoveProjectedField,
+    onEditProjectedField,
+    onRenameProjectedField,
+    editableProjectedFieldIds,
+    projectedFieldRemovalDisabledReason,
+    outputRevision,
+    onBeginEdit,
+    onActiveOperationChange,
+    onCancelEdit,
+    onDraftChange,
+    resourceTypeChoices,
+    sourcePathChoices,
+    fieldPathChoices,
+    fieldKindChoices,
+  } = useImportedSourceStepsSession(session => session);
   const presentEditor = (node: ReactNode) => editorHost ? createPortal(node, editorHost) : node;
   const presentReview = (node: ReactNode) => reviewHost && !reviewInEditor ? createPortal(node, reviewHost) : node;
   const [editor, setEditor] = useState<ImportedSourceStepEditorState>();

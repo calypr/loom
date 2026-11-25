@@ -1,3 +1,4 @@
+import { useBuilderToolbarSession } from '../session/BuilderToolbarSession';
 // @vitest-environment jsdom
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -55,8 +56,12 @@ vi.mock('../../../react', async (importOriginal) => {
 });
 
 vi.mock('../components/BuilderToolbar', () => ({
-  BuilderToolbar: ({ onPublish, onReview, publishDisabled }: { readonly onPublish: () => void; readonly onReview: () => void; readonly publishDisabled: boolean }) =>
-    <><button type="button" onClick={onReview}>Review dataset</button><button type="button" disabled={publishDisabled} onClick={onPublish}>Publish</button></>,
+  BuilderToolbar: () => {
+    const props = useBuilderToolbarSession(session => session);
+    const renderMockToolbar = ({ onPublish, onReview, publishDisabled }: { readonly onPublish: () => void; readonly onReview: () => void; readonly publishDisabled: boolean }) =>
+    <><button type="button" onClick={onReview}>Review dataset</button><button type="button" disabled={publishDisabled} onClick={onPublish}>Publish</button></>;
+    return renderMockToolbar(props as unknown as Parameters<typeof renderMockToolbar>[0]);
+  },
 }));
 
 const column = {

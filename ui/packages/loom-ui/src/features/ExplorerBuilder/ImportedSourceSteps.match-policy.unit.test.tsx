@@ -2,7 +2,16 @@
 import React from 'react';
 import { expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { ImportedSourceSteps } from './ImportedSourceSteps';
+import { ImportedSourceStepsSessionProvider } from './session/ImportedSourceStepsSession';
+import { ImportedSourceSteps as ConnectedImportedSourceSteps } from './ImportedSourceSteps';
+
+const ImportedSourceSteps = (props: import('react').ComponentProps<typeof ConnectedImportedSourceSteps> &
+  import('react').ComponentProps<typeof ImportedSourceStepsSessionProvider>['value']) => (
+  <ImportedSourceStepsSessionProvider value={props}>
+    <ConnectedImportedSourceSteps {...props} />
+  </ImportedSourceStepsSessionProvider>
+);
+
 
 it('opens the editor for a relationship with an authored match override', () => {
   render(<ImportedSourceSteps outputId="subjects" importedSource={{

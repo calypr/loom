@@ -3,8 +3,17 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ExplorerBuilderCommand, ExplorerBuilderDocument } from '../../contracts/types';
-import { ImportedSourceSteps } from './ImportedSourceSteps';
+import { ImportedSourceStepsSessionProvider } from './session/ImportedSourceStepsSession';
+import { ImportedSourceSteps as ConnectedImportedSourceSteps } from './ImportedSourceSteps';
 import { groupSourceSteps } from './model/groupSourceSteps';
+
+const ImportedSourceSteps = (props: import('react').ComponentProps<typeof ConnectedImportedSourceSteps> &
+  import('react').ComponentProps<typeof ImportedSourceStepsSessionProvider>['value']) => (
+  <ImportedSourceStepsSessionProvider value={props}>
+    <ConnectedImportedSourceSteps {...props} />
+  </ImportedSourceStepsSessionProvider>
+);
+
 
 afterEach(cleanup);
 

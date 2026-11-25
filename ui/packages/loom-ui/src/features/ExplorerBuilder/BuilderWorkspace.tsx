@@ -1,3 +1,8 @@
+import { BuilderToolbarSessionProvider } from './session/BuilderToolbarSession';
+import { AuthoredTraversalSessionProvider } from './session/AuthoredTraversalSession';
+import { ImportedSourceStepsSessionProvider } from './session/ImportedSourceStepsSession';
+import { TraversalScopeNavigatorSessionProvider } from './session/TraversalScopeNavigatorSession';
+import { ConstructionWorkspaceSessionProvider } from './session/ConstructionWorkspaceSession';
 import { RowDefinitionEditorSessionProvider } from './session/RowDefinitionEditorSession';
 import { sameCatalogSnapshot, sameDraftVersion, sameDraftDigest } from '../../contracts/identity';
 import { OperationEditorSessionProvider } from './session/OperationEditorSession';
@@ -22,11 +27,10 @@ import { RowDefinitionPanel } from './components/RowDefinitionPanel';
 import { RowDefinitionSettingsPanel } from './components/RowDefinitionSettingsPanel';
 import { useBrowserSubscription } from './hooks/useBrowserSubscription';
 import { FrameSourcePanel } from './constructionWorkspace/FrameSourcePanel';
-import { derivedOccurrences, routeNode, routeSubtreeOccurrenceIds } from './model/authoring';
+import { derivedOccurrences, routeNode } from './model/authoring';
 import { shouldShowBuilderLoadError } from './authoring/builderLoadError';
 import { BuilderSessionProvider } from './session/BuilderSessionProvider';
 import { useBuilderSessionDraft } from './session/useBuilderSessionDraft';
-import { createTraversalActions } from './session/traversal';
 import { useDirtyBeforeUnload } from './hooks/useDirtyBeforeUnload';
 import { usePortalHost } from './hooks/usePortalHost';
 import { ConstructionWorkspace, ConstructionActionBar } from './constructionWorkspace/ConstructionWorkspace';
@@ -96,6 +100,8 @@ const focusFirstTableName = () => {
   window.setTimeout(() => document.getElementById('first-table-name')?.focus(), 0);
 };
 
+const confirmWorkspaceAction = (message: string) => window.confirm(message);
+
 const BuilderWorkspaceContent = ({
   populationSelection,
   populationSelectionLoading = false,
@@ -107,54 +113,49 @@ const BuilderWorkspaceContent = ({
 }: BuilderWorkspaceProps & { readonly scope: ReturnType<typeof useBuilderWorkspaceScope> }) => {
   const {
     explorers, explorerQueryEnabled, builder, workspaceHostRef, emptyExplorerProject, message,
-    createStatus, createCustomExplorer, refetchBuilder, explorerSummaries, effectiveExplorerId,
-    selectExplorer, capabilities, deleteCurrentExplorer, state, selectTableFromUser, renameTable,
-    addTable, duplicateTable, deleteSelectedTable, reviewOpen, setReviewOpen, draftAccess,
-    reconcileCurrent, publish, publishDisabled, publishing, busy, featureMode, tableToolbarHost,
-    table, construction, constructionLifecycle, combineCatalog, setEditingConstructionStepId,
-    setRowIntentSession, applyCommandsWithResult, recipeMutationAllowed, selectAddColumnsView,
-    canStartCombine, recipeOwner, setRecipeNotice, rowIntentSession, setSourceRowsOpen,
-    editingConstructionStepId, previousDraftRevisionId, setColumnSelection, applyCommands,
-    editingConstructionStep, setRelatedGraphSelection, hasUnsupportedSavedSourceColumns,
-    previewIsCurrent, pendingCommands, builderDataKey, firstTableProgress, loomClient, projectId,
-    authResourcePath, rememberRecipeFocus, activePopulationSelection, cancelingConstructionProposal,
-    graphSource, savedNetwork, selectedRelatedGraphSource, activeConstructionFamily,
-    sourceStepEditAction, advancedRuleEditorReturn, pendingSavedRuleRemoval,
-    setPendingSavedRuleRemoval, addSelectedFeatures, sourceRelationshipRequest, recipeEditToken,
-    setReshapeFormKind, relatedExpandQueryOwnerRef, ownerKey, setActiveConstructionFamily,
-    tablePreview, applyConstructionProposal, beginConstructionCancellation,
-    finishConstructionCancellation, traversalState, sourceProposal, lastAcceptedOutputPreview,
-    dispatch, sourceStepEditDirty, sourceStepEditCancelAction, candidateForPreviewColumn,
-    occurrencePanelsFor, addColumnsPanel, reshapeEntryKind, reshapeFormKind, columnSelection,
-    restoreAddColumnsPanel, setReshapeEntryKind, relatedGraphSource, connectingRelationship,
+    createStatus, createCustomExplorer, refetchBuilder, capabilities, state, selectTableFromUser,
+    reviewOpen, setReviewOpen, publishing, busy, featureMode, tableToolbarHost, table, construction,
+    constructionLifecycle, setEditingConstructionStepId, setRowIntentSession,
+    applyCommandsWithResult, recipeMutationAllowed, canStartCombine, recipeOwner, setRecipeNotice,
+    setSourceRowsOpen, previousDraftRevisionId, applyCommands, editingConstructionStep,
+    hasUnsupportedSavedSourceColumns, previewIsCurrent, pendingCommands, builderDataKey,
+    firstTableProgress, loomClient, projectId, authResourcePath, activePopulationSelection,
+    cancelingConstructionProposal, graphSource, activeConstructionFamily, sourceStepEditAction,
+    advancedRuleEditorReturn, pendingSavedRuleRemoval, setPendingSavedRuleRemoval,
+    addSelectedFeatures, sourceRelationshipRequest, recipeEditToken, relatedExpandQueryOwnerRef,
+    ownerKey, setActiveConstructionFamily, tablePreview, applyConstructionProposal,
+    beginConstructionCancellation, finishConstructionCancellation, dispatch, sourceStepEditDirty,
+    sourceStepEditCancelAction, candidateForPreviewColumn, connectingRelationship,
     setRootReplacementInspectorHost, rootChangeState, rootRecipeAssessment, applyRowChangePreview,
     cancelRootChange, editingRecipeColumn, setSourceStepInspectorHost, setSourceProposal,
     sourceRowsOpen, setOccurrenceInspectorHost, recipeNotice, occurrenceInspectorHost,
-    rowSettingsOpenAction, setTableToolbarHost, selectRootChoice, setSourceRowsInspectorHost,
-    automaticPreviewQuery, currentPreviewStatus, firstTableName, setFirstTableName,
-    createFirstTableFromRoot, setTableCreatorOpen, pendingRowChangePreview, focusDatasetReviewTarget,
+    rowSettingsOpenAction, setTableToolbarHost, setSourceRowsInspectorHost, firstTableName,
+    setFirstTableName, createFirstTableFromRoot, setTableCreatorOpen, focusDatasetReviewTarget,
     blockingDiagnostics, primaryDiagnostic, unsupportedColumns,
     unsupportedSourceProjectionDiagnostic, incomplete, suggestionsFailure, suggestionIdentity,
     suggestionRequestKey, setSuggestionsFailure, ensureSuggestions, suggestionHostRef,
-    setActiveSourceStepId, tableCreatorOpen, activeSourceStepId, addColumnsReason, renameTableById,
-    sourceRowsInspectorHost, rowSettingsCloseAction, rootReplacementInspectorHost,
-    rootChangeIdentityForTable, refreshRootChange, activePopulationSelectionLoading,
-    activePopulationSelectionError, populationVariantPending, setClearedPopulationSelection,
-    populationSelectionContextKey, excludePopulationMember, constructionHistorySelection,
-    sourceStepInspectorHost, sourceChangeReviewHost, sourceFieldEditAction, sourceOutputEditAction,
+    setActiveSourceStepId, tableCreatorOpen, addColumnsReason, sourceRowsInspectorHost,
+    rowSettingsCloseAction, rootReplacementInspectorHost, rootChangeIdentityForTable,
+    refreshRootChange, activePopulationSelectionLoading, activePopulationSelectionError,
+    populationVariantPending, setClearedPopulationSelection, populationSelectionContextKey,
+    excludePopulationMember, constructionHistorySelection, sourceStepInspectorHost,
+    sourceChangeReviewHost, sourceFieldEditAction, sourceOutputEditAction,
     sourceStepSwitchOccurrenceAction, automaticPreviewFailureMessage, previewLimit, setPreviewLimit,
-    setSourceChangeReviewHost, reviewFocusTarget, selectConstructionFamily, chooseRelatedRows,
-    chooseReshapeRows, selectConstructionHistory, editConstructionStep, closeConstructionWorkspace,
-    removeConstructionStep, restorePreviousDraft, capabilityStage, constructionCapabilitiesResponse,
-    capabilityIsForAppendStage, calculateUnavailableReason, relationshipOwner, loadRecipeNetwork,
-    pendingRelationship, proposeRelationship, cancelRecipeRelationship, sourceReviewStatus,
-    beginSourceReview, proposeColumnPolicy, applySourceRecipe, activeRuleReview,
-    reviewingAdvancedColumns, ruleOccurrence, ruleFieldPaths, advancedOccurrenceId, advancedRules,
-    unassignedFrameIds, savedFramesForNode, operationEditorSession, persistedConstructionHistory,
-    rowDefinitionEditorSession,
+    setSourceChangeReviewHost, reviewFocusTarget, selectConstructionFamily,
+    selectConstructionHistory, editConstructionStep, closeConstructionWorkspace,
+    removeConstructionStep, restorePreviousDraft, capabilityStage, capabilityIsForAppendStage,
+    calculateUnavailableReason, relationshipOwner, loadRecipeNetwork, pendingRelationship,
+    cancelRecipeRelationship, sourceReviewStatus, beginSourceReview, proposeColumnPolicy,
+    applySourceRecipe, activeRuleReview, reviewingAdvancedColumns, ruleOccurrence, ruleFieldPaths,
+    advancedOccurrenceId, advancedRules, unassignedFrameIds, savedFramesForNode,
+    operationEditorSession, persistedConstructionHistory, rowDefinitionEditorSession,
+    sourceCandidate, sourceReviewColumnLabels, rootCandidate, candidatePreview,
+    proposalPresentationTable, inspectedOccurrenceId, workspaceCandidatePreview,
+    authoredTraversalSession, traversalNavigatorSession, importedSourceStepsSession,
+    constructionWorkspaceSession, toolbarSession, removeProjectedField, traversalTable,
   } = useBuilderWorkspaceActions({
     populationSelection, populationSelectionLoading, populationSelectionError, onExplorerChange,
-    featureFocus, scope, focusFirstTableName,
+    featureFocus, scope, focusFirstTableName, confirmWorkspaceAction,
   });
   useDirtyBeforeUnload(state.dirty || pendingCommands > 0);
   const toolbarHost = usePortalHost('explorer-builder-toolbar-host');
@@ -250,44 +251,12 @@ const BuilderWorkspaceContent = ({
   }
 
   const toolbar = (
-    <BuilderToolbar
-      explorers={explorerSummaries}
-      selectedExplorerId={effectiveExplorerId}
-      onExplorerChange={selectExplorer}
-      onCreateExplorer={(title, fromCurrent) =>
-        void createCustomExplorer(title, fromCurrent)
-      }
-      deleteSupported={capabilities.data?.features.deleteExplorer ?? false}
-      deleteDisabled={
-        !explorerSummaries.some(
-          (explorer) => explorer.explorerId !== effectiveExplorerId,
-        )
-      }
-      onDeleteExplorer={() => void deleteCurrentExplorer()}
-      tables={state.tables}
-      selectedOutputId={state.selectedOutputId}
-      onSelectTable={selectTableFromUser}
-      onRenameTable={renameTable}
-      onNewTable={addTable}
-      onDuplicateTable={duplicateTable}
-      onDeleteTable={deleteSelectedTable}
-      onReview={() => {
-        const open = !reviewOpen;
-        setReviewOpen(open);
-        const current = draftAccess.getState();
-        if (open && (!receiptContainsOutputIds(current.receipt, current.tables.map((table) => table.outputId)) ||
-          current.reconciliation !== 'resolved')) {
-          void reconcileCurrent();
-        }
-      }}
-      reviewExpanded={reviewOpen}
-      onPublish={() => void publish()}
-      publishDisabled={publishDisabled}
-      publishing={publishing}
-      busy={busy}
-      columnCreationSupported
-      tableToolbarHost={featureMode === 'graph' ? tableToolbarHost : null}
-    />
+    <BuilderToolbarSessionProvider value={toolbarSession}>
+      <BuilderToolbar
+        columnCreationSupported
+        tableToolbarHost={featureMode === 'graph' ? tableToolbarHost : null}
+      />
+    </BuilderToolbarSessionProvider>
   );
 
   const editingRelatedSourceStep: RelatedSourceStep | undefined = editingConstructionStep?.operation.kind === 'RELATED_SOURCE'
@@ -474,50 +443,6 @@ const BuilderWorkspaceContent = ({
         {proposalPanel}
       </div>
     : undefined;
-  const { sourceCandidate, sourceReviewColumnLabels, rootCandidate, candidatePreview, generatedOutputRevision, proposalResponse, proposalPresentationTable, inspectedOccurrenceId, selectTraversalScope, editTraversalColumn, traversalTable, traversalNetwork, traversalRowIdentity, resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices, catalogOutputsForStep, pivotOutputsForStep, traversalOperationLabels, editTraversalRows, projectedFieldsForStep, occurrenceForStep, removeProjectedField, canRemoveProjectedField, editProjectedField, renameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason } = createTraversalActions(traversalState, {
-    state, table, sourceProposal, relationshipOwner, recipeOwner, constructionLifecycle,
-    lastAcceptedOutputPreview, pendingRelationship, cancelRecipeRelationship, dispatch,
-    savedNetwork, recipeMutationAllowed, rememberRecipeFocus, recipeEditToken,
-    applyCommands, pendingCommands, publishing, setRecipeNotice, sourceStepEditDirty, sourceStepEditCancelAction,
-    canEditColumnPolicy: (column) => {
-      if (!table || column.source.kind !== 'field') return false;
-      const candidate = candidateForPreviewColumn(column);
-      const occurrence = derivedOccurrences(table, state.catalog).find((item) => item.id === column.occurrenceId);
-      return Boolean(candidate && occurrence && candidate.nodeId === occurrence.nodeId &&
-        candidate.fieldPath === column.source.field.path && candidate.projectionModes.length > 1);
-    },
-    onSwitchSavedOccurrence: (occurrenceId, restoredEditor) => {
-      const key = JSON.stringify([relationshipOwner, state.draftVersion, state.draftDigest]);
-      const panels = occurrencePanelsFor(key);
-      panels.set(state.selectedOccurrenceId, {
-        family: activeConstructionFamily, addColumns: addColumnsPanel, reshapeEntryKind, reshapeFormKind, columnSelection,
-      });
-      const panel = panels.get(occurrenceId);
-      setActiveConstructionFamily(restoredEditor ? undefined : panel?.family);
-      restoreAddColumnsPanel(panel?.addColumns);
-      setReshapeEntryKind(panel?.reshapeEntryKind ?? 'choose');
-      setReshapeFormKind(panel?.reshapeFormKind ?? 'choose');
-      setColumnSelection(panel?.columnSelection ?? { kind: 'empty' });
-    },
-  });
-  const selectGraphOccurrence = (occurrenceId: string) => {
-    if (activeConstructionFamily === 'ADD_COLUMNS' && constructionLifecycle.proposal.status === 'applying') return;
-    if (occurrenceId !== graphSource?.occurrenceId && recipeOwner.getState().target?.kind === 'createColumnRule') {
-      if (!cancelRecipeRelationship(false)) return;
-    }
-    if (relatedGraphSource?.occurrenceId === occurrenceId) {
-      if (occurrenceId !== graphSource?.occurrenceId) constructionLifecycle.cancel();
-      setRelatedGraphSelection(occurrenceId);
-      selectAddColumnsView('fields');
-      return;
-    }
-    setRelatedGraphSelection(undefined);
-    if (activeConstructionFamily === 'ADD_COLUMNS' && occurrenceId !== graphSource?.occurrenceId &&
-      table && routeNode(table.document.route, occurrenceId)) {
-      constructionLifecycle.cancel();
-    }
-    selectTraversalScope(occurrenceId);
-  };
   const pendingChangeReview = table && pendingRelationship ? <SourceRelationshipReview key={`${relationshipOwner}:${JSON.stringify(pendingRelationship)}`}
     columnLabels={sourceReviewColumnLabels}
     client={loomClient} project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
@@ -591,52 +516,15 @@ const BuilderWorkspaceContent = ({
   const recordNetwork = table ? (
     <div className="flex min-h-0 min-w-0 flex-col gap-2" ref={(node) => { if (node) loadRecipeNetwork(); }}>
       {recipeNotice ? <p role="alert" className="text-xs text-amber-900">{recipeNotice}</p> : null}
-      <AuthoredTraversalEditor
-        projectionKind={proposalPresentationTable ? 'proposed' : 'saved'}
-        network={rootCandidate?.candidateNetwork ?? sourceCandidate?.proposal.candidateNetwork ?? (savedNetwork?.owner === relationshipOwner ? savedNetwork.result.network : undefined)}
-        rowIdentity={rootCandidate?.candidateRowIdentity ?? sourceCandidate?.proposal.candidateRowIdentity ?? (proposalPresentationTable ? undefined : savedNetwork?.owner === relationshipOwner ? savedNetwork.result.rowIdentity : undefined)}
-        showInspector={canInspectOccurrence}
-        inspectorHost={occurrenceInspectorHost}
-        onInspectValues={() => { selectConstructionFamily('ADD_COLUMNS'); selectAddColumnsView('fields'); }}
-        onInspectRelatedRows={() => chooseRelatedRows()}
-        onEditSourceStep={(stepId) => sourceStepEditAction.current?.(stepId)}
-        onInspectOperation={editConstructionStep}
-        showOccurrenceNavigation={false}
-        onEditStartingRecords={() => { if (recipeMutationAllowed()) rowSettingsOpenAction.current?.(); }}
-        mutationBlockedReason={recipeOwner.state.status !== 'saved' ? 'Apply or Cancel the active recipe change before starting another edit.' : undefined}
-        presentation="compact"
-        onTableToolbarHostChange={setTableToolbarHost}
-        catalog={state.catalog} table={proposalPresentationTable ?? table} selectedOccurrenceId={selectedRelatedGraphSource?.occurrenceId ?? inspectedOccurrenceId}
-        currentRelatedRecord={relatedGraphSource ? { id: relatedGraphSource.occurrenceId, nodeId: relatedGraphSource.nodeId, resourceType: relatedGraphSource.resourceType } : undefined}
-        disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing || sourceRowsOpen || recipeOwner.state.status !== 'saved'}
-        importedRelationshipActions={table.document.importedRecipe ? {
-          onAdd: (parentOccurrenceId, edgeId) => proposeRelationship({ action: 'ADD', parentOccurrenceId, edgeId, matchMode: 'OPTIONAL' }, true),
-          onChangeMatchMode: (occurrenceId, matchMode) => proposeRelationship({ action: 'MATCH', occurrenceId, matchMode }),
-          onRemove: (occurrenceId) => proposeRelationship({ action: 'REMOVE', occurrenceId }),
-        } : undefined}
-        onDefineRow={editTraversalRows}
-        onSelectOccurrence={selectGraphOccurrence}
-        onSetBase={(nodeId) => void applyCommands([{ type: 'CREATE_TABLE', title: table.title, rootNodeId: nodeId }])}
-        onChangeBase={(nodeId) => selectRootChoice({ kind: 'catalog-node', nodeId })}
-        onAppendEdge={(parentOccurrenceId, edgeId) => {
-          if (!table.document.importedRecipe) void applyCommands([{ type: 'ADD_ROUTE', outputId: table.outputId, parentOccurrenceId, edgeId }]);
-        }}
-        onChangeEdge={(occurrenceId, edgeId) => {
-          if (!table.document.importedRecipe) void applyCommands([{ type: 'UPDATE_ROUTE_EDGE', outputId: table.outputId, occurrenceId, edgeId }]);
-        }}
-        onChangeMatchMode={(occurrenceId, matchMode) => {
-          if (!table.document.importedRecipe) void applyCommands([{ type: 'SET_ROUTE_MATCH_MODE', outputId: table.outputId, occurrenceId, matchMode }]);
-        }}
-        onTruncate={(occurrenceId) => {
-          if (table.document.importedRecipe) return;
-          const subtree = routeNode(table.document.route, occurrenceId);
-          if (!subtree) return;
-          const ids = routeSubtreeOccurrenceIds(subtree);
-          const columnCount = table.document.columns.filter((column) => ids.has(column.occurrenceId)).length;
-          if (!window.confirm(`Remove this local branch (${ids.size} occurrence${ids.size === 1 ? '' : 's'}, ${columnCount} column${columnCount === 1 ? '' : 's'})?`)) return;
-          void applyCommands([{ type: 'REMOVE_ROUTE', outputId: table.outputId, occurrenceId }]);
-        }}
-      />
+      <AuthoredTraversalSessionProvider value={authoredTraversalSession!}>
+        <AuthoredTraversalEditor
+          showInspector={canInspectOccurrence}
+          inspectorHost={occurrenceInspectorHost}
+          showOccurrenceNavigation={false}
+          presentation="compact"
+          onTableToolbarHostChange={setTableToolbarHost}
+        />
+      </AuthoredTraversalSessionProvider>
     </div>
   ) : undefined;
 
@@ -647,22 +535,6 @@ const BuilderWorkspaceContent = ({
     />
   ) : undefined;
   const externalWorkspaceEditor = sourceRecipeInspector ?? (sourceRowsOpen ? <div className="construction-inspector-portal-host" ref={setSourceRowsInspectorHost} aria-label="Source row settings inspector" /> : workspaceEditor);
-  const workspaceCandidatePreview = candidatePreview;
-  const workspacePreview = workspaceCandidatePreview ?? tablePreview;
-  const workspacePreviewIsCurrent = Boolean(workspaceCandidatePreview) || previewIsCurrent;
-  const workspacePreviewStatus = workspaceCandidatePreview
-    ? 'ready'
-    : automaticPreviewQuery.error
-      ? 'error'
-      : constructionLifecycle.proposal.status === 'previewing'
-      ? 'previewing'
-      : constructionLifecycle.proposal.status === 'needs-repair'
-        ? 'needs-repair'
-        : constructionLifecycle.proposal.status === 'error'
-          ? 'error'
-          : currentPreviewStatus;
-  const workspacePreviewProposalId = workspaceCandidatePreview?.receiptId ??
-    (!rowIntentSession ? proposalResponse?.proposalId : undefined);
   const tableCreatorPanel = (
     <TableCreatorPanel
       isFirstTable={state.tables.length === 0}
@@ -827,300 +699,173 @@ const BuilderWorkspaceContent = ({
             }} /> : null}
             {tableCreatorOpen ? tableCreatorPanel : null}
             {table ? (
-              <ConstructionWorkspace
-                composition={workspaceComposition}
-                network={recordNetwork}
-                navigation={traversalTable ? <div className="space-y-3">
-                  <TraversalScopeNavigator table={traversalTable} network={traversalNetwork} rowIdentity={traversalRowIdentity}
-                    showScopeNavigation={false}
-                    constructionStages={constructionLifecycle.proposal.status === 'ready' ? constructionLifecycle.proposal.response.stages
-                      : constructionCapabilitiesResponse?.outputId === table.outputId && sameCatalogSnapshot(constructionCapabilitiesResponse.snapshotToken, state.catalog.snapshotToken) && sameDraftVersion(constructionCapabilitiesResponse.draftVersion, state.draftVersion) && sameDraftDigest(constructionCapabilitiesResponse.draftDigest, state.draftDigest) ? constructionCapabilitiesResponse.stages : undefined}
-                    selectedOccurrenceId={inspectedOccurrenceId} sourceOperationLabels={traversalOperationLabels}
-                    selectedOperation={recipeOwner.state.target?.kind === 'sourceStep' ? { kind: 'source', stepId: activeSourceStepId ?? recipeOwner.state.target.sourceStepId }
-                      : editingConstructionStepId ? { kind: 'construction', stepId: editingConstructionStepId } : undefined}
-                    projectionKind={proposalPresentationTable ? 'proposed' : 'saved'}
-                    disabled={pendingCommands > 0 || publishing || sourceRowsOpen || recipeOwner.state.status !== 'saved'}
-                    sourceStepEditOnly={recipeOwner.state.target?.kind === 'sourceStep' && recipeOwner.state.status !== 'applying' && recipeOwner.state.status !== 'stale'}
-                    sourceOperationNavigationDisabled={pendingCommands > 0 || publishing || sourceRowsOpen || recipeOwner.state.status === 'applying' || recipeOwner.state.status === 'stale'}
-                    disabledReason={recipeOwner.state.status !== 'saved' ? 'Select an existing source operation to include it in this change.' : undefined}
-                    onSelectScope={selectGraphOccurrence} onEditSourceStep={(stepId) => sourceStepEditAction.current?.(stepId)}
-                    onEditConstructionStep={editConstructionStep} onEditColumn={editTraversalColumn} onEditSourceRows={editTraversalRows}
-                    onRemoveSourceStep={(stepId) => {
-                      if (!recipeMutationAllowed()) return;
-                      void applyCommands([{ type: 'UPDATE_IMPORTED_SOURCE_STEP', outputId: table.outputId, sourceStep: { stepId, remove: true } }]);
-                    }}
-                    onRemoveConstructionStep={removeConstructionStep}
-                    onExpandRelatedRows={() => chooseRelatedRows()} onGroupRows={() => chooseReshapeRows('group')}
-                    resultActions={<ConstructionActionBar variant="compact" activeFamily={activeConstructionFamily}
-                      families={['ADD_COLUMNS', 'KEEP_ROWS', 'CALCULATE', 'RESHAPE']}
-                      disabled={pendingCommands > 0 || publishing || sourceRowsOpen || recipeOwner.state.status !== 'saved' || state.reconciliation === 'pending'}
-                      addColumnsDisabled={Boolean(addColumnsReason)}
-                      addColumnsReason={addColumnsReason}
-                      calculateAvailable={Boolean(capabilityIsForAppendStage && capabilityStage?.capabilities.some((candidate) => candidate.kind === 'DERIVE' && candidate.supported))}
-                      calculateUnavailableReason={calculateUnavailableReason} onSelect={selectConstructionFamily} />}
-                    combineActions={<ConstructionActionBar variant="compact" activeFamily={activeConstructionFamily}
-                      families={['COMBINE']}
-                      disabled={pendingCommands > 0 || publishing || sourceRowsOpen || recipeOwner.state.status !== 'saved' || state.reconciliation === 'pending'}
-                      combineDisabled={!canStartCombine}
-                      onSelect={selectConstructionFamily} />} />
-                </div> : undefined}
-                tables={state.tables.map((candidate) => ({
-                  outputId: candidate.outputId,
-                  title: candidate.title,
-                }))}
-                selectedOutputId={table.outputId}
-                tableActionsDisabled={
-                  reviewingAdvancedColumns || (sourceRowsOpen && recipeOwner.state.status === 'saved') || pendingCommands > 0 ||
-                  publishing ||
-                  firstTableProgress.kind === 'running' ||
-                  constructionLifecycle.proposal.status === 'applying'
-                }
-                onSelectTable={(outputId) => {
-                  if (sourceRowsOpen && recipeOwner.state.status === 'saved') { setRecipeNotice('Close source row settings before switching tables.'); return; }
-                  setSourceRowsOpen(false);
-                  if (recipeOwner.state.status === 'saved') {
-                    selectConstructionHistory({ kind: 'source' });
-                    combineCatalog.cancel();
-                  }
-                  selectTableFromUser(outputId);
-                }}
-                onNewTable={addTable}
-                onDuplicateTable={duplicateTable}
-                onDeleteTable={deleteSelectedTable}
-                onRenameTable={renameTableById}
-                rowSetup={(
-                  <RowDefinitionEditorSessionProvider key={`${table.outputId}:${state.catalog.snapshotToken}:${builder.data?.draftVersion ?? ''}:${builder.data?.draftDigest ?? ''}`} value={rowDefinitionEditorSession!}>
-                    <RowDefinitionSettingsPanel
-                      inspectorHost={sourceRowsInspectorHost}
-                      operationInspectorPresentation="workspace"
-                      openActionRef={rowSettingsOpenAction}
-                      closeActionRef={rowSettingsCloseAction}
-                      replacementPresentation="shared" replacementInspectorHost={rootReplacementInspectorHost}
-                      presentation="compact"
-                      triggerPresentation="hidden"
-                      triggerLabel={table.document.rootResourceType || 'Choose records'}
-                      renderRootSettings={(onRootChange, onResolveRootChange, onReplaceRoot) => (
-                        <RowDefinitionPanel
-                          catalog={state.catalog}
-                          table={table}
-                          disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                          rootChangeState={rootChangeState}
-                          currentIdentity={rootChangeIdentityForTable(table.outputId)}
-                          onChange={onRootChange}
-                          onResolve={onResolveRootChange}
-                          onRefresh={refreshRootChange}
-                          onKeepCurrent={cancelRootChange}
-                          onReplace={onReplaceRoot}
-                        />
-                      )}
-                      startingCollectionSettings={(
-                        activePopulationSelection ||
-                        table.document.population ||
-                        activePopulationSelectionLoading ||
-                        activePopulationSelectionError
-                      ) ? (
-                        <PopulationPanel
-                          table={table}
-                          selection={activePopulationSelection}
-                          loading={activePopulationSelectionLoading}
-                          error={activePopulationSelectionError}
-                          project={projectId}
-                          explorerId={state.explorerId}
-                          authResourcePath={authResourcePath}
-                          snapshotToken={state.catalog.snapshotToken}
-                          draftVersion={state.draftVersion}
-                          draftDigest={state.draftDigest}
-                          receiptId={state.receipt?.receiptId}
-                          disabled={activePopulationSelectionLoading || populationVariantPending || pendingCommands > 0 || state.reconciliation === 'pending'}
-                          onAttach={(routeChoiceId) => void applyCommands([{
-                            type: 'SET_TABLE_POPULATION',
-                            outputId: table.outputId,
-                            selectionRevisionId: activePopulationSelection?.id,
-                            routeChoiceId,
-                          }])}
-                          onClear={() => {
-                            if (activePopulationSelection) setClearedPopulationSelection({
-                              contextKey: populationSelectionContextKey,
-                              client: loomClient,
-                              selectionID: activePopulationSelection.id,
-                            });
-                            void applyCommands([{
-                              type: 'CLEAR_TABLE_POPULATION',
+              <ConstructionWorkspaceSessionProvider value={constructionWorkspaceSession!}>
+                <ConstructionWorkspace
+                  composition={workspaceComposition}
+                  network={recordNetwork}
+                  navigation={traversalTable ? <div className="space-y-3">
+                    <TraversalScopeNavigatorSessionProvider value={traversalNavigatorSession!}>
+                      <TraversalScopeNavigator
+                        showScopeNavigation={false}
+                        resultActions={<ConstructionActionBar variant="compact" activeFamily={activeConstructionFamily}
+                          families={['ADD_COLUMNS', 'KEEP_ROWS', 'CALCULATE', 'RESHAPE']}
+                          disabled={pendingCommands > 0 || publishing || sourceRowsOpen || recipeOwner.state.status !== 'saved' || state.reconciliation === 'pending'}
+                          addColumnsDisabled={Boolean(addColumnsReason)}
+                          addColumnsReason={addColumnsReason}
+                          calculateAvailable={Boolean(capabilityIsForAppendStage && capabilityStage?.capabilities.some((candidate) => candidate.kind === 'DERIVE' && candidate.supported))}
+                          calculateUnavailableReason={calculateUnavailableReason} onSelect={selectConstructionFamily} />}
+                        combineActions={<ConstructionActionBar variant="compact" activeFamily={activeConstructionFamily}
+                          families={['COMBINE']}
+                          disabled={pendingCommands > 0 || publishing || sourceRowsOpen || recipeOwner.state.status !== 'saved' || state.reconciliation === 'pending'}
+                          combineDisabled={!canStartCombine}
+                          onSelect={selectConstructionFamily} />} />
+                    </TraversalScopeNavigatorSessionProvider>
+                  </div> : undefined}
+                  rowSetup={(
+                    <RowDefinitionEditorSessionProvider key={`${table.outputId}:${state.catalog.snapshotToken}:${builder.data?.draftVersion ?? ''}:${builder.data?.draftDigest ?? ''}`} value={rowDefinitionEditorSession!}>
+                      <RowDefinitionSettingsPanel
+                        inspectorHost={sourceRowsInspectorHost}
+                        operationInspectorPresentation="workspace"
+                        openActionRef={rowSettingsOpenAction}
+                        closeActionRef={rowSettingsCloseAction}
+                        replacementPresentation="shared" replacementInspectorHost={rootReplacementInspectorHost}
+                        presentation="compact"
+                        triggerPresentation="hidden"
+                        triggerLabel={table.document.rootResourceType || 'Choose records'}
+                        renderRootSettings={(onRootChange, onResolveRootChange, onReplaceRoot) => (
+                          <RowDefinitionPanel
+                            catalog={state.catalog}
+                            table={table}
+                            disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                            rootChangeState={rootChangeState}
+                            currentIdentity={rootChangeIdentityForTable(table.outputId)}
+                            onChange={onRootChange}
+                            onResolve={onResolveRootChange}
+                            onRefresh={refreshRootChange}
+                            onKeepCurrent={cancelRootChange}
+                            onReplace={onReplaceRoot}
+                          />
+                        )}
+                        startingCollectionSettings={(
+                          activePopulationSelection ||
+                          table.document.population ||
+                          activePopulationSelectionLoading ||
+                          activePopulationSelectionError
+                        ) ? (
+                          <PopulationPanel
+                            table={table}
+                            selection={activePopulationSelection}
+                            loading={activePopulationSelectionLoading}
+                            error={activePopulationSelectionError}
+                            project={projectId}
+                            explorerId={state.explorerId}
+                            authResourcePath={authResourcePath}
+                            snapshotToken={state.catalog.snapshotToken}
+                            draftVersion={state.draftVersion}
+                            draftDigest={state.draftDigest}
+                            receiptId={state.receipt?.receiptId}
+                            disabled={activePopulationSelectionLoading || populationVariantPending || pendingCommands > 0 || state.reconciliation === 'pending'}
+                            onAttach={(routeChoiceId) => void applyCommands([{
+                              type: 'SET_TABLE_POPULATION',
                               outputId: table.outputId,
-                            }]);
-                          }}
-                          onExclude={(ref, route) => void excludePopulationMember(ref, route)}
-                          onApplyMemberRemoval={(proposalId) => applyCommands([{
-                            type: 'APPLY_POPULATION_MEMBER_PROPOSAL',
-                            outputId: table.outputId,
-                            proposalId,
-                          }])}
-                        />
-                      ) : null}
-                      rowOperationEditor={undefined}
-                    />
-                  </RowDefinitionEditorSessionProvider>
-                )}
-                history={{
-                  resourceType: table.document.rootResourceType,
-                  steps: persistedConstructionHistory,
-                  selected: constructionHistorySelection,
-                  disabled: pendingCommands > 0 || publishing || recipeOwner.state.status !== 'saved',
-                  onSelect: selectConstructionHistory,
-                  onEditStep: editConstructionStep,
-                  onRemoveStep: removeConstructionStep,
-                  ...(table.document.importedRecipe ? {
-                    sourceSteps: (
-                      <ImportedSourceSteps
-                        key={JSON.stringify([
-                          builderDataKey,
-                          state.explorerId,
-                          table.outputId,
-                          state.draftVersion,
-                          state.draftDigest,
-                        ])}
-                        outputId={table.outputId}
-                        importedSource={table.document.importedSource}
-                        editorHost={sourceStepInspectorHost}
-                        reviewHost={sourceChangeReviewHost}
-                        reviewInEditor={advancedRuleEditorReturn.current !== undefined}
-                        editActionRef={sourceStepEditAction}
-                        fieldEditActionRef={sourceFieldEditAction} navigatorOnly reviewOwnsCancel
-                        outputEditActionRef={sourceOutputEditAction}
-                        cancelEditActionRef={sourceStepEditCancelAction}
-                        switchOccurrenceActionRef={sourceStepSwitchOccurrenceAction}
-                        occurrenceForStep={occurrenceForStep}
-                        projectedFieldsForStep={projectedFieldsForStep}
-                        onRemoveProjectedField={removeProjectedField}
-                        canRemoveProjectedField={canRemoveProjectedField}
-                        onEditProjectedField={editProjectedField}
-                        onRenameProjectedField={renameProjectedField}
-                        editableProjectedFieldIds={editableProjectedFieldIds}
-                        projectedFieldRemovalDisabledReason={projectedFieldRemovalDisabledReason}
-                        resourceTypeChoices={resourceTypeChoices}
-                        sourcePathChoices={sourcePathChoices}
-                        fieldPathChoices={fieldPathChoices}
-                        fieldKindChoices={fieldKindChoices}
-                        catalogOutputsForStep={catalogOutputsForStep}
-                        pivotOutputsForStep={pivotOutputsForStep}
-                        outputRevision={generatedOutputRevision}
-                        onActiveOperationChange={setActiveSourceStepId}
-                        onSuspendEdit={() => {
-                          if (!cancelRecipeRelationship(false)) return false;
-                          advancedRuleEditorReturn.current = undefined;
-                          sourceStepEditDirty.current = false;
-                          setActiveSourceStepId(undefined);
-                          return true;
-                        }}
-                        onBeginEdit={(stepId) => {
-                          if (!recipeMutationAllowed()) return false;
-                          if (advancedRuleEditorReturn.current !== stepId) advancedRuleEditorReturn.current = undefined;
-                          constructionLifecycle.cancel();
-                          setActiveConstructionFamily(undefined);
-                          setEditingConstructionStepId(undefined);
-                          setRowIntentSession(false);
-                          rememberRecipeFocus();
-                          const token = recipeOwner.begin({ kind: 'sourceStep', sourceStepId: stepId });
-                          sourceStepEditDirty.current = false;
-                          recipeEditToken.current = token;
-                          if (!token) return false;
-                          setActiveSourceStepId(stepId);
-                          return true;
-                        }}
-                        onCancelEdit={() => {
-                          sourceStepEditDirty.current = false;
-                          setActiveSourceStepId(undefined);
-                          if (recipeEditToken.current) recipeOwner.cancel(recipeEditToken.current);
-                          recipeEditToken.current = undefined;
-                          const returnToAdvanced = advancedRuleEditorReturn.current !== undefined;
-                          advancedRuleEditorReturn.current = undefined;
-                          cancelRecipeRelationship();
-                          if (returnToAdvanced) {
-                            setActiveConstructionFamily('ADD_COLUMNS');
-                            selectAddColumnsView('advanced');
-                          }
-                        }}
-                        onDraftChange={() => {
-                          sourceStepEditDirty.current = true;
-                          if (recipeEditToken.current) recipeEditToken.current = recipeOwner.changed(recipeEditToken.current);
-                          setSourceProposal(undefined);
+                              selectionRevisionId: activePopulationSelection?.id,
+                              routeChoiceId,
+                            }])}
+                            onClear={() => {
+                              if (activePopulationSelection) setClearedPopulationSelection({
+                                contextKey: populationSelectionContextKey,
+                                client: loomClient,
+                                selectionID: activePopulationSelection.id,
+                              });
+                              void applyCommands([{
+                                type: 'CLEAR_TABLE_POPULATION',
+                                outputId: table.outputId,
+                              }]);
+                            }}
+                            onExclude={(ref, route) => void excludePopulationMember(ref, route)}
+                            onApplyMemberRemoval={(proposalId) => applyCommands([{
+                              type: 'APPLY_POPULATION_MEMBER_PROPOSAL',
+                              outputId: table.outputId,
+                              proposalId,
+                            }])}
+                          />
+                        ) : null}
+                        rowOperationEditor={undefined}
+                      />
+                    </RowDefinitionEditorSessionProvider>
+                  )}
+                  history={{
+                    resourceType: table.document.rootResourceType,
+                    steps: persistedConstructionHistory,
+                    selected: constructionHistorySelection,
+                    disabled: pendingCommands > 0 || publishing || recipeOwner.state.status !== 'saved',
+                    onSelect: selectConstructionHistory,
+                    onEditStep: editConstructionStep,
+                    onRemoveStep: removeConstructionStep,
+                    ...(table.document.importedRecipe ? {
+                      sourceSteps: (
+                        <ImportedSourceStepsSessionProvider key={JSON.stringify([
+                            builderDataKey,
+                            state.explorerId,
+                            table.outputId,
+                            state.draftVersion,
+                            state.draftDigest,
+                          ])} value={importedSourceStepsSession!}>
+                          <ImportedSourceSteps
+                            editorHost={sourceStepInspectorHost}
+                            reviewHost={sourceChangeReviewHost}
+                            reviewInEditor={advancedRuleEditorReturn.current !== undefined}
+                            editActionRef={sourceStepEditAction}
+                            fieldEditActionRef={sourceFieldEditAction} navigatorOnly reviewOwnsCancel
+                            outputEditActionRef={sourceOutputEditAction}
+                            cancelEditActionRef={sourceStepEditCancelAction}
+                            switchOccurrenceActionRef={sourceStepSwitchOccurrenceAction}
+                            renderReview={(sourceStep, onCancel, sourceSteps) => <SourceRelationshipReview
+                              columnLabels={sourceReviewColumnLabels}
+                              ruleEdit={advancedRuleEditorReturn.current !== undefined}
+                              key={`${relationshipOwner}:source:${JSON.stringify(sourceSteps ?? sourceStep)}`}
+                              client={loomClient} project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
+                              snapshotToken={state.catalog.snapshotToken} draftVersion={state.draftVersion} draftDigest={state.draftDigest}
+                              outputId={table.outputId} disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+                              {...(sourceSteps ? { sourceSteps } : { sourceStep })} sharedPreview onStatusChange={sourceReviewStatus} onPreviewStart={beginSourceReview}
+                              onApply={applySourceRecipe} onCancel={onCancel} />}
+                          />
+                        </ImportedSourceStepsSessionProvider>
+                      ),
+                    } : {}),
+                  }}
+                  preview={
+                    workspaceCandidatePreview ? (
+                      candidatePreviewElement
+                    ) : (
+                      <PreviewTable
+                        preview={tablePreview}
+                        previewErrorMessage={automaticPreviewFailureMessage}
+                        table={table}
+                        limit={previewLimit}
+                        onLimitChange={(limit) => {
+                          setPreviewLimit(limit);
                         }}
                         disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-                        renderReview={(sourceStep, onCancel, sourceSteps) => <SourceRelationshipReview
-                          columnLabels={sourceReviewColumnLabels}
-                          ruleEdit={advancedRuleEditorReturn.current !== undefined}
-                          key={`${relationshipOwner}:source:${JSON.stringify(sourceSteps ?? sourceStep)}`}
-                          client={loomClient} project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
-                          snapshotToken={state.catalog.snapshotToken} draftVersion={state.draftVersion} draftDigest={state.draftDigest}
-                          outputId={table.outputId} disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-                          {...(sourceSteps ? { sourceSteps } : { sourceStep })} sharedPreview onStatusChange={sourceReviewStatus} onPreviewStart={beginSourceReview}
-                          onApply={applySourceRecipe} onCancel={onCancel} />}
-                        onRefresh={() => recipeMutationAllowed() ? applyCommands([{
-                          type: 'REFRESH_IMPORTED_SOURCE',
-                          outputId: table.outputId,
-                        }]) : Promise.resolve(false)}
-                        onApply={(command) => applyCommands([command])}
+                        onRowLineage={tablePreview ? (rowId, offset, signal) => loomClient.rowLineage({
+                          project: projectId,
+                          explorerId: state.explorerId,
+                          authResourcePath,
+                          receiptId: tablePreview.receiptId,
+                          outputId: tablePreview.outputId,
+                          rowId,
+                          offset,
+                          limit: 25,
+                        }, signal) : undefined}
                       />
-                    ),
-                  } : {}),
-                }}
-                actionsDisabled={
-                  !table.document.rootResourceType ||
-                  pendingCommands > 0 ||
-                  state.reconciliation === 'pending' ||
-                  rootChangeState.kind !== 'idle' ||
-                  Boolean(pendingRowChangePreview) ||
-                  constructionLifecycle.proposal.status === 'applying'
-                }
-                addColumnsDisabled={Boolean(addColumnsReason)}
-                addColumnsReason={addColumnsReason}
-                combineDisabled={!canStartCombine}
-                calculateAvailable={Boolean(
-                  capabilityIsForAppendStage &&
-                  capabilityStage?.capabilities.some(
-                    (candidate) => candidate.kind === 'DERIVE' && candidate.supported,
-                  ),
-                )}
-                calculateUnavailableReason={calculateUnavailableReason}
-                activeFamily={activeConstructionFamily}
-                onSelectFamily={selectConstructionFamily}
-                preview={
-                  workspaceCandidatePreview ? (
-                    candidatePreviewElement
-                  ) : (
-                    <PreviewTable
-                      preview={tablePreview}
-                      previewErrorMessage={automaticPreviewFailureMessage}
-                      table={table}
-                      limit={previewLimit}
-                      onLimitChange={(limit) => {
-                        setPreviewLimit(limit);
-                      }}
-                      disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
-                      onRowLineage={tablePreview ? (rowId, offset, signal) => loomClient.rowLineage({
-                        project: projectId,
-                        explorerId: state.explorerId,
-                        authResourcePath,
-                        receiptId: tablePreview.receiptId,
-                        outputId: tablePreview.outputId,
-                        rowId,
-                        offset,
-                        limit: 25,
-                      }, signal) : undefined}
-                    />
-                  )
-                }
-                editor={externalWorkspaceEditor}
-                inspection={occurrenceInspection}
-                changeReview={pendingChangeReview}
-                onChangeReviewHostChange={setSourceChangeReviewHost}
-                previewStatus={workspacePreviewStatus}
-                previewReceiptId={workspacePreview?.receiptId}
-                previewOutputId={workspacePreview?.outputId ?? table?.outputId}
-                proposalId={workspacePreviewProposalId}
-                draftVersion={state.draftVersion}
-                draftDigest={state.draftDigest}
-              />
+                    )
+                  }
+                  editor={externalWorkspaceEditor}
+                  inspection={occurrenceInspection}
+                  changeReview={pendingChangeReview}
+                  onChangeReviewHostChange={setSourceChangeReviewHost}
+                />
+              </ConstructionWorkspaceSessionProvider>
             ) : null}
           </>
         )}

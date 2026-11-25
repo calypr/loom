@@ -1,6 +1,7 @@
+import { useConstructionWorkspaceSession } from '../session/ConstructionWorkspaceSession';
 import type { ConstructionHistorySelection } from '../model/constructionHistory';
 import { ConstructionHistory, type ConstructionHistoryProps } from './ConstructionHistory';
-import { ConstructionTableNavigation, type ConstructionWorkspaceTable } from './ConstructionTableNavigation';
+import { ConstructionTableNavigation } from './ConstructionTableNavigation';
 export type { ConstructionHistorySelection } from '../model/constructionHistory';
 import React, { useCallback, useRef, useState } from 'react';
 import { useDismissibleLayer } from '../hooks/useDismissibleLayer';
@@ -117,23 +118,23 @@ export const ConstructionActionBar = ({
   );
 };
 
+interface ConstructionWorkspacePresentation {
+  readonly history?: ConstructionHistoryProps;
+  readonly rowSetup?: React.ReactNode;
+  readonly navigation?: React.ReactNode;
+  readonly controllers?: React.ReactNode;
+  readonly composition?: 'inspector-right' | 'inspector-below';
+  readonly network?: React.ReactNode;
+  readonly rowExpression?: React.ReactNode;
+  readonly presentationActionRef?: { current: ((view: 'both' | 'network' | 'row') => void) | undefined };
+  readonly preview: React.ReactNode;
+  readonly editor?: React.ReactNode;
+  readonly inspection?: React.ReactNode;
+  readonly changeReview?: React.ReactNode;
+  readonly onChangeReviewHostChange?: (node: HTMLDivElement | null) => void;
+}
+
 export const ConstructionWorkspace = ({
-  tables,
-  selectedOutputId,
-  tableActionsDisabled,
-  onSelectTable,
-  onNewTable,
-  onDuplicateTable,
-  onDeleteTable,
-  onRenameTable,
-  actionsDisabled,
-  activeFamily,
-  addColumnsDisabled = false,
-  addColumnsReason,
-  combineDisabled = false,
-  calculateAvailable = false,
-  calculateUnavailableReason,
-  onSelectFamily,
   history,
   rowSetup,
   navigation,
@@ -146,51 +147,31 @@ export const ConstructionWorkspace = ({
   inspection,
   changeReview,
   onChangeReviewHostChange,
-  previewStatus,
-  previewReceiptId,
-  previewOutputId,
-  proposalId,
-  draftVersion,
-  draftDigest,
-}: {
-  readonly tables: ReadonlyArray<ConstructionWorkspaceTable>;
-  readonly selectedOutputId?: string;
-  readonly tableActionsDisabled?: boolean;
-  readonly onSelectTable: (outputId: string) => void;
-  readonly onNewTable: () => void;
-  readonly onDuplicateTable: () => void;
-  readonly onDeleteTable: () => void;
-  readonly onRenameTable: (outputId: string) => void;
-  readonly actionsDisabled?: boolean;
-  readonly activeFamily?: ConstructionOperationFamily;
-  readonly addColumnsDisabled?: boolean;
-  readonly addColumnsReason?: string;
-  readonly combineDisabled?: boolean;
-  readonly calculateAvailable?: boolean;
-  readonly calculateUnavailableReason?: string;
-  readonly onSelectFamily: (family: ConstructionOperationFamily) => void;
-  readonly history?: ConstructionHistoryProps;
-  readonly rowSetup?: React.ReactNode;
-  readonly navigation?: React.ReactNode;
-
-  readonly controllers?: React.ReactNode;
-
-  readonly composition?: 'inspector-right' | 'inspector-below';
-  readonly network?: React.ReactNode;
-  readonly rowExpression?: React.ReactNode;
-  readonly presentationActionRef?: { current: ((view: 'both' | 'network' | 'row') => void) | undefined };
-  readonly preview: React.ReactNode;
-  readonly editor?: React.ReactNode;
-  readonly inspection?: React.ReactNode;
-  readonly changeReview?: React.ReactNode;
-  readonly onChangeReviewHostChange?: (node: HTMLDivElement | null) => void;
-  readonly previewStatus: 'empty' | 'stale' | 'previewing' | 'needs-repair' | 'error' | 'ready';
-  readonly previewReceiptId?: string;
-  readonly previewOutputId?: string;
-  readonly proposalId?: string;
-  readonly draftVersion: number;
-  readonly draftDigest: string;
-}) => {
+}: ConstructionWorkspacePresentation) => {
+  const {
+    tables,
+    selectedOutputId,
+    tableActionsDisabled,
+    onSelectTable,
+    onNewTable,
+    onDuplicateTable,
+    onDeleteTable,
+    onRenameTable,
+    actionsDisabled,
+    activeFamily,
+    addColumnsDisabled = false,
+    addColumnsReason,
+    combineDisabled = false,
+    calculateAvailable = false,
+    calculateUnavailableReason,
+    onSelectFamily,
+    previewStatus,
+    previewReceiptId,
+    previewOutputId,
+    proposalId,
+    draftVersion,
+    draftDigest,
+  } = useConstructionWorkspaceSession(session => session);
   type WorkspacePanel = 'graph' | 'preview' | 'editor';
   const [expandedPanel, setExpandedPanel] = useState<WorkspacePanel>();
   const workspaceRootRef = useRef<HTMLDivElement>(null);

@@ -3,7 +3,14 @@ import React from 'react';
 import { vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { DraftTable } from '../model/authoring';
-import { BuilderToolbar } from './BuilderToolbar';
+import { BuilderToolbar as ConnectedBuilderToolbar } from './BuilderToolbar';
+import { BuilderToolbarSessionProvider, type BuilderToolbarSession } from '../session/BuilderToolbarSession';
+
+const BuilderToolbar = (props: React.ComponentProps<typeof ConnectedBuilderToolbar> & BuilderToolbarSession) => (
+  <BuilderToolbarSessionProvider value={props}>
+    <ConnectedBuilderToolbar {...props}/>
+  </BuilderToolbarSessionProvider>
+);
 
 const draftTable = (outputId: string, title: string): DraftTable => ({
   outputId,

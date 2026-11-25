@@ -1,27 +1,18 @@
+import { useAuthoredTraversalSession } from '../session/AuthoredTraversalSession';
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { GuidedGraphWorkspace } from './GuidedGraphWorkspace';
+import { GuidedGraphWorkspace, type GuidedGraphPresentation } from './GuidedGraphWorkspace';
 import { replaceableIncomingEdges } from '../model/routeActions';
 import { authoredTraversal } from '../model/authoredTraversal';
 
-type GraphProps = React.ComponentProps<typeof GuidedGraphWorkspace>;
-type AuthoredTraversalEditorProps = GraphProps & {
-  readonly projectionKind: 'saved' | 'proposed';
-  readonly network?: import('../../../contracts/types').AuthoringNetworkResponse['network'];
-  readonly rowIdentity?: import('../../../contracts/types').AuthoringNetworkResponse['rowIdentity'];
-  readonly onEditSourceStep?: (sourceStepId: string) => void;
-  readonly onInspectValues?: (occurrenceId: string) => void;
-  readonly onInspectRelatedRows?: (occurrenceId: string) => void;
-  readonly onInspectOperation?: (operationId: string) => void;
-  readonly onDefineRow?: () => void;
-  readonly onEditStartingRecords?: () => void;
+interface AuthoredTraversalPresentation extends Omit<GuidedGraphPresentation, 'disabledOverride'> {
   readonly showOccurrenceNavigation?: boolean;
-  readonly mutationBlockedReason?: string;
   readonly showInspector?: boolean;
   readonly inspectorHost?: HTMLElement | null;
-};
+}
 
-export function AuthoredTraversalEditor(props: AuthoredTraversalEditorProps) {
+export function AuthoredTraversalEditor(presentation: AuthoredTraversalPresentation) {
+  const props = { ...presentation, ...useAuthoredTraversalSession(session => session) };
   const { table, catalog, projectionKind, selectedOccurrenceId } = props;
   const occurrences = table ? authoredTraversal(table, catalog) : [];
   const selected = occurrences.find((item) => item.id === selectedOccurrenceId);
@@ -66,10 +57,10 @@ export function AuthoredTraversalEditor(props: AuthoredTraversalEditorProps) {
     ? props.inspectorHost === undefined ? selectedInspector : props.inspectorHost ? createPortal(selectedInspector, props.inspectorHost) : null
     : null;
   return <div data-testid="authored-traversal-editor" data-projection-kind={projectionKind} className="flex h-full min-h-0 min-w-0 flex-col gap-3">
-    <GuidedGraphWorkspace {...props} presentation="traversal" showSelectionDetails={false}
+    <GuidedGraphWorkspace {...presentation} presentation="traversal" showSelectionDetails={false}
       headerStatus={projectionKind === 'proposed' ? 'Proposed' : 'Saved'}
       headerPath={selected?.path}
-      disabled={blocked} />
+      disabledOverride={blocked} />
     {inspector}
   </div>;
 }

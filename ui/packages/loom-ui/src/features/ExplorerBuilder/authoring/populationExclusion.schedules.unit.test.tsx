@@ -1,3 +1,5 @@
+import { useAuthoredTraversalSession } from '../session/AuthoredTraversalSession';
+import { useBuilderToolbarSession } from '../session/BuilderToolbarSession';
 // @vitest-environment jsdom
 import React from 'react';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
@@ -143,7 +145,9 @@ const render = (
 });
 
 vi.mock('../components/BuilderToolbar', () => ({
-  BuilderToolbar: ({
+  BuilderToolbar: () => {
+    const props = useBuilderToolbarSession(session => session);
+    const renderMockToolbar = ({
     onReview,
     onPublish,
     onSelectTable,
@@ -192,11 +196,13 @@ vi.mock('../components/BuilderToolbar', () => ({
         </>
       ) : null}
     </div>
-  ),
+  );
+    return renderMockToolbar(props as unknown as Parameters<typeof renderMockToolbar>[0]);
+  },
 }));
 
-vi.mock('../components/GuidedGraphWorkspace', () => ({
-  GuidedGraphWorkspace: ({
+vi.mock('../components/GuidedGraphWorkspace', () => {
+  const renderGraph = ({
     onChangeEdge,
     onChangeBase,
   }: {
@@ -216,8 +222,12 @@ vi.mock('../components/GuidedGraphWorkspace', () => ({
         Change rows
       </button>
     </>
-  ),
-}));
+  );
+  return { GuidedGraphWorkspace: function MockGuidedGraphWorkspace() {
+    const props = useAuthoredTraversalSession(session => session);
+    return renderGraph(props);
+  } };
+});
 
 vi.mock('../components/ConceptCatalog', () => ({
   ConceptCatalog: ({

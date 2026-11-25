@@ -1,32 +1,12 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import type { ExplorerSummary } from '../../../client/api';
+import { useBuilderToolbarSession } from '../session/BuilderToolbarSession';
 import type { DraftTable } from '../model/authoring';
 import { IconCopy, IconTrash } from './icons';
 import { useDismissibleLayer } from '../hooks/useDismissibleLayer';
 
-interface BuilderToolbarProps {
-  explorers: ReadonlyArray<ExplorerSummary>;
-  selectedExplorerId: string;
-  onExplorerChange: (explorerId: string) => void;
-  onCreateExplorer: (name: string, fromDefault: boolean) => void;
-  deleteSupported: boolean;
-  deleteDisabled?: boolean;
-  onDeleteExplorer: () => void;
-  tables: ReadonlyArray<DraftTable>;
-  selectedOutputId?: string;
-  onSelectTable: (outputId: string) => void;
-  onRenameTable: (outputId: string, title: string) => void;
-  onNewTable: () => void;
-  onDuplicateTable: () => void;
-  onDeleteTable: () => void;
-  onReview: () => void;
-  reviewExpanded: boolean;
-  onPublish: () => void;
-  publishDisabled: boolean;
-  publishing: boolean;
-  busy?: boolean;
+interface BuilderToolbarPresentation {
   columnCreationSupported?: boolean;
   tableToolbarHost?: HTMLElement | null;
 }
@@ -132,28 +112,11 @@ export function NewExplorerControl({
   );
 }
 
-const TableToolbar = ({
-  tables,
-  selectedOutputId,
-  onSelectTable,
-  onRenameTable,
-  onNewTable,
-  onDuplicateTable,
-  onDeleteTable,
-  busy,
-  columnCreationSupported,
-}: Pick<
-  BuilderToolbarProps,
-  | 'tables'
-  | 'selectedOutputId'
-  | 'onSelectTable'
-  | 'onRenameTable'
-  | 'onNewTable'
-  | 'onDuplicateTable'
-  | 'onDeleteTable'
-  | 'busy'
-  | 'columnCreationSupported'
->) => {
+const TableToolbar = ({ columnCreationSupported }: { readonly columnCreationSupported: boolean }) => {
+  const {
+    tables, selectedOutputId, onSelectTable, onRenameTable, onNewTable,
+    onDuplicateTable, onDeleteTable, busy = false,
+  } = useBuilderToolbarSession(session => session);
   const [tableMenuOpen, setTableMenuOpen] = useState(false);
   const tableMenuRef = useDismissibleLayer<HTMLDetailsElement>(
     tableMenuOpen,
@@ -247,42 +210,34 @@ const TableToolbar = ({
 };
 
 export function BuilderToolbar({
-  explorers,
-  selectedExplorerId,
-  onExplorerChange,
-  onCreateExplorer,
-  deleteSupported,
-  deleteDisabled = false,
-  onDeleteExplorer,
-  tables,
-  selectedOutputId,
-  onSelectTable,
-  onRenameTable,
-  onNewTable,
-  onDuplicateTable,
-  onDeleteTable,
-  onPublish,
-  publishDisabled,
-  publishing,
-  busy = false,
   columnCreationSupported = true,
   tableToolbarHost,
-}: BuilderToolbarProps) {
+}: BuilderToolbarPresentation) {
+  const {
+    explorers,
+    selectedExplorerId,
+    onExplorerChange,
+    onCreateExplorer,
+    deleteSupported,
+    deleteDisabled = false,
+    onDeleteExplorer,
+    tables,
+    selectedOutputId,
+    onSelectTable,
+    onRenameTable,
+    onNewTable,
+    onDuplicateTable,
+    onDeleteTable,
+    onPublish,
+    publishDisabled,
+    publishing,
+    busy = false,
+  } = useBuilderToolbarSession(session => session);
   const selectedTable = tables.find(
     (table) => table.outputId === selectedOutputId,
   );
   const tableToolbar = (
-    <TableToolbar
-      tables={tables}
-      selectedOutputId={selectedOutputId}
-      onSelectTable={onSelectTable}
-      onRenameTable={onRenameTable}
-      onNewTable={onNewTable}
-      onDuplicateTable={onDuplicateTable}
-      onDeleteTable={onDeleteTable}
-      busy={busy}
-      columnCreationSupported={columnCreationSupported}
-    />
+    <TableToolbar columnCreationSupported={columnCreationSupported} />
   );
 
   return (

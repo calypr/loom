@@ -2,10 +2,8 @@ import React, { useCallback, useRef, useState } from 'react';
 import { useDismissibleLayer } from '../hooks/useDismissibleLayer';
 import { useBrowserSubscription } from '../hooks/useBrowserSubscription';
 
-export interface ConstructionWorkspaceTable {
-  readonly outputId: string;
-  readonly title: string;
-}
+import type { ConstructionWorkspaceTable } from '../model/constructionWorkspaceTable';
+
 
 export const ConstructionTableNavigation = ({
   tables,

@@ -4,14 +4,23 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ConstructionHistory } from './ConstructionHistory';
 import { ConstructionTableNavigation } from './ConstructionTableNavigation';
+import { ConstructionWorkspaceSessionProvider } from '../session/ConstructionWorkspaceSession';
 import { ConstructionActionBar,
-  ConstructionWorkspace,
+  ConstructionWorkspace as ConnectedConstructionWorkspace,
   type ConstructionOperationFamily } from './ConstructionWorkspace';
 import { constructionHistorySteps, constructionRowMeaning } from '../model/constructionHistory';
 import { ConstructionColumnSelection } from './ConstructionColumnSelection';
 import { constructionProposalIsApplicable } from '../model/constructionProposal';
 import { sourceProjectionAvailability } from '../model/sourceProjectionAvailability';
 import type { Construction, ConstructionProposalResponse, ExplorerBuilderPreviewResult } from '../../../contracts/types';
+
+const ConstructionWorkspace = (props: import('react').ComponentProps<typeof ConnectedConstructionWorkspace> &
+  import('react').ComponentProps<typeof ConstructionWorkspaceSessionProvider>['value']) => (
+  <ConstructionWorkspaceSessionProvider value={props}>
+    <ConnectedConstructionWorkspace {...props} />
+  </ConstructionWorkspaceSessionProvider>
+);
+
 
 describe('ConstructionWorkspace', () => {
   it('collapses a 100-operation run without crossing source scopes or semantic boundaries', () => {

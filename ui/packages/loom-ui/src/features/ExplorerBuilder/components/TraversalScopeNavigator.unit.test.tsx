@@ -3,8 +3,17 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { DraftTable } from '../model/authoring';
-import { TraversalScopeNavigator } from './TraversalScopeNavigator';
-type TraversalScopeNavigatorFixtureProps = import('react').ComponentProps<typeof import('./TraversalScopeNavigator').TraversalScopeNavigator>;
+import { TraversalScopeNavigatorSessionProvider } from '../session/TraversalScopeNavigatorSession';
+import { TraversalScopeNavigator as ConnectedTraversalScopeNavigator } from './TraversalScopeNavigator';
+
+const TraversalScopeNavigator = (props: import('react').ComponentProps<typeof ConnectedTraversalScopeNavigator> &
+  import('react').ComponentProps<typeof TraversalScopeNavigatorSessionProvider>['value']) => (
+  <TraversalScopeNavigatorSessionProvider value={props}>
+    <ConnectedTraversalScopeNavigator {...props} />
+  </TraversalScopeNavigatorSessionProvider>
+);
+
+type TraversalScopeNavigatorFixtureProps = import('react').ComponentProps<typeof TraversalScopeNavigator>;
 type TraversalScopeNavigatorProps = TraversalScopeNavigatorFixtureProps;
 afterEach(cleanup);
 const table: DraftTable = { outputId: 'subjects', tabId: 'subjects', title: 'Subjects', document: {

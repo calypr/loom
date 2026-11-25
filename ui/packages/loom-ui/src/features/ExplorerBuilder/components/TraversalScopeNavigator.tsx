@@ -1,42 +1,22 @@
+import { useTraversalScopeNavigatorSession } from '../session/TraversalScopeNavigatorSession';
 import type { ReactNode } from 'react';
 import type { AuthoringNetworkResponse, ConstructionStageDescriptor } from '../../../contracts/types';
 import type { DraftTable } from '../model/authoring';
 import { rowValuePolicyLabel } from '../model/rowRecipeProjection';
 import { traversalScopeModel, type ScopedOperation } from '../model/traversalScopeModel';
 
-interface TraversalScopeNavigatorProps {
-  readonly table: DraftTable;
-  readonly network?: AuthoringNetworkResponse['network'];
-  readonly rowIdentity?: AuthoringNetworkResponse['rowIdentity'];
-  readonly constructionStages?: ReadonlyArray<ConstructionStageDescriptor>;
-  readonly sourceOperationLabels?: ReadonlyMap<string, string>;
-  readonly selectedOccurrenceId?: string;
+interface TraversalScopeNavigatorPresentation {
   readonly showScopeNavigation?: boolean;
-  readonly selectedOperation?: { readonly kind: 'source' | 'construction'; readonly stepId: string };
-  readonly projectionKind: 'saved' | 'proposed';
-  readonly disabled?: boolean;
-  readonly disabledReason?: string;
-  readonly sourceStepEditOnly?: boolean;
-  readonly sourceOperationNavigationDisabled?: boolean;
   readonly resultActions?: ReactNode;
   readonly combineActions?: ReactNode;
   readonly showActions?: boolean;
-  readonly onSelectScope: (occurrenceId: string) => void;
-  readonly onEditSourceStep: (stepId: string) => void;
-  readonly onEditSourceField?: (stepId: string, fieldId: string) => void;
-  readonly onEditConstructionStep: (stepId: string) => void;
-  readonly onRemoveSourceStep?: (stepId: string) => void;
-  readonly onRemoveConstructionStep?: (stepId: string) => void;
-  readonly onEditColumn: (columnId: string) => void;
-  readonly onEditSourceRows: () => void;
-  readonly onExpandRelatedRows: (occurrenceId: string) => void;
-  readonly onGroupRows: (occurrenceId: string) => void;
 }
 const rowButtonClass = 'flex w-full min-w-0 items-start gap-1.5 rounded-md px-1 py-0.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50';
 const scopeButtonClass = 'flex w-full min-w-0 items-center rounded-md px-2 py-1 text-left text-xs transition-colors disabled:opacity-50';
 const secondaryActionClass = 'inline-flex items-center rounded-md bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-200 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50';
 const summaryClass = 'flex cursor-pointer items-center gap-1 text-xs font-medium text-slate-500 transition-colors hover:text-slate-900';
-export function TraversalScopeNavigator(props: TraversalScopeNavigatorProps) {
+export function TraversalScopeNavigator(presentation: TraversalScopeNavigatorPresentation) {
+  const props = { ...presentation, ...useTraversalScopeNavigatorSession(session => session) };
   const { table, selectedOccurrenceId, selectedOperation, projectionKind } = props;
   const model = traversalScopeModel(table.document, props.network, props.rowIdentity, props.constructionStages);
   const selectedScopes = model.scopes.filter(scope => scope.id === selectedOccurrenceId);

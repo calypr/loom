@@ -4,10 +4,27 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { vi } from 'vitest';
 import type { ExplorerBuilderCatalog } from '../../../contracts/types';
 import type { DraftTable } from '../model/authoring';
-import { AuthoredTraversalEditor } from './AuthoredTraversalEditor';
+import { AuthoredTraversalEditor as ConnectedAuthoredTraversalEditor } from './AuthoredTraversalEditor';
+import { AuthoredTraversalSessionProvider, useAuthoredTraversalSession } from '../session/AuthoredTraversalSession';
 import { authoredStages, authoredTraversal } from '../model/authoredTraversal';
 import { traversalScopeModel } from '../model/traversalScopeModel';
-import { TraversalScopeNavigator } from './TraversalScopeNavigator';
+import { TraversalScopeNavigatorSessionProvider } from '../session/TraversalScopeNavigatorSession';
+import { TraversalScopeNavigator as ConnectedTraversalScopeNavigator } from './TraversalScopeNavigator';
+
+const AuthoredTraversalEditor = (props: import('react').ComponentProps<typeof ConnectedAuthoredTraversalEditor> & import('react').ComponentProps<typeof AuthoredTraversalSessionProvider>['value']) => (
+  <AuthoredTraversalSessionProvider value={props}>
+    <ConnectedAuthoredTraversalEditor {...props} />
+  </AuthoredTraversalSessionProvider>
+);
+
+
+const TraversalScopeNavigator = (props: import('react').ComponentProps<typeof ConnectedTraversalScopeNavigator> &
+  import('react').ComponentProps<typeof TraversalScopeNavigatorSessionProvider>['value']) => (
+  <TraversalScopeNavigatorSessionProvider value={props}>
+    <ConnectedTraversalScopeNavigator {...props} />
+  </TraversalScopeNavigatorSessionProvider>
+);
+
 
 vi.mock('@xyflow/react', () => ({
   MarkerType: { ArrowClosed: 'arrowclosed' }, Background: () => null, Controls: () => null,
@@ -22,7 +39,8 @@ vi.mock('@xyflow/react', () => ({
     {edges.map((edge) => <span className="react-flow__edge" data-id={edge.id} tabIndex={0} key={edge.id} data-testid={edge.id} data-source={edge.source} data-target={edge.target} onClick={event=>onEdgeClick(event,edge)} />)}
   </div>,
 }));
-vi.mock('./GuidedGraphWorkspace', () => ({ GuidedGraphWorkspace: (props: Record<string, unknown>) => {
+vi.mock('./GuidedGraphWorkspace', () => ({ GuidedGraphWorkspace: function MockGuidedGraphWorkspace({ headerPath }: { readonly headerPath?: string }) {
+  const props = { ...useAuthoredTraversalSession(session => session), headerPath };
   const currentTable = props.table as DraftTable | undefined;
   const currentCatalog = props.catalog as ExplorerBuilderCatalog;
   const occurrences = currentTable ? authoredTraversal(currentTable, currentCatalog) : [];

@@ -1,3 +1,5 @@
+import type { ExplorerSummary } from '../contracts/explorerSummary';
+export type { ExplorerSummary } from '../contracts/explorerSummary';
 import type { ExplorerAuthoringApiError } from '../contracts/errors';
 import { sameConstructionRoute, sameSemanticItemIdentity, semanticIdentityForItem, semanticItemMatchesIdentity, sameCatalogSnapshot, sameDraftVersion, sameDraftDigest } from '../contracts/identity';
 import { isRecord } from '../contracts/guards';
@@ -127,14 +129,7 @@ import {
   type SelectionSourceIntent,
 } from '../contracts/selection';
 
-export interface ExplorerSummary {
-  readonly project: string;
-  readonly explorerId: string;
-  readonly title: string;
-  readonly management: string;
-  readonly activeRevisionId?: string;
-  readonly updatedAt: string;
-}
+
 
 export type { ExplorerAuthoringApiError } from '../contracts/errors';
 

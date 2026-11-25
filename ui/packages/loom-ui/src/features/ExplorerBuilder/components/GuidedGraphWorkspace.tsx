@@ -1,3 +1,4 @@
+import { useAuthoredTraversalSession } from '../session/AuthoredTraversalSession';
 import { graphEdgeOverviewLabels, layoutDiscoveryRail, layoutTraversalTree, OCCURRENCE_NODE_WIDTH, type TraversalTreeLayoutItem } from '../model/traversalLayout';
 import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -44,19 +45,18 @@ const GraphViewportFitter = ({
   return null;
 };
 
+export interface GuidedGraphPresentation {
+  readonly presentation?: 'catalog' | 'compact' | 'traversal';
+  readonly headerStatus?: React.ReactNode;
+  readonly headerPath?: string;
+  readonly showSelectionDetails?: boolean;
+  readonly rowControl?: React.ReactNode;
+  readonly rowMeaning?: string;
+  readonly onTableToolbarHostChange?: (host: HTMLDivElement | null) => void;
+  readonly disabledOverride?: boolean;
+}
+
 export const GuidedGraphWorkspace = ({
-  catalog,
-  table,
-  selectedOccurrenceId,
-  currentRelatedRecord,
-  disabled,
-  onSelectOccurrence,
-  onSetBase,
-  onChangeBase,
-  onAppendEdge,
-  onChangeEdge,
-  onChangeMatchMode,
-  onTruncate,
   onTableToolbarHostChange,
   presentation = 'catalog',
   showSelectionDetails = true,
@@ -64,42 +64,24 @@ export const GuidedGraphWorkspace = ({
   headerPath,
   rowControl,
   rowMeaning,
-  importedRelationshipActions,
-}: {
-  readonly presentation?: 'catalog' | 'compact' | 'traversal';
-  readonly headerStatus?: React.ReactNode;
-  readonly headerPath?: string;
-
-  readonly showSelectionDetails?: boolean;
-  readonly rowControl?: React.ReactNode;
-  readonly rowMeaning?: string;
-
-  readonly importedRelationshipActions?: {
-    readonly onAdd: (parentOccurrenceId: string, edgeId: string, nodeId: string) => void;
-    readonly onChangeMatchMode: (occurrenceId: string, matchMode: 'OPTIONAL' | 'REQUIRED') => void;
-    readonly onRemove: (occurrenceId: string) => void;
-  };
-  readonly catalog: ExplorerBuilderCatalog;
-  readonly table?: DraftTable;
-  readonly selectedOccurrenceId: string;
-  readonly currentRelatedRecord?: { readonly id: string; readonly nodeId: string; readonly resourceType: string };
-  readonly disabled: boolean;
-  readonly onSelectOccurrence: (id: string) => void;
-  readonly onSetBase: (nodeId: string) => void;
-  readonly onChangeBase: (nodeId: string) => void;
-  readonly onAppendEdge: (
-    parentOccurrenceId: string,
-    edgeId: string,
-    nodeId: string,
-  ) => void;
-  readonly onChangeEdge: (occurrenceId: string, edgeId: string) => void;
-  readonly onChangeMatchMode: (
-    occurrenceId: string,
-    matchMode: 'OPTIONAL' | 'REQUIRED',
-  ) => void;
-  readonly onTruncate: (occurrenceId: string) => void;
-  readonly onTableToolbarHostChange?: (host: HTMLDivElement | null) => void;
-}) => {
+  disabledOverride,
+}: GuidedGraphPresentation) => {
+  const {
+    catalog,
+    table,
+    selectedOccurrenceId,
+    currentRelatedRecord,
+    onSelectOccurrence,
+    onSetBase,
+    onChangeBase,
+    onAppendEdge,
+    onChangeEdge,
+    onChangeMatchMode,
+    onTruncate,
+    importedRelationshipActions,
+    disabled: sessionDisabled,
+  } = useAuthoredTraversalSession(session => session);
+  const disabled = disabledOverride ?? sessionDisabled;
   const imported = Boolean(table?.document.importedRecipe);
   const canEditRelationships = !imported || Boolean(importedRelationshipActions);
   const compact = presentation === 'compact';

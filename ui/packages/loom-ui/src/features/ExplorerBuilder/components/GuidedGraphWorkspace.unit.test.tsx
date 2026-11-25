@@ -5,8 +5,16 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import type { ExplorerBuilderCatalog } from '../../../contracts/types';
 import type { DraftTable } from '../model/authoring';
 import { legalOutgoingEdges } from '../model/routeActions';
-import { GuidedGraphWorkspace } from './GuidedGraphWorkspace';
+import { GuidedGraphWorkspace as ConnectedGuidedGraphWorkspace } from './GuidedGraphWorkspace';
+import { AuthoredTraversalSessionProvider } from '../session/AuthoredTraversalSession';
 import { graphEdgeOverviewLabels, layoutDiscoveryRail, layoutTraversalTree } from '../model/traversalLayout';
+
+const GuidedGraphWorkspace = (props: import('react').ComponentProps<typeof ConnectedGuidedGraphWorkspace> & Omit<import('react').ComponentProps<typeof AuthoredTraversalSessionProvider>['value'], 'projectionKind'>) => (
+  <AuthoredTraversalSessionProvider value={{ ...props, projectionKind: 'saved' }}>
+    <ConnectedGuidedGraphWorkspace {...props} />
+  </AuthoredTraversalSessionProvider>
+);
+
 
 const mockFitView = vi.fn();
 const mockFitBounds = vi.fn();

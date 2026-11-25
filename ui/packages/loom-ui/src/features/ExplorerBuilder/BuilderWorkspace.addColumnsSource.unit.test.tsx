@@ -1,3 +1,5 @@
+import { useAuthoredTraversalSession } from './session/AuthoredTraversalSession';
+import { useBuilderToolbarSession } from './session/BuilderToolbarSession';
 // @vitest-environment jsdom
 import React from 'react';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
@@ -91,12 +93,16 @@ const mockLoomClient = Object.assign(createLoomClientMock(), {
 mockLoomClientReference.current = mockLoomClient;
 
 vi.mock('./components/BuilderToolbar', () => ({
-  BuilderToolbar: ({ onPreview }: { readonly onPreview: () => void }) => (
+  BuilderToolbar: () => {
+    const props = useBuilderToolbarSession(session => session);
+    const renderMockToolbar = ({ onPreview }: { readonly onPreview: () => void }) => (
     <button type="button" onClick={onPreview}>Preview</button>
-  ),
+  );
+    return renderMockToolbar(props as unknown as Parameters<typeof renderMockToolbar>[0]);
+  },
 }));
-vi.mock('./components/GuidedGraphWorkspace', () => ({
-  GuidedGraphWorkspace: ({
+vi.mock('./components/GuidedGraphWorkspace', () => {
+  const renderGraph = ({
     onSelectOccurrence,
     importedRelationshipActions,
     selectedOccurrenceId,
@@ -137,8 +143,12 @@ vi.mock('./components/GuidedGraphWorkspace', () => ({
         Connect to Observation
       </button> : null}
     </>
-  ),
-}));
+  );
+  return { GuidedGraphWorkspace: function MockGuidedGraphWorkspace() {
+    const props = useAuthoredTraversalSession(session => session);
+    return renderGraph(props);
+  } };
+});
 vi.mock('./components/DataframeContractPanel', () => builderWorkspaceNullMocks.DataframeContractPanel);
 vi.mock('./components/PopulationPanel', () => builderWorkspaceNullMocks.PopulationPanel);
 vi.mock('./components/RowDefinitionPanel', () => ({ RowDefinitionPanel: () => null }));
