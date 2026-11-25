@@ -1,8 +1,8 @@
 import { formatPreviewCell } from '../model/previewCellFormat';
 export { formatPreviewCell } from '../model/previewCellFormat';
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
-import { useBrowserSubscription } from '../hooks/useBrowserSubscription';
+import { usePreviewLineage } from '../session/usePreviewLineage';
 import type {
   ExplorerBuilderColumn,
   ExplorerBuilderEmission,
@@ -27,16 +27,6 @@ const PREVIEW_HEADER_CONTROLS_WIDTH = 192;
 type OwnerRecordInspectorState = {
   readonly columnLabel: string;
   readonly value: unknown;
-};
-
-type RowLineageState = {
-  readonly rowId: string;
-  readonly contributors: NonNullable<ExplorerBuilderRowLineageResponse['contributors']>;
-  readonly nextOffset?: number;
-  readonly loading: boolean;
-  readonly status?: ExplorerBuilderRowLineageResponse['status'];
-  readonly reasonCode?: string;
-  readonly error?: string;
 };
 
 type PreviewTablePresentationChange =
@@ -105,46 +95,10 @@ export const PreviewTable = ({
   const [ownerRecordInspector, setOwnerRecordInspector] =
     useState<OwnerRecordInspectorState>();
   const [inspectedRow, setInspectedRow] = useState<{ number: number; identity: string; source?: ExplorerBuilderPreviewRowSource }>();
-  const [rowLineage, setRowLineage] = useState<RowLineageState>();
-  const lineageAbortRef = useRef<AbortController | undefined>(undefined);
-  useBrowserSubscription((_onStoreChange) => () => lineageAbortRef.current?.abort(), [preview?.receiptId, preview?.outputId]);
-  const loadRowLineage = (rowId: string, offset: number) => {
-    if (!onRowLineage) return;
-    lineageAbortRef.current?.abort();
-    const controller = new AbortController();
-    lineageAbortRef.current = controller;
-    setRowLineage((previous) => ({
-      rowId,
-      contributors: offset > 0 && previous?.rowId === rowId ? previous.contributors : [],
-      loading: true,
-    }));
-    void onRowLineage(rowId, offset, controller.signal).then((result) => {
-      if (controller.signal.aborted) return;
-      setRowLineage((previous) => ({
-        rowId,
-        contributors: [
-          ...(offset > 0 && previous?.rowId === rowId ? previous.contributors : []),
-          ...(result.contributors ?? []),
-        ],
-        nextOffset: result.hasMore ? result.nextOffset : undefined,
-        loading: false,
-        status: result.status,
-        reasonCode: result.reasonCode,
-      }));
-    }).catch((error: unknown) => {
-      if (controller.signal.aborted) return;
-      setRowLineage((previous) => ({
-        rowId,
-        contributors: offset > 0 && previous?.rowId === rowId ? previous.contributors : [],
-        loading: false,
-        error: error instanceof Error ? error.message : 'Unable to load source records.',
-      }));
-    });
-  };
+  const { rowLineage, loadRowLineage, clearRowLineage } = usePreviewLineage(preview, onRowLineage);
   const closeInspectedRow = () => {
-    lineageAbortRef.current?.abort();
+    clearRowLineage();
     setInspectedRow(undefined);
-    setRowLineage(undefined);
   };
   useEscapeToClose(Boolean(inspectedRow), closeInspectedRow);
   const { viewport, ref: previewScrollRef } =
@@ -465,8 +419,7 @@ export const PreviewTable = ({
                       className="group/row-info absolute left-0 top-0 z-[1] grid place-items-center bg-transparent text-blue-700 hover:bg-blue-50"
                       style={{ width: PREVIEW_ROW_GUTTER_WIDTH, height: PREVIEW_ROW_HEIGHT }}
                       onClick={() => {
-                        lineageAbortRef.current?.abort();
-                        setRowLineage(undefined);
+                        clearRowLineage();
                         setInspectedRow({
                           number: rowIndex + 1,
                           identity: rowIdentity,

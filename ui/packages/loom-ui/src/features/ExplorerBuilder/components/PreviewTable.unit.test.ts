@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type {
   Construction,
   ExplorerBuilderPreviewResult,
+  ExplorerBuilderRowLineageResponse,
   ExplorerBuilderCandidate,
   ExplorerBuilderColumn,
   ExplorerRowDefinition,
@@ -460,6 +461,47 @@ describe('PreviewTable column controls', () => {
     await waitFor(() => expect(screen.getByText('BodyStructure/body-2')).toBeInTheDocument());
     expect(onRowLineage).toHaveBeenCalledWith('group-row', 1, expect.any(AbortSignal));
     expect(screen.queryByRole('button', { name: 'Show more source records' })).not.toBeInTheDocument();
+  });
+
+  it('ignores lineage from a replaced preview even when its response arrives', async () => {
+    const response = (receiptId: string, resourceId: string): ExplorerBuilderRowLineageResponse => ({
+      receiptId,
+      outputId: preview.outputId,
+      rowId: 'group-row',
+      status: 'COMPLETE',
+      contributors: [{ resourceType: 'Patient', resourceId, occurrenceKey: resourceId }],
+      hasMore: false,
+    });
+    let resolveOld!: (value: ExplorerBuilderRowLineageResponse) => void;
+    const oldResponse = new Promise<ExplorerBuilderRowLineageResponse>(resolve => { resolveOld = resolve; });
+    const onRowLineage = vi.fn<(rowId: string, offset: number, signal: AbortSignal) => Promise<ExplorerBuilderRowLineageResponse>>()
+      .mockReturnValueOnce(oldResponse)
+      .mockResolvedValueOnce(response('new-receipt', 'current'));
+    const makePreview = (receiptId: string) => React.createElement(PreviewTable, {
+      preview: {
+        ...preview,
+        receiptId,
+        rows: [{ ...preview.rows![0], __loom_row_id: 'group-row' }],
+        rowSources: [{ kind: 'COMPOSITE' }],
+        rowLineageCapability: { status: 'AVAILABLE' },
+      },
+      table,
+      limit: 25,
+      onLimitChange: vi.fn(),
+      onRowLineage,
+    });
+    const { rerender } = render(makePreview('old-receipt'));
+    const inspect = () => fireEvent.click(screen.getByRole('button', { name: 'Inspect row 1 identity' }));
+    inspect();
+    const signal = onRowLineage.mock.calls[0][2];
+
+    rerender(makePreview('new-receipt'));
+    expect(signal.aborted).toBe(true);
+    await act(async () => { resolveOld(response('old-receipt', 'obsolete')); });
+    expect(screen.queryByText('Patient/obsolete')).not.toBeInTheDocument();
+
+    inspect();
+    expect(await screen.findByText('Patient/current')).toBeInTheDocument();
   });
 
   it('preserves repeated source occurrences with the same key across lineage pages', async () => {
