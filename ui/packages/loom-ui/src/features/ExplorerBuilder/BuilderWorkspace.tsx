@@ -1,3 +1,5 @@
+import { useWorkspaceSelection } from './session/useWorkspaceSelection';
+import type { ColumnSelectionState } from './session/workspaceSelection';
 import { admitAuthoringRequest } from './model/admission';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -100,7 +102,6 @@ import { fieldCatalogItems, sanitizeReasonText, unavailableOperationReason } fro
 import {
   ConstructionWorkspace,
   ConstructionActionBar,
-  type ConstructionHistorySelection,
   type ConstructionOperationFamily,
 } from './constructionWorkspace/ConstructionWorkspace';
 import {
@@ -142,60 +143,12 @@ const receiptContainsOutputIds = (
 const isRelatedFieldStep = (step: ConstructionStep): step is RelatedFieldStep =>
   step.operation.kind === 'RELATED_FIELD';
 
-type ColumnSelectionState =
-  | { readonly kind: 'empty' }
-  | {
-      readonly kind: 'selected';
-      readonly outputId: string;
-      readonly columnIds: ReadonlyArray<string>;
-    };
-
-type SelectionOwnerState = {
-  readonly rowIntentSession: boolean;
-  readonly sourceRowsOpen: boolean;
-  readonly constructionHistorySelection: ConstructionHistorySelection;
-  readonly editingConstructionStepId: string | undefined;
-  readonly columnSelection: ColumnSelectionState;
-};
-
 type OccurrencePanel = {
   readonly family: ConstructionOperationFamily | undefined;
   readonly addColumns: ReturnType<typeof useAddColumns>['panel'];
   readonly reshapeEntryKind: ReshapeEntryKind;
   readonly reshapeFormKind: ReshapeForm['kind'];
   readonly columnSelection: ColumnSelectionState;
-};
-
-const emptySelectionOwnerState: SelectionOwnerState = {
-  rowIntentSession: false,
-  sourceRowsOpen: false,
-  constructionHistorySelection: { kind: 'source' },
-  editingConstructionStepId: undefined,
-  columnSelection: { kind: 'empty' },
-};
-
-type SelectionOwnerStateStore = {
-  readonly getSnapshot: () => SelectionOwnerState;
-  readonly subscribe: (subscriber: () => void) => () => void;
-  readonly update: (update: (current: SelectionOwnerState) => SelectionOwnerState) => void;
-};
-
-const createSelectionOwnerStateStore = (): SelectionOwnerStateStore => {
-  let state = emptySelectionOwnerState;
-  const subscribers = new Set<() => void>();
-  return {
-    getSnapshot: () => state,
-    subscribe: (subscriber) => {
-      subscribers.add(subscriber);
-      return () => subscribers.delete(subscriber);
-    },
-    update: (update) => {
-      const next = update(state);
-      if (next === state) return;
-      state = next;
-      for (const subscriber of subscribers) subscriber();
-    },
-  };
 };
 
 const suppressedBuilderDiagnostic = (diagnostic: ExplorerAuthoringDiagnostic): boolean =>
@@ -509,67 +462,10 @@ const BuilderWorkspaceContent = ({
 
   const [sourceRowsInspectorHost, setSourceRowsInspectorHost] = useState<HTMLElement | null>(null);
   const table = selectedTable(state);
-  const selectionOwnerIdentity = `${ownerKey}\u0000${state.explorerId}\u0000${table?.outputId ?? ''}`;
-  const selectionOwnerStore = useMemo(createSelectionOwnerStateStore, [selectionOwnerIdentity]);
-  const selectionOwnerState = React.useSyncExternalStore(
-    selectionOwnerStore.subscribe,
-    selectionOwnerStore.getSnapshot,
-    selectionOwnerStore.getSnapshot,
-  );
-  const updateSelectionOwnerField = useCallback(
-    (update: (current: SelectionOwnerState) => SelectionOwnerState) => selectionOwnerStore.update(update),
-    [selectionOwnerStore],
-  );
-  const setRowIntentSession = useCallback<React.Dispatch<React.SetStateAction<boolean>>>(
-    (update) => updateSelectionOwnerField((current) => ({
-      ...current,
-      rowIntentSession: typeof update === 'function' ? update(current.rowIntentSession) : update,
-    })),
-    [updateSelectionOwnerField],
-  );
-  const setSourceRowsOpen = useCallback<React.Dispatch<React.SetStateAction<boolean>>>(
-    (update) => updateSelectionOwnerField((current) => ({
-      ...current,
-      sourceRowsOpen: typeof update === 'function' ? update(current.sourceRowsOpen) : update,
-    })),
-    [updateSelectionOwnerField],
-  );
-  const setConstructionHistorySelection = useCallback<
-    React.Dispatch<React.SetStateAction<ConstructionHistorySelection>>
-  >(
-    (update) => updateSelectionOwnerField((current) => ({
-      ...current,
-      constructionHistorySelection: typeof update === 'function'
-        ? update(current.constructionHistorySelection)
-        : update,
-    })),
-    [updateSelectionOwnerField],
-  );
-  const setEditingConstructionStepId = useCallback<
-    React.Dispatch<React.SetStateAction<string | undefined>>
-  >(
-    (update) => updateSelectionOwnerField((current) => ({
-      ...current,
-      editingConstructionStepId: typeof update === 'function'
-        ? update(current.editingConstructionStepId)
-        : update,
-    })),
-    [updateSelectionOwnerField],
-  );
-  const setColumnSelection = useCallback<React.Dispatch<React.SetStateAction<ColumnSelectionState>>>(
-    (update) => updateSelectionOwnerField((current) => ({
-      ...current,
-      columnSelection: typeof update === 'function' ? update(current.columnSelection) : update,
-    })),
-    [updateSelectionOwnerField],
-  );
   const {
-    rowIntentSession,
-    sourceRowsOpen,
-    constructionHistorySelection,
-    editingConstructionStepId,
-    columnSelection,
-  } = selectionOwnerState;
+    rowIntentSession, sourceRowsOpen, constructionHistorySelection, editingConstructionStepId, columnSelection,
+    setRowIntentSession, setSourceRowsOpen, setConstructionHistorySelection, setEditingConstructionStepId, setColumnSelection,
+  } = useWorkspaceSelection(ownerKey, state.explorerId, table?.outputId);
   const recipeOwner = useRecipeEditingOwner({ project: projectId, explorerId: state.explorerId,
     outputId: table?.outputId ?? '', snapshotToken: state.catalog.snapshotToken,
     draftVersion: state.draftVersion, draftDigest: state.draftDigest });

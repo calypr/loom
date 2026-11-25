@@ -1,6 +1,7 @@
+import type { ConstructionHistorySelection } from '../model/constructionHistory';
 import { ConstructionHistory, type ConstructionHistoryProps } from './ConstructionHistory';
 import { ConstructionTableNavigation, type ConstructionWorkspaceTable } from './ConstructionTableNavigation';
-export type { ConstructionHistorySelection } from './ConstructionHistory';
+export type { ConstructionHistorySelection } from '../model/constructionHistory';
 import React, { useCallback, useRef, useState } from 'react';
 import { useDismissibleLayer } from '../hooks/useDismissibleLayer';
 import { useBrowserSubscription } from '../hooks/useBrowserSubscription';

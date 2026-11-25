@@ -1,9 +1,6 @@
+import type { ConstructionHistorySelection } from '../model/constructionHistory';
 import React from 'react';
 import type { ConstructionHistoryStep } from '../model/constructionHistory';
-
-export type ConstructionHistorySelection =
-  | { readonly kind: 'source' }
-  | { readonly kind: 'step'; readonly stepId: string };
 
 export interface ConstructionHistoryProps {
   readonly resourceType: string;

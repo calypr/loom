@@ -447,3 +447,7 @@ export const constructionRowMeaning = (
   }
   return meaning;
 };
+
+export type ConstructionHistorySelection =
+  | { readonly kind: 'source' }
+  | { readonly kind: 'step'; readonly stepId: string };
