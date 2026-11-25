@@ -1,61 +1,44 @@
 import { RequestOwner } from '../../../data/requests';
-import { changeTableRootFor, type ReadyRootChangeAssessment, type RootRecipeActions } from '../session/rootChangeActions';
-import { createRootChangeStateStore, type PendingRowChangePreview } from '../session/rootChangeState';
-import type { useGetExplorerBuilderStateV2Query } from '../session/useBuilderLoad';
+import { changeTableRootFor, rootChangeChoiceActionsFor, type ReadyRootChangeAssessment, type RootRecipeActions } from './rootChangeActions';
+import { createRootChangeStateStore, type PendingRowChangePreview } from './rootChangeState';
+import { useBuilderActions, useBuilderSession } from './BuilderSessionProvider';
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import { isCompilerNavigationSelection } from '../model/workspaceGuards';
 import {
   sameRootChangeRequestIdentity,
   type RootChangePickerState,
   type RootChangeRequestIdentity,
-  type RootChangeResolution,
-  type RootChangeSelection,
 } from '../model/rootChangeSelection';
-import type {
-  ExplorerBuilderState,
-} from '../../../contracts/types';
+import type { ExplorerBuilderPreviewResult } from '../../../contracts/types';
+import type { PreviewExplorerBuilderArgs } from '../../../client/api';
 import type {
   useAssessExplorerRowChangeMutation,
-  useLoomClient,
 } from '../../../react';
-import { type BuilderAuthoringState, type DraftTable, selectedTable } from '../model/authoring';
+import { selectedTable } from '../model/authoring';
 import { type PreviewLimit } from '../model/previewRecovery';
 
-type UseRootChangeOptions = {
-  readonly projectId: string;
-  readonly authResourcePath?: string;
-  readonly state: BuilderAuthoringState;
-  readonly table?: DraftTable;
-  readonly draftAccess: { getState(): BuilderAuthoringState };
-  readonly serverDraft: MutableRefObject<{ version: number; digest: string }>;
+type RootChangeOptions = {
   readonly workspaceAttached: MutableRefObject<boolean>;
   readonly assessRowChange: ReturnType<typeof useAssessExplorerRowChangeMutation>[0];
-  readonly loomClient: ReturnType<typeof useLoomClient>;
+  readonly loomClient: { preview(args: PreviewExplorerBuilderArgs, signal?: AbortSignal): Promise<ExplorerBuilderPreviewResult> };
   readonly previewLimit: PreviewLimit;
-  readonly refetchBuilder: ReturnType<typeof useGetExplorerBuilderStateV2Query>['refetch'];
-  readonly syncBuilderData: (value: ExplorerBuilderState, mode: 'hydrate' | 'catalog') => void;
   readonly rowSettingsOpenAction: MutableRefObject<(() => void) | undefined>;
   readonly rowSettingsCloseAction: MutableRefObject<(() => void) | undefined>;
   readonly setMessage: Dispatch<SetStateAction<string | undefined>>;
 };
 
-export const useRootChange = ({
-  projectId,
-  authResourcePath,
-  state,
-  table,
-  draftAccess,
-  serverDraft,
+export const useRootChangeActions = ({
   workspaceAttached,
   assessRowChange,
   loomClient,
   previewLimit,
-  refetchBuilder,
-  syncBuilderData,
   rowSettingsOpenAction,
   rowSettingsCloseAction,
   setMessage,
-}: UseRootChangeOptions) => {
+}: RootChangeOptions) => {
+  const { state, draftAccess, serverDraft, builderQueryArgs } = useBuilderSession(draft => draft);
+  const { refetchBuilder, syncBuilderData } = useBuilderActions();
+  const { project: projectId, authResourcePath } = builderQueryArgs;
+  const table = selectedTable(state);
   const [rowChangeAttempt] = useState(() => ({ current: Symbol() }));
   const [rowChangeRequests] = useState(() => {
     const owner = new RequestOwner();
@@ -176,95 +159,10 @@ export const useRootChange = ({
       setPendingRowChangePreview, setRootChangeState, syncBuilderData],
   );
 
-  const selectRootChoice = useCallback((selection: RootChangeSelection) => {
-    const active = rootChangeStateRef.current;
-    const sameTarget = active.kind !== 'idle' && active.selection.nodeId === selection.nodeId;
-    const currentIdentity = getCurrentRootChangeIdentity();
-    const validPreviousResolution = active.kind === 'blocked' && sameTarget &&
-      currentIdentity !== undefined &&
-      sameRootChangeRequestIdentity(active.identity, currentIdentity)
-      ? active.resolution
-      : {};
-    if (isCompilerNavigationSelection(selection)) {
-      const isCurrentBlocked = active.kind === 'blocked' && currentIdentity !== undefined &&
-        sameRootChangeRequestIdentity(active.identity, currentIdentity);
-      const alternative = selection.kind === 'compiler-route'
-        ? selection.routeToken
-        : selection.occurrenceId;
-      const reference = isCurrentBlocked
-        ? active.assessment.unresolved.find((candidate) =>
-            candidate.id === selection.referenceId &&
-            candidate.code === 'AMBIGUOUS_ROW_ROOT_OCCURRENCE' &&
-            candidate.alternatives?.includes(alternative),
-          )
-        : undefined;
-      if (!reference || !isCurrentBlocked || active.kind !== 'blocked') {
-        if (currentIdentity) setRootChangeState({
-          kind: 'failed', reason: 'unavailable', selection: active.kind === 'idle' ? selection : active.selection,
-          resolution: active.kind === 'idle' ? {} : active.resolution,
-          identity: active.kind === 'idle' ? currentIdentity : active.identity,
-          message: 'That relationship choice is no longer available. Refresh the choices or keep the current rows.',
-        });
-        return;
-      }
-      void changeTableRoot(selection, {
-        ...active.resolution,
-        rootOccurrenceId: alternative,
-      });
-      return;
-    }
-    const resolution: RootChangeResolution = {
-      ...(validPreviousResolution.routeRebase?.length
-        ? { routeRebase: validPreviousResolution.routeRebase }
-        : {}),
-      ...(selection.kind === 'authored-occurrence'
-        ? { rootOccurrenceId: selection.occurrenceId }
-        : {}),
-    };
-    void changeTableRoot(selection, resolution);
-  }, [changeTableRoot, getCurrentRootChangeIdentity, rootChangeStateRef, setRootChangeState]);
-
-  const resolveRootChange = useCallback((referenceId: string, alternative: string) => {
-    const active = rootChangeStateRef.current;
-    const currentIdentity = getCurrentRootChangeIdentity();
-    const isCurrentBlocked = active.kind === 'blocked' && currentIdentity !== undefined &&
-      sameRootChangeRequestIdentity(active.identity, currentIdentity);
-    const reference = isCurrentBlocked && active.kind === 'blocked'
-      ? active.assessment.unresolved.find((candidate) =>
-          candidate.id === referenceId &&
-          candidate.code === 'AMBIGUOUS_ROUTE_REBASE_EDGE' &&
-          candidate.alternatives?.includes(alternative),
-        )
-      : undefined;
-    if (!reference || !isCurrentBlocked || active.kind !== 'blocked') {
-      if (active.kind !== 'idle') setRootChangeState({
-        kind: 'failed', reason: 'unavailable', selection: active.selection,
-        resolution: active.resolution, identity: active.identity,
-        message: 'That relationship choice is no longer available. Refresh the choices or keep the current rows.',
-      });
-      return;
-    }
-    const resolution: RootChangeResolution = {
-      ...active.resolution,
-      routeRebase: [
-        ...(active.resolution.routeRebase ?? []).filter(
-          (choice) => choice.occurrenceId !== referenceId,
-        ),
-        { occurrenceId: referenceId, edgeId: alternative },
-      ],
-    };
-    void changeTableRoot(active.selection, resolution);
-  }, [changeTableRoot, getCurrentRootChangeIdentity, rootChangeStateRef, setRootChangeState]);
-
-  const refreshRootChange = useCallback(() => {
-    const active = rootChangeStateRef.current;
-    if (active.kind === 'idle') return;
-    if (active.kind === 'failed' && active.reason !== 'request') {
-      void changeTableRoot({ kind: 'catalog-node', nodeId: active.selection.nodeId }, {});
-      return;
-    }
-    void changeTableRoot(active.selection, active.resolution);
-  }, [changeTableRoot, rootChangeStateRef]);
+  const choices = useMemo(() => rootChangeChoiceActionsFor({
+    changeTableRoot, getCurrentRootChangeIdentity, readRootChangeState: () => rootChangeStateRef.current,
+    setRootChangeState,
+  }), [changeTableRoot, getCurrentRootChangeIdentity, rootChangeStateRef, setRootChangeState]);
 
   const applyRowChangePreview = useCallback(async () => {
     const pending = pendingRowChangePreview;
@@ -294,9 +192,7 @@ export const useRootChange = ({
     getCurrentRootChangeIdentity,
     cancelRootChange,
     changeTableRoot,
-    selectRootChoice,
-    resolveRootChange,
-    refreshRootChange,
+    ...choices,
     applyRowChangePreview,
   };
 };

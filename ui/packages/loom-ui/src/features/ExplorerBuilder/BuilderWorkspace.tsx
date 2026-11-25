@@ -91,7 +91,7 @@ import { usePopulationExclusion } from './authoring/usePopulationExclusion';
 import { useAddColumns } from './authoring/useAddColumns';
 import { useTraversalProjectedFields } from './authoring/useTraversalProjectedFields';
 import { useSourceRecipe } from './authoring/useSourceRecipe';
-import { useRootChange } from './authoring/useRootChange';
+import { useRootChangeActions } from './session/useRootChangeActions';
 import { useCombineCatalog } from './authoring/useCombineCatalog';
 import { useDirtyBeforeUnload } from './hooks/useDirtyBeforeUnload';
 import { usePortalHost } from './hooks/usePortalHost';
@@ -606,19 +606,11 @@ const BuilderWorkspaceContent = ({
     resolveRootChange,
     refreshRootChange,
     applyRowChangePreview,
-  } = useRootChange({
-    projectId,
-    authResourcePath,
-    state,
-    table,
-    draftAccess,
-    serverDraft,
+  } = useRootChangeActions({
     workspaceAttached,
     assessRowChange,
     loomClient,
     previewLimit,
-    refetchBuilder,
-    syncBuilderData,
     rowSettingsOpenAction,
     rowSettingsCloseAction,
     setMessage,

@@ -1,3 +1,4 @@
+import { isCompilerNavigationSelection } from '../model/workspaceGuards';
 import type { PreviewExplorerBuilderArgs } from '../../../client/api';
 import { sameDraftRevision } from '../../../contracts/identity';
 import type { ExplorerBuilderPreviewResult, ExplorerBuilderState, RowChangeAssessment } from '../../../contracts/types';
@@ -202,4 +203,108 @@ export function changeTableRootFor({
       request.finish();
     }
   };
+}
+
+export function rootChangeChoiceActionsFor({
+  changeTableRoot,
+  getCurrentRootChangeIdentity,
+  readRootChangeState,
+  setRootChangeState,
+}: {
+  readonly changeTableRoot: ReturnType<typeof changeTableRootFor>;
+  readonly getCurrentRootChangeIdentity: () => RootChangeRequestIdentity | undefined;
+  readonly readRootChangeState: () => RootChangePickerState;
+  readonly setRootChangeState: (state: RootChangePickerState) => void;
+}) {
+  const selectRootChoice = (selection: RootChangeSelection) => {
+    const active = readRootChangeState();
+    const sameTarget = active.kind !== 'idle' && active.selection.nodeId === selection.nodeId;
+    const currentIdentity = getCurrentRootChangeIdentity();
+    const validPreviousResolution = active.kind === 'blocked' && sameTarget &&
+      currentIdentity !== undefined &&
+      sameRootChangeRequestIdentity(active.identity, currentIdentity)
+      ? active.resolution
+      : {};
+    if (isCompilerNavigationSelection(selection)) {
+      const isCurrentBlocked = active.kind === 'blocked' && currentIdentity !== undefined &&
+        sameRootChangeRequestIdentity(active.identity, currentIdentity);
+      const alternative = selection.kind === 'compiler-route'
+        ? selection.routeToken
+        : selection.occurrenceId;
+      const reference = isCurrentBlocked
+        ? active.assessment.unresolved.find((candidate) =>
+            candidate.id === selection.referenceId &&
+            candidate.code === 'AMBIGUOUS_ROW_ROOT_OCCURRENCE' &&
+            candidate.alternatives?.includes(alternative),
+          )
+        : undefined;
+      if (!reference || !isCurrentBlocked || active.kind !== 'blocked') {
+        if (currentIdentity) setRootChangeState({
+          kind: 'failed', reason: 'unavailable', selection: active.kind === 'idle' ? selection : active.selection,
+          resolution: active.kind === 'idle' ? {} : active.resolution,
+          identity: active.kind === 'idle' ? currentIdentity : active.identity,
+          message: 'That relationship choice is no longer available. Refresh the choices or keep the current rows.',
+        });
+        return;
+      }
+      void changeTableRoot(selection, {
+        ...active.resolution,
+        rootOccurrenceId: alternative,
+      });
+      return;
+    }
+    const resolution: RootChangeResolution = {
+      ...(validPreviousResolution.routeRebase?.length
+        ? { routeRebase: validPreviousResolution.routeRebase }
+        : {}),
+      ...(selection.kind === 'authored-occurrence'
+        ? { rootOccurrenceId: selection.occurrenceId }
+        : {}),
+    };
+    void changeTableRoot(selection, resolution);
+  };
+
+  const resolveRootChange = (referenceId: string, alternative: string) => {
+    const active = readRootChangeState();
+    const currentIdentity = getCurrentRootChangeIdentity();
+    const isCurrentBlocked = active.kind === 'blocked' && currentIdentity !== undefined &&
+      sameRootChangeRequestIdentity(active.identity, currentIdentity);
+    const reference = isCurrentBlocked && active.kind === 'blocked'
+      ? active.assessment.unresolved.find((candidate) =>
+          candidate.id === referenceId &&
+          candidate.code === 'AMBIGUOUS_ROUTE_REBASE_EDGE' &&
+          candidate.alternatives?.includes(alternative),
+        )
+      : undefined;
+    if (!reference || !isCurrentBlocked || active.kind !== 'blocked') {
+      if (active.kind !== 'idle') setRootChangeState({
+        kind: 'failed', reason: 'unavailable', selection: active.selection,
+        resolution: active.resolution, identity: active.identity,
+        message: 'That relationship choice is no longer available. Refresh the choices or keep the current rows.',
+      });
+      return;
+    }
+    const resolution: RootChangeResolution = {
+      ...active.resolution,
+      routeRebase: [
+        ...(active.resolution.routeRebase ?? []).filter(
+          (choice) => choice.occurrenceId !== referenceId,
+        ),
+        { occurrenceId: referenceId, edgeId: alternative },
+      ],
+    };
+    void changeTableRoot(active.selection, resolution);
+  };
+
+  const refreshRootChange = () => {
+    const active = readRootChangeState();
+    if (active.kind === 'idle') return;
+    if (active.kind === 'failed' && active.reason !== 'request') {
+      void changeTableRoot({ kind: 'catalog-node', nodeId: active.selection.nodeId }, {});
+      return;
+    }
+    void changeTableRoot(active.selection, active.resolution);
+  };
+
+  return { selectRootChoice, resolveRootChange, refreshRootChange };
 }
