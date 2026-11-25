@@ -1,3 +1,4 @@
+import { createRootChangeStateStore, type PendingRowChangePreview } from '../session/rootChangeState';
 import type { useGetExplorerBuilderStateV2Query } from '../session/useBuilderLoad';
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import { isCompilerNavigationSelection } from '../model/workspaceGuards';
@@ -36,15 +37,6 @@ type RootRecipeActions = {
   apply: (assessment: ReadyRootChangeAssessment) => Promise<boolean>;
 };
 
-type RowChangePreviewContext = {
-  readonly assessment: ReadyRootChangeAssessment;
-  readonly identity: RootChangeRequestIdentity;
-};
-
-type PendingRowChangePreview =
-  | (RowChangePreviewContext & { readonly status: 'loading' })
-  | (RowChangePreviewContext & { readonly status: 'ready'; readonly preview: ExplorerBuilderPreviewResult });
-
 type UseRootChangeOptions = {
   readonly projectId: string;
   readonly authResourcePath?: string;
@@ -62,99 +54,6 @@ type UseRootChangeOptions = {
   readonly rowSettingsOpenAction: MutableRefObject<(() => void) | undefined>;
   readonly rowSettingsCloseAction: MutableRefObject<(() => void) | undefined>;
   readonly setMessage: Dispatch<SetStateAction<string | undefined>>;
-};
-
-type RootChangeStateSnapshot = {
-  readonly rootChangeState: RootChangePickerState;
-  readonly pendingRowChangePreview: PendingRowChangePreview | undefined;
-};
-
-type RootChangeStateStore = {
-  readonly getSnapshot: () => RootChangeStateSnapshot;
-  readonly getLifecycleVersion: () => number;
-  readonly subscribe: (subscriber: () => void) => () => void;
-  readonly activate: (identity: RootChangeRequestIdentity | undefined) => void;
-  readonly update: (update: (current: RootChangeStateSnapshot) => RootChangeStateSnapshot) => void;
-};
-
-const createRootChangeStateStore = (
-  onDetach: () => void,
-  onStalePreview: () => void,
-): RootChangeStateStore => {
-  let snapshot: RootChangeStateSnapshot = {
-    rootChangeState: { kind: 'idle' },
-    pendingRowChangePreview: undefined,
-  };
-  let lifecycleVersion = 0;
-  let activated = false;
-  let activeIdentity: RootChangeRequestIdentity | undefined;
-  const subscribers = new Set<() => void>();
-  return {
-    getSnapshot: () => snapshot,
-    getLifecycleVersion: () => lifecycleVersion,
-    subscribe: (subscriber) => {
-      subscribers.add(subscriber);
-      return () => {
-        subscribers.delete(subscriber);
-        lifecycleVersion += 1;
-        onDetach();
-      };
-    },
-    activate: (identity) => {
-      if (!activated) {
-        activated = true;
-        activeIdentity = identity;
-        return;
-      }
-      if (identity && activeIdentity && sameRootChangeRequestIdentity(activeIdentity, identity)) return;
-
-      const previous = activeIdentity;
-      const active = snapshot.rootChangeState;
-      const pending = snapshot.pendingRowChangePreview;
-      const activeIsStale = active.kind !== 'idle' && (
-        identity === undefined || !sameRootChangeRequestIdentity(active.identity, identity)
-      );
-      const previewIsStale = pending !== undefined && (
-        identity === undefined || !sameRootChangeRequestIdentity(pending.identity, identity)
-      );
-      const sameExplorerOutput = identity !== undefined && previous !== undefined &&
-        previous.project === identity.project &&
-        previous.authResourcePath === identity.authResourcePath &&
-        previous.explorerId === identity.explorerId &&
-        previous.outputId === identity.outputId;
-
-      lifecycleVersion += 1;
-      onDetach();
-      activeIdentity = identity;
-      if (!activeIsStale && !previewIsStale) return;
-
-      const nextRootChangeState = activeIsStale
-        ? sameExplorerOutput
-          ? {
-              kind: 'failed' as const,
-              reason: 'stale' as const,
-              selection: active.selection,
-              resolution: active.resolution,
-              identity: active.identity,
-              message: 'The table changed while Loom checked this row choice. Refresh the choices or keep the current rows.',
-            }
-          : { kind: 'idle' as const }
-        : active;
-      const next = {
-        rootChangeState: nextRootChangeState,
-        pendingRowChangePreview: previewIsStale ? undefined : pending,
-      };
-      snapshot = next;
-      if (previewIsStale) onStalePreview();
-      for (const subscriber of subscribers) subscriber();
-    },
-    update: (update) => {
-      const next = update(snapshot);
-      if (next === snapshot) return;
-      snapshot = next;
-      for (const subscriber of subscribers) subscriber();
-    },
-  };
 };
 
 export const useRootChange = ({
@@ -215,7 +114,7 @@ export const useRootChange = ({
   const rootChangeStateStore = useMemo(
     () => createRootChangeStateStore(
       abortRootChangeRequests,
-      () => setMessage('The table changed while Loom prepared the row preview. Review the change again.'),
+      setMessage,
     ),
     [abortRootChangeRequests, setMessage],
   );
@@ -357,7 +256,7 @@ export const useRootChange = ({
           });
           return;
         }
-        const context: RowChangePreviewContext = { assessment, identity };
+        const context = { assessment, identity };
         setRootChangeState({ kind: 'previewing', selection, resolution, identity });
         setPendingRowChangePreview({ ...context, status: 'loading' });
         const controller = new AbortController();

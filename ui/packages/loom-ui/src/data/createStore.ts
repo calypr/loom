@@ -5,9 +5,10 @@ export function createStore<Snapshot>(initialSnapshot: Snapshot) {
   return {
     getSnapshot: () => snapshot,
     hasSubscribers: () => subscribers.size > 0,
-    setSnapshot(nextSnapshot: Snapshot) {
+    setSnapshot(nextSnapshot: Snapshot, beforeNotify?: () => void) {
       if (Object.is(snapshot, nextSnapshot)) return;
       snapshot = nextSnapshot;
+      beforeNotify?.();
       subscribers.forEach((subscriber) => subscriber());
     },
     subscribe(subscriber: () => void) {
