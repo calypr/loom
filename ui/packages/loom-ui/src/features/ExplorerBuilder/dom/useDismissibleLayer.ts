@@ -1,5 +1,6 @@
 import { useRef } from 'react';
-import { useBrowserSubscription } from './useBrowserSubscription';
+import { useDomSubscription } from './useDomSubscription';
+import { registerEscape } from './escapeStack';
 
 export const useDismissibleLayer = <T extends HTMLElement>(
   open: boolean,
@@ -7,19 +8,16 @@ export const useDismissibleLayer = <T extends HTMLElement>(
 ) => {
   const ref = useRef<T>(null);
 
-  useBrowserSubscription((_onStoreChange) => {
+  useDomSubscription(() => {
     if (!open) return () => {};
     const dismissOnPointerDown = (event: PointerEvent) => {
       if (!ref.current?.contains(event.target as Node)) setOpen(false);
     };
-    const dismissOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
     document.addEventListener('pointerdown', dismissOnPointerDown);
-    document.addEventListener('keydown', dismissOnEscape);
+    const unregisterEscape = registerEscape('document', () => setOpen(false));
     return () => {
       document.removeEventListener('pointerdown', dismissOnPointerDown);
-      document.removeEventListener('keydown', dismissOnEscape);
+      unregisterEscape();
     };
   }, [open, setOpen], open);
 

@@ -1,6 +1,6 @@
 import { fieldPickerList, fieldPickerMetadata, fieldPickerRow, fieldPickerSelected } from '../shared/fieldPickerStyles';
 import React, { useState } from 'react';
-import { useEscapeToClose } from '../../hooks/useEscapeToClose';
+import { useEscapeToClose } from '../../dom/useEscapeToClose';
 import { useRelatedFieldChoices } from '../../session/useRelatedFieldChoices';
 import type {
   Construction,

@@ -1,17 +1,20 @@
-import {useState} from 'react';
-import { useCommitLifecycle } from './useBrowserSubscription';
+import { useCallback, useState, useSyncExternalStore } from 'react';
+import { createStore } from '../../../data/createStore';
+
+const serverOverflow = () => false;
 
 export const useTraversalOverflow = (
   graphHostRef: React.RefObject<HTMLDivElement | null>,
   traversalRef: React.RefObject<HTMLElement | null>,
   identity: string,
 ): boolean => {
-  const [overflowing, setOverflowing] = useState(false);
+  const [overflow] = useState(() => createStore(false));
 
-  useCommitLifecycle(() => {
+  const subscribe = useCallback((onChange: () => void) => {
     const graphHost = graphHostRef.current;
     const traversal = traversalRef.current;
-    if (!graphHost || !traversal) return undefined;
+    if (!graphHost || !traversal) return () => {};
+    const unsubscribe = overflow.subscribe(onChange);
     const measure = () => {
       const truncatedWidth = Array.from(
         traversal.querySelectorAll<HTMLElement>('[data-traversal-label]'),
@@ -22,7 +25,7 @@ export const useTraversalOverflow = (
       );
       const naturalWidth = traversal.scrollWidth + truncatedWidth;
       const allottedWidth = Math.max(0, graphHost.clientWidth - 9 * 16);
-      setOverflowing(naturalWidth > allottedWidth + 1);
+      overflow.setSnapshot(naturalWidth > allottedWidth + 1);
     };
     const observer =
       typeof ResizeObserver === 'undefined'
@@ -30,8 +33,11 @@ export const useTraversalOverflow = (
         : new ResizeObserver(measure);
     observer?.observe(graphHost);
     measure();
-    return () => observer?.disconnect();
-  }, [graphHostRef, identity, traversalRef]);
+    return () => {
+      observer?.disconnect();
+      unsubscribe();
+    };
+  }, [graphHostRef, identity, overflow, traversalRef]);
 
-  return overflowing;
+  return useSyncExternalStore(subscribe, overflow.getSnapshot, serverOverflow);
 };

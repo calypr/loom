@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { useDismissibleLayer } from '../../hooks/useDismissibleLayer';
+import { useDismissibleLayer } from '../../dom/useDismissibleLayer';
 import { useAnchoredPosition } from '../../dom/useAnchoredPosition';
 
 import type { ConstructionWorkspaceTable } from '../../model/constructionWorkspaceTable';

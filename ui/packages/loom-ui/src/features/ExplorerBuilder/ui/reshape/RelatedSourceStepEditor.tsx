@@ -1,6 +1,6 @@
 import { ConceptCatalogSessionProvider } from '../../session/ConceptCatalogSession';
 import React, { useState } from 'react';
-import { useEscapeToClose } from '../../hooks/useEscapeToClose';
+import { useEscapeToClose } from '../../dom/useEscapeToClose';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,

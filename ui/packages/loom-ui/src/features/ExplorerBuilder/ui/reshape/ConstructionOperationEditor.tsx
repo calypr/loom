@@ -1,6 +1,6 @@
 import { createOpaqueId, normalizedLogicalType, isNumericColumn, normalizedName, uniqueName as uniqueFilterSourceName, sourceLabel as filterSourceLabel, editorContextKey, stageWithSourceInputs, constructionWithStep } from '../../model/editorShared';
 import React, { useId, useState } from 'react';
-import { useEscapeToClose } from '../../hooks/useEscapeToClose';
+import { useEscapeToClose } from '../../dom/useEscapeToClose';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,

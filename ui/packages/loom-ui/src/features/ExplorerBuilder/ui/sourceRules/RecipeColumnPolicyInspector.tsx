@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useEscapeToClose } from '../../hooks/useEscapeToClose';
+import { useEscapeToClose } from '../../dom/useEscapeToClose';
 import type { ExplorerBuilderCandidate, ExplorerBuilderColumn } from '../../../../contracts/types';
 import { rowValuePolicyLabel } from '../../model/rowRecipeProjection';
 

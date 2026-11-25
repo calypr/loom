@@ -14,7 +14,7 @@ import { constructionWithStep, createOpaqueId } from '../../model/editorShared';
 import { constructionInputForStage } from '../../model/constructionStages';
 import { RelatedExpandContributorEditor, type ContributorChoice, type ContributorCondition } from './RelatedExpandContributorEditor';
 import { relationshipLabel, routePath } from '../../model/routeDisplay';
-import { useDismissibleLayer } from '../../hooks/useDismissibleLayer';
+import { useDismissibleLayer } from '../../dom/useDismissibleLayer';
 
 type RelatedExpandOperation = Extract<ConstructionOperation, { readonly kind: 'RELATED_EXPAND' }>;
 type RelatedExpandStep = Omit<ConstructionStep, 'operation'> & { readonly operation: RelatedExpandOperation };

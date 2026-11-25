@@ -2,17 +2,23 @@
   "unreachableProductionFiles": 0,
   "unusedExports": 0,
   "importCycles": 0,
-  "effectLikeSites": 16,
+  "effectLikeSites": 4,
   "stalenessComparisons": 131,
   "abortControllerSites": 27,
-  "uiServerAccessSites": 34,
+  "uiServerAccessSites": 0,
   "layerViolations": 0,
-  "enforceLayers": false,
-  "enforceUiServerAccess": false,
+  "enforceLayers": true,
+  "enforceUiServerAccess": true,
   "widestPropBag": 57,
   "widestOptionBag": 25,
   "abortControllersOutsideClientData": 27,
   "enforceTestOnlyExportLayers": true,
-  "enforceDomSubscriptionAllowlist": false,
-  "domSubscriptionAllowlist": []
+  "enforceDomSubscriptionAllowlist": true,
+  "domSubscriptionAllowlist": [
+    "src/features/ExplorerBuilder/dom/useDirtyBeforeUnload.ts",
+    "src/features/ExplorerBuilder/dom/useDismissibleLayer.ts",
+    "src/features/ExplorerBuilder/dom/useEscapeToClose.ts",
+    "src/features/ExplorerBuilder/dom/useGraphViewportFitter.ts"
+  ],
+  "identityComparisonsOutsideOwners": 0
 }

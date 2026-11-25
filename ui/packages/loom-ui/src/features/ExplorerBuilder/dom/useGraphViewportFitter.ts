@@ -1,4 +1,4 @@
-import { useBrowserSubscription } from './useBrowserSubscription';
+import { useDomSubscription } from './useDomSubscription';
 import { useNodesInitialized, useReactFlow } from '@xyflow/react';
 
 export interface GraphViewportBounds {
@@ -29,7 +29,7 @@ export const useGraphViewportFitter = ({
   const boundsWidth = fitBounds?.width;
   const boundsHeight = fitBounds?.height;
 
-  useBrowserSubscription((_onStoreChange) => {
+  useDomSubscription(() => {
     const host = hostRef.current;
     if (!host || !nodesInitialized || !viewportInitialized || nodeCount === 0)
       return () => {};

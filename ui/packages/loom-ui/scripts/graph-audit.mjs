@@ -204,7 +204,7 @@ function outerLayer(path) {
 for (const file of files.values()) {
   if (!isProductionSource(file.path)) continue;
   const fromBuilder = relative(src, file.path).split('/');
-  for (const edge of [...file.imports, ...file.reexports]) {
+  for (const edge of [...file.imports, ...file.reexports, ...file.dynamicImports.map(target => ({ target }))]) {
     const target = files.get(edge.target);
     if (!target || !isProductionSource(target.path)) continue;
     const toBuilder = relative(src, target.path).split('/');
@@ -216,7 +216,7 @@ for (const file of files.values()) {
     if (fromBuilder[0] === 'features' && fromBuilder[1] === 'ExplorerBuilder') {
       const fromPart = fromBuilder[2];
       const toPart = toBuilder[0] === 'features' && toBuilder[1] === 'ExplorerBuilder' ? toBuilder[2] : null;
-      if (toPart === 'dom' && fromPart !== 'ui') layerViolations.push({ from: relative(pkg, file.path), to: relative(pkg, target.path), rule: 'Builder DOM imported only by UI' });
+      if (toPart === 'dom' && fromPart !== 'ui' && fromPart !== 'dom') layerViolations.push({ from: relative(pkg, file.path), to: relative(pkg, target.path), rule: 'Builder DOM imported only by UI' });
       const importedNames = edge.names instanceof Set
         ? [...edge.names]
         : edge.names instanceof Map ? [...edge.names.values()] : [];
@@ -255,8 +255,7 @@ const uiServerAccessSites = [];
 function visitMetrics(file) {
   if (!isProductionSource(file.path)) return;
   const sourcePath = relative(src, file.path);
-  const builderPath = sourcePath.startsWith('features/ExplorerBuilder/')
-    && sourcePath !== 'features/ExplorerBuilder/Builder.tsx';
+  const builderUiPath = sourcePath.startsWith('features/ExplorerBuilder/ui/');
   function visit(node) {
     if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
       const component = node.tagName.getText(file.source);
@@ -308,7 +307,7 @@ function visitMetrics(file) {
       if (/^(?:useEffect|useLayoutEffect|useInsertionEffect|useDeepCompareEffect|useBrowserSubscription|useCommitLifecycle|useDomSubscription)$/.test(name)) {
         effectSites.push({ path: relative(pkg, file.path), line: file.source.getLineAndCharacterOfPosition(node.getStart(file.source)).line + 1, name });
       }
-      if (builderPath && name === 'useLoomClient') {
+      if (builderUiPath && name === 'useLoomClient') {
         uiServerAccessSites.push({ path: relative(pkg, file.path), line: file.source.getLineAndCharacterOfPosition(node.getStart(file.source)).line + 1, name });
       }
     }
@@ -332,7 +331,9 @@ function visitMetrics(file) {
         if (name === 'LoomClient' || name === 'useLoomClient') names.push(name);
       }
     }
-    if (builderPath && names.length) {
+    const importedModule = resolveModule(file.path, statement.moduleSpecifier.text);
+    if (builderUiPath && importedModule && outerLayer(importedModule) === 'client') names.push('client/');
+    if (builderUiPath && names.length) {
       uiServerAccessSites.push({ path: relativePath, line: file.source.getLineAndCharacterOfPosition(statement.getStart(file.source)).line + 1, name: names.join(', ') });
     }
   }
@@ -352,6 +353,11 @@ for (const file of productionFiles) {
   }
 }
 const widest = (map) => [...map].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)).slice(0, 10);
+const identityOwner = /^src\/(?:contracts\/identity\.ts$|data\/|features\/ExplorerBuilder\/model\/)/;
+const identitySitesOutsideOwners = [...new Map(
+  [...stalenessSites, ...auditStalenessSites].filter(({ path }) => !identityOwner.test(path))
+    .map(site => [`${site.path}:${site.line}`, site]),
+).values()];
 const before = JSON.parse(readFileSync(join(pkg, 'scripts', 'graph-ratchet-baseline.json'), 'utf8'));
 const report = {
   source: relative(process.cwd(), pkg),
@@ -382,6 +388,8 @@ const report = {
     stalenessComparisonSites: auditStalenessSites,
     structuralIdentityComparisons: stalenessSites.length,
     stalenessSites,
+    identityComparisonsOutsideOwners: identitySitesOutsideOwners.length,
+    identityComparisonLocationsOutsideOwners: identitySitesOutsideOwners,
     abortControllerSites: abortControllerSites.length,
     abortControllerLocations: abortControllerSites,
     abortControllersOutsideClientData: abortControllerOutsideAllowedSites.length,

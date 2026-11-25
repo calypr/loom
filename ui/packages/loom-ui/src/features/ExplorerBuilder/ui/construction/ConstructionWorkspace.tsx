@@ -3,8 +3,7 @@ import type { ConstructionHistorySelection } from '../../model/constructionHisto
 import { ConstructionHistory, type ConstructionHistoryProps } from './ConstructionHistory';
 import { ConstructionTableNavigation } from './ConstructionTableNavigation';
 import React, { useCallback, useRef, useState } from 'react';
-import { useDismissibleLayer } from '../../hooks/useDismissibleLayer';
-import { useBrowserSubscription } from '../../hooks/useBrowserSubscription';
+import { useDismissibleLayer } from '../../dom/useDismissibleLayer';
 
 import { constructionOperationFamilies, type ConstructionOperationFamily } from '../../model/constructionOperationFamily';
 

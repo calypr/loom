@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { useBuilderToolbarSession } from '../../session/BuilderToolbarSession';
 import type { DraftTable } from '../../model/authoring';
 import { IconCopy, IconTrash } from './icons';
-import { useDismissibleLayer } from '../../hooks/useDismissibleLayer';
+import { useDismissibleLayer } from '../../dom/useDismissibleLayer';
 
 interface BuilderToolbarPresentation {
   columnCreationSupported?: boolean;

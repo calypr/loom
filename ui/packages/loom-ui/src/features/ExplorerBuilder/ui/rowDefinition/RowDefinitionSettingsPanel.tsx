@@ -3,7 +3,7 @@ import { sameCatalogSnapshot, sameDraftVersion, sameDraftDigest } from '../../..
 import { rowScopeLabel } from '../../model/rowScopeLabel';
 import { replacementConsumerPresentations } from '../../model/replacementConsumers';
 import { createPortal } from 'react-dom';
-import { useEscapeToClose } from '../../hooks/useEscapeToClose';
+import { useEscapeToClose } from '../../dom/useEscapeToClose';
 import React, { useRef, useState, type ReactNode } from 'react';
 import { useRowDefinitionRequests, type SelectionOption } from '../../session/useRowDefinitionRequests';
 import type {

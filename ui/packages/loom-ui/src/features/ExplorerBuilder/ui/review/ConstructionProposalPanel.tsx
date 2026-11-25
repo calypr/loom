@@ -8,7 +8,7 @@ import type {
 import { formatPreviewCell } from '../preview/PreviewTable';
 import { PreviewValueCoverage } from '../preview/PreviewValueCoverage';
 import { constructionHistorySteps } from '../../model/constructionHistory';
-import { useEscapeToClose } from '../../hooks/useEscapeToClose';
+import { useEscapeToClose } from '../../dom/useEscapeToClose';
 
 const changedCandidateStep = (
   response: ConstructionProposalResponse,

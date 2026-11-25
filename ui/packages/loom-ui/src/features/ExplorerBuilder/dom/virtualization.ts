@@ -1,5 +1,5 @@
-import {useCallback, useRef, useState, type RefCallback} from 'react';
-import { useCommitLifecycle } from '../hooks/useBrowserSubscription';
+import { useCallback, useRef, useState, useSyncExternalStore, type RefCallback } from 'react';
+import { createStore } from '../../../data/createStore';
 
 interface VirtualViewport {
   readonly width: number;
@@ -25,35 +25,38 @@ export const useVirtualViewport = <T extends HTMLElement>(
   fallbackHeight = 640,
 ): VirtualViewportBinding<T> => {
   const [element, setElement] = useState<T | null>(null);
-  const [viewport, setViewport] = useState(() =>
-    defaultViewport(fallbackWidth, fallbackHeight),
-  );
+  const [store] = useState(() => createStore(defaultViewport(fallbackWidth, fallbackHeight)));
   const fallbackRef = useRef({ width: fallbackWidth, height: fallbackHeight });
   const ref = useCallback((mounted: T | null) => setElement(mounted), []);
 
-  useCommitLifecycle(() => {
-    if (!element) return undefined;
+  const subscribe = useCallback((onChange: () => void) => {
+    if (!element) return () => {};
+    const unsubscribe = store.subscribe(onChange);
     const update = () => {
       const fallback = fallbackRef.current;
-      setViewport({
+      const next = {
         width: element.clientWidth || fallback.width,
         height: element.clientHeight || fallback.height,
         scrollLeft: element.scrollLeft,
         scrollTop: element.scrollTop,
-      });
+      };
+      const current = store.getSnapshot();
+      if (next.width !== current.width || next.height !== current.height ||
+          next.scrollLeft !== current.scrollLeft || next.scrollTop !== current.scrollTop) {
+        store.setSnapshot(next);
+      }
     };
     update();
     element.addEventListener('scroll', update, { passive: true });
-    if (typeof ResizeObserver === 'undefined') {
-      return () => element.removeEventListener('scroll', update);
-    }
-    const observer = new ResizeObserver(update);
-    observer.observe(element);
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(update);
+    observer?.observe(element);
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
       element.removeEventListener('scroll', update);
+      unsubscribe();
     };
-  }, [element]);
+  }, [element, store]);
 
+  const viewport = useSyncExternalStore(subscribe, store.getSnapshot, store.getSnapshot);
   return { viewport, ref };
 };

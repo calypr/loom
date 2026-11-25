@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { useEscapeToClose } from '../../hooks/useEscapeToClose';
+import { useEscapeToClose } from '../../dom/useEscapeToClose';
 import { useFrameCategories, useFrameSourceOptions } from '../../session/frameSourceQueries';
 import type { FrameDefinition, FrameSourceOption, SemanticInventoryItem } from '../../../../contracts/types';
 import { catalogChoiceIntent, catalogItemAvailability, type CatalogChoiceIntent, type CatalogItem } from '../../model/catalogItems';

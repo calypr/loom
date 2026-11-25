@@ -1,5 +1,5 @@
 import React from 'react';
-import { useEscapeToClose } from '../../hooks/useEscapeToClose';
+import { useEscapeToClose } from '../../dom/useEscapeToClose';
 import { useExplicitGroups, type ExplicitGroupTransport } from '../../session/useExplicitGroups';
 import type { ExplicitGroupRevisionSummary } from '../../../../contracts/types';
 import type { SelectionRevision } from '../../../../contracts/selection';

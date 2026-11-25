@@ -1,7 +1,7 @@
-import { useBrowserSubscription } from './useBrowserSubscription';
+import { useDomSubscription } from './useDomSubscription';
 
 export const useDirtyBeforeUnload = (dirty: boolean): void => {
-  useBrowserSubscription((_onStoreChange) => {
+  useDomSubscription(() => {
     if (!dirty) return () => {};
     const warn = (event: BeforeUnloadEvent) => event.preventDefault();
     window.addEventListener('beforeunload', warn);

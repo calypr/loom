@@ -1,4 +1,4 @@
-import { useEscapeToClose } from '../../hooks/useEscapeToClose';
+import { useEscapeToClose } from '../../dom/useEscapeToClose';
 import { useSourceRelationshipReview, type SourceRelationshipReviewProps } from '../../session/useSourceRelationshipReview';
 
 export function SourceRelationshipReview(props: SourceRelationshipReviewProps) {

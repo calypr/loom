@@ -12,10 +12,10 @@ import {
 } from '../../model/routeActions';
 import { authoredTraversal } from '../../model/authoredTraversal';
 import { RouteExtensionPanel } from './RouteExtensionPanel';
-import { useEscapeToClose } from '../../hooks/useEscapeToClose';
-import { useGraphLayout } from '../../hooks/useGraphLayout';
-import { useGraphViewportFitter, type GraphViewportBounds } from '../../hooks/useGraphViewportFitter';
-import { useTraversalOverflow } from '../../hooks/useTraversalOverflow';
+import { useEscapeToClose } from '../../dom/useEscapeToClose';
+import { useGraphLayout } from '../../session/useGraphLayout';
+import { useGraphViewportFitter, type GraphViewportBounds } from '../../dom/useGraphViewportFitter';
+import { useTraversalOverflow } from '../../dom/useTraversalOverflow';
 
 const OCCURRENCE_NODE_HEIGHT = 84;
 const OCCURRENCE_COLUMN_GAP = 440;

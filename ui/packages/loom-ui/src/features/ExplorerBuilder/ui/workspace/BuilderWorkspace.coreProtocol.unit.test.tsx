@@ -224,8 +224,8 @@ vi.mock('../../../../react', async (importOriginal) => {
   };
 });
 
-vi.mock('../../hooks/useDirtyBeforeUnload', () => ({ useDirtyBeforeUnload: () => undefined }));
-vi.mock('../../hooks/usePortalHost', () => ({ usePortalHost: () => null }));
+vi.mock('../../dom/useDirtyBeforeUnload', () => ({ useDirtyBeforeUnload: () => undefined }));
+vi.mock('../../dom/usePortalHost', () => ({ usePortalHost: () => null }));
 vi.mock('../toolbar/BuilderToolbar', () => ({ BuilderToolbar: () => null, NewExplorerControl: () => null }));
 vi.mock('../review/DatasetReviewPanel', () => ({ DatasetReviewPanel: () => null }));
 vi.mock('../traversal/GuidedGraphWorkspace', () => ({ GuidedGraphWorkspace: () => null }));

@@ -63,6 +63,7 @@ const ratchets = [
   ['importCycles', 'Production import cycles'],
   ['effectLikeSites', 'React effect and external-subscription call sites'],
   ['stalenessComparisons', 'Identity comparison lines'],
+  ['identityComparisonsOutsideOwners', 'Identity comparisons outside contracts, data, and model'],
   ['abortControllerSites', 'AbortController sites'],
   ['abortControllersOutsideClientData', 'AbortController sites outside client and data'],
   ['uiServerAccessSites', 'Builder client-access sites'],
@@ -78,7 +79,7 @@ if (graphBaseline.enforceLayers && graph.metrics.layerViolations > graphBaseline
   violations.push(`Layer violations: ${graph.metrics.layerViolations}, ratchet allows at most ${graphBaseline.layerViolations}.`);
 }
 if (graphBaseline.enforceUiServerAccess && graph.metrics.uiServerAccessSites > 0) {
-  violations.push(`Builder client-access sites: ${graph.metrics.uiServerAccessSites}; UI features must not import LoomClient or useLoomClient.`);
+  violations.push(`Builder client-access sites: ${graph.metrics.uiServerAccessSites}; Builder UI must not import client/, LoomClient, or useLoomClient.`);
 }
 if (graphBaseline.enforceTestOnlyExportLayers) {
   const invalidExports = graph.metrics.testOnlyExportSites.filter((site) => !/\/features\/ExplorerBuilder\/(?:model|session)\//.test(site.path));
@@ -88,11 +89,12 @@ if (graphBaseline.enforceTestOnlyExportLayers) {
 }
 if (graphBaseline.enforceDomSubscriptionAllowlist) {
   const subscriptionSites = graph.metrics.effectSites.filter((site) => site.name === 'useDomSubscription');
-  const allowed = new Set(graphBaseline.domSubscriptionAllowlist);
-  const invalidSites = subscriptionSites.filter((site) => !allowed.has(site.path));
-  const otherEffectSites = graph.metrics.effectSites.filter((site) => site.name !== 'useDomSubscription');
-  if (invalidSites.length || otherEffectSites.length) {
-    violations.push(`DOM subscription allowlist violations: ${[...invalidSites, ...otherEffectSites].map(({ path, line, name }) => `${path}:${line} ${name}`).join(', ')}`);
+  const actual = subscriptionSites.map(site => site.path).sort();
+  const allowed = [...graphBaseline.domSubscriptionAllowlist].sort();
+  const invalidSites = graph.metrics.effectSites.filter(site =>
+    site.name !== 'useDomSubscription' || !site.path.startsWith('src/features/ExplorerBuilder/dom/'));
+  if (invalidSites.length || JSON.stringify(actual) !== JSON.stringify(allowed)) {
+    violations.push(`DOM subscription allowlist differs. Expected ${allowed.join(', ')}. Found ${graph.metrics.effectSites.map(({ path, line, name }) => `${path}:${line} ${name}`).join(', ')}.`);
   }
 }
 

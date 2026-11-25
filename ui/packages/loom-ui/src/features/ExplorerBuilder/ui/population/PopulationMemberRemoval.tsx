@@ -1,5 +1,5 @@
 import React from 'react';
-import { useEscapeToClose } from '../../hooks/useEscapeToClose';
+import { useEscapeToClose } from '../../dom/useEscapeToClose';
 import { usePopulationMemberRemoval, type PopulationMemberTransport } from '../../session/usePopulationMemberRemoval';
 import type { SelectionRevision } from '../../../../contracts/selection';
 

@@ -4,7 +4,7 @@ import { fieldPickerList, fieldPickerToggleRow } from '../shared/fieldPickerStyl
 import { createOpaqueId, normalizedName, uniqueName, editorContextKey } from '../../model/editorShared';
 import React, { useCallback, useId, useReducer, useRef, useState } from 'react';
 import { usePivotPopulation } from '../../session/usePivotPopulation';
-import { useEscapeToClose } from '../../hooks/useEscapeToClose';
+import { useEscapeToClose } from '../../dom/useEscapeToClose';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,

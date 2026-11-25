@@ -1,7 +1,7 @@
 import { formatPreviewCell } from '../../model/previewCellFormat';
 export { formatPreviewCell } from '../../model/previewCellFormat';
 import React, { useState } from 'react';
-import { useEscapeToClose } from '../../hooks/useEscapeToClose';
+import { useEscapeToClose } from '../../dom/useEscapeToClose';
 import { usePreviewLineage } from '../../session/usePreviewLineage';
 import type {
   ExplorerBuilderColumn,
@@ -15,7 +15,7 @@ import type { DraftTable } from '../../model/authoring';
 import { effectiveOutputAvailability } from '../../model/outputEligibility';
 import { losslessText } from '../../../../display/valueDisplay';
 import { resultUnitTitle } from '../../../../display/resultUnitDisplay';
-import { useVirtualViewport } from '../../components/virtualization';
+import { useVirtualViewport } from '../../dom/virtualization';
 import { BoundedCache, virtualRange } from '../../model/virtualization';
 
 const PREVIEW_ROW_HEIGHT = 44;

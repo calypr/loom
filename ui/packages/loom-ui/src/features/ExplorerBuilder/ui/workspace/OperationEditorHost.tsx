@@ -8,7 +8,7 @@ import { useColumnRuleInventory, type ColumnRuleInventoryScope } from '../../ses
 import { observedCategorySystems, observedExtensionPaths, observedIdentifierSystems } from '../../model/columnRuleInventory';
 import { columnRulePresets, type ColumnRulePreset } from '../../model/sourceColumnRule';
 import type { AddColumnsView } from '../../session/useAddColumns';
-import { useEscapeToClose } from '../../hooks/useEscapeToClose';
+import { useEscapeToClose } from '../../dom/useEscapeToClose';
 import { useCodedPivotContext } from '../../session/codedPivotContext';
 import { sanitizeReasonText } from '../../model/catalogItems';
 import type { ConstructionCombineStep } from '../../model/combineEditorTypes';

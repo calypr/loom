@@ -1,7 +1,7 @@
 import { useImportedSourceStepsSession } from '../../session/ImportedSourceStepsSession';
 import { groupSourceSteps, type SourceStepEntry } from '../../model/groupSourceSteps';
 import { useRef, useState, type ReactNode } from 'react';
-import { useEscapeToClose } from '../../hooks/useEscapeToClose';
+import { useEscapeToClose } from '../../dom/useEscapeToClose';
 import { createPortal } from 'react-dom';
 import { isIdentifierColumnRule } from '../../model/sourceColumnRule';
 import { SourceStepParameterEditor } from './SourceStepParameterEditor';
