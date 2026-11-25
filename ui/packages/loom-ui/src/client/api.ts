@@ -1,3 +1,5 @@
+import createOpenApiClient from 'openapi-fetch';
+import type { paths } from './openapi.generated';
 import type { ExplorerSummary } from '../contracts/explorerSummary';
 export type { ExplorerSummary } from '../contracts/explorerSummary';
 import type { ExplorerAuthoringApiError } from '../contracts/errors';
@@ -1155,6 +1157,9 @@ const splitSemanticInventoryBrowseResponse = (value: unknown): {
   };
 };
 
+// openapi-fetch constructs a Request even when Loom's configured transport takes a relative URL.
+const openApiPathOrigin = 'https://loom.invalid';
+
 export const createLoomClient = (options: LoomClientOptions = {}): LoomClient => {
   const fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
   const baseUrl = options.baseUrl ?? '/';
@@ -1170,7 +1175,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     if (/^https?:\/\//.test(baseUrl)) return `${baseUrl.replace(/\/$/, '')}${path}`;
     return `${baseUrl.replace(/\/$/, '')}${path}` || '/';
   };
-  const request = async (path: string, init: RequestInit = {}): Promise<unknown> => {
+  const requestResponse = async (path: string, init: RequestInit = {}): Promise<Response> => {
     try {
       const response = await fetcher(urlFor(path), {
         ...init,
@@ -1186,7 +1191,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
         const callerRequestId = new Headers(init.headers).get('X-Request-ID') ?? undefined;
         throw new LoomRequestError(await requestError(response, callerRequestId));
       }
-      return parseJSON(response);
+      return response;
     } catch (error) {
       if (error instanceof LoomRequestError) throw error;
       if (init.signal?.aborted) throw error;
@@ -1197,6 +1202,9 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       });
     }
   };
+  const request = (path: string, init?: RequestInit): Promise<unknown> =>
+    requestResponse(path, init).then(parseJSON);
+  const openApi = createOpenApiClient<paths>({ baseUrl: openApiPathOrigin });
   const evictCached = (key: string): void => {
     const entry = cache.get(key);
     if (!entry) return;
@@ -1505,17 +1513,34 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       ...(args.savedGraphOnly ? { savedGraphOnly: true } : {}),
       ...(args.cursor ? { cursor: args.cursor } : {}),
     }, signal, args.requestId)).then((value) => relatedExpandChoiceSearchResponseSchema.parse(value));
-  const searchRelatedFieldChoices = (args: SearchRelatedFieldChoicesArgs, signal?: AbortSignal) =>
-    request(authoringPath(args, '/related-field-choices'), withJson({
-      snapshotToken: args.snapshotToken,
-      expectedDraftVersion: args.expectedDraftVersion,
-      expectedDraftDigest: args.expectedDraftDigest,
-      outputId: args.outputId,
-      stageId: args.stageId,
-      ...(args.query ? { query: args.query } : {}),
-      ...(args.limit === undefined ? {} : { limit: args.limit }),
-      ...(args.cursor ? { cursor: args.cursor } : {}),
-    }, signal, args.requestId)).then((value) => relatedFieldChoiceSearchResponseSchema.parse(value));
+  const searchRelatedFieldChoices = async (args: SearchRelatedFieldChoicesArgs, signal?: AbortSignal) => {
+    const { response } = await openApi.POST('/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-field-choices', {
+      params: {
+        path: {
+          project: encodeURIComponent(canonicalProject(args.project)),
+          explorerId: args.explorerId,
+        },
+      },
+      body: {
+        snapshotToken: args.snapshotToken,
+        expectedDraftVersion: args.expectedDraftVersion,
+        expectedDraftDigest: args.expectedDraftDigest,
+        outputId: args.outputId,
+        stageId: args.stageId,
+        ...(args.query ? { query: args.query } : {}),
+        ...(args.limit === undefined ? {} : { limit: args.limit }),
+        ...(args.cursor ? { cursor: args.cursor } : {}),
+      },
+      parseAs: 'stream',
+      fetch: async (generatedRequest) => requestResponse(generatedRequest.url.slice(openApiPathOrigin.length), {
+        method: generatedRequest.method,
+        body: await generatedRequest.text(),
+        signal,
+        headers: args.requestId ? { 'X-Request-ID': args.requestId } : undefined,
+      }),
+    });
+    return relatedFieldChoiceSearchResponseSchema.parse(await parseJSON(response));
+  };
   const searchRelatedExpandContributors = (args: SearchRelatedExpandContributorsArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/related-expand-contributors'), withJson({
       snapshotToken: args.snapshotToken,

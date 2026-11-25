@@ -1449,6 +1449,44 @@ describe('Loom project paths', () => {
     );
   });
 
+  it('preserves the scoped path and fetch adapter contract for related-field choices', async () => {
+    const requestId = 'related-field-request';
+    const signal = AbortSignal.timeout(5000);
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response('This draft has expired.', { status: 409 }))
+      .mockRejectedValueOnce(new TypeError('Network unavailable'));
+    const client = createLoomClient({
+      baseUrl: '/loom-proxy/',
+      credentials: 'include',
+      headers: { Authorization: 'Bearer fixture-token' },
+      fetch,
+    });
+    const args = {
+      project: 'HTAN_INT/BForePC', explorerId: 'preview/draft', snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 4, expectedDraftDigest: 'draft-4', outputId: 'patients',
+      stageId: 'expand-encounters', cursor: 'next-page', requestId,
+    };
+
+    const error = await client.searchRelatedFieldChoices(args, signal).catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(LoomRequestError);
+    expect(error).toMatchObject({ status: 409, message: 'This draft has expired.', requestId });
+    expect(fetch).toHaveBeenCalledWith(
+      '/loom-proxy/api/v1/projects/HTAN_INT%252FBForePC/explorers/preview%2Fdraft/authoring/v2/related-field-choices',
+      expect.objectContaining({
+        credentials: 'include',
+        signal,
+        headers: expect.objectContaining({
+          Authorization: 'Bearer fixture-token',
+          'Content-Type': 'application/json',
+          'X-Request-ID': requestId,
+        }),
+      }),
+    );
+    await expect(client.searchRelatedFieldChoices(args, signal)).rejects.toMatchObject({
+      status: 'FETCH_ERROR', message: 'Network unavailable', retryable: true,
+    });
+  });
+
   it('searches server-proved population routes without sending browser-selected edges', async () => {
     const response = {
       snapshotToken: 'snapshot-1',
