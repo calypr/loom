@@ -3,7 +3,7 @@ import { sameChoiceRequestScope } from '../../../contracts/identity';
 import type { ConstructionCapabilitiesResponse } from '../../../contracts/types';
 import { resourceFor } from '../../../data/resource';
 
-type ConstructionCapabilitiesViewState =
+export type ConstructionCapabilitiesViewState =
   | { readonly status: 'idle' }
   | { readonly status: 'loading' }
   | { readonly status: 'ready'; readonly response: ConstructionCapabilitiesResponse }

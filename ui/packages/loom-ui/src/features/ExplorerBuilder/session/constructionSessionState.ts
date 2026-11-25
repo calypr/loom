@@ -1,3 +1,4 @@
+import type { GetConstructionCapabilitiesArgs, LoomClient } from '../../../client/api';
 import type { ConstructionProposalRequest, ConstructionProposalResponse, ExplorerBuilderPreviewResult } from '../../../contracts/types';
 import { createStore } from '../../../data/createStore';
 import { RequestOwner } from '../../../data/requests';
@@ -37,6 +38,17 @@ type PivotDiscoveryLoad = {
   readonly key: string;
   readonly state: ConstructionReshapePivotDiscovery | undefined;
 };
+
+export type ConstructionLifecycleClient = Pick<
+  LoomClient,
+  'getConstructionCapabilities' | 'discoverConstructionCategories' | 'proposeConstruction' | 'preview'
+>;
+
+export interface ConstructionEditingOwner {
+  onStart(intent: ConstructionCandidateIntent, request: GetConstructionCapabilitiesArgs): ConstructionEditingAttempt | undefined;
+}
+
+export type ReadyProposalOutcome = Extract<ProposalOutcome, { readonly status: 'ready' }>;
 
 type ConstructionSessionSnapshot = {
   readonly proposalOwner?: ProposalOwner;
