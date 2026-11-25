@@ -1,21 +1,7 @@
-import { useMemo, useState, useSyncExternalStore } from 'react';
-import type { QueryRefetchOptions } from '../../../data/resource';
-import { createAutomaticPreview, type AutomaticPreviewIdentity, type AutomaticPreviewRun } from './automaticPreview';
+import { useMemo, useSyncExternalStore } from 'react';
+import type { AutomaticPreviewOptions } from './automaticPreviewWorkflow';
 
-export const useAutomaticPreview = ({
-  request,
-  enabled,
-  refresh,
-}: {
-  readonly request: AutomaticPreviewIdentity | undefined;
-  readonly enabled: boolean;
-  readonly refresh: (
-    request: AutomaticPreviewIdentity,
-    signal: AbortSignal,
-    options?: QueryRefetchOptions,
-  ) => Promise<AutomaticPreviewRun | undefined>;
-}) => {
-  const [owner] = useState(createAutomaticPreview);
+export const useAutomaticPreview = ({ request, enabled, refresh, owner }: AutomaticPreviewOptions) => {
   owner.update(request, refresh);
   const resource = useMemo(() => owner.createResource(enabled), [owner, request?.key, enabled]);
   const snapshot = useSyncExternalStore(resource.subscribe, resource.getSnapshot, resource.getSnapshot);

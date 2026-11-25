@@ -2,7 +2,7 @@ import { admitAuthoringRequest } from './model/admission';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAutomaticPreview } from './session/useAutomaticPreviewResource';
-import { useAutomaticPreviewOwner } from './authoring/useAutomaticPreviewOwner';
+import { useAutomaticPreviewActions } from './session/useAutomaticPreviewActions';
 import { useReconcileActions } from './session/useReconcileActions';
 import { constructionAppendStageFor, constructionInputStageFor } from './model/constructionStages';
 import { effectiveOutputAvailability } from './model/outputEligibility';
@@ -493,14 +493,9 @@ const BuilderWorkspaceContent = ({
   });
 
   const { compileGeneration, previewGeneration, activeCompile, activePreview, reconcileStatus, previewStatus, reconcileCurrent, executePreview } = reconcile;
-  const automaticPreview = useAutomaticPreviewOwner({
-    ownerKey,
-    projectId,
-    state,
-    draftAccess,
+  const automaticPreview = useAutomaticPreviewActions(ownerKey, {
     compileGeneration,
     previewGeneration,
-    dispatch,
     setMessage,
   });
   const { previewLimit, setPreviewLimit, appliedChoicePreview, automaticPreviewGeneration, automaticPreviewRequest, cancelAutomaticPreview, queryOptionsFor } = automaticPreview;
