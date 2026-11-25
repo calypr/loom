@@ -1,6 +1,6 @@
 import React, { useMemo, useReducer, useRef, useState } from 'react';
 import { Alert, Button, Center, Group, Loader, MantineProvider, Modal, Stack, Tabs, Text, Title } from '@mantine/core';
-import { createLoomClient, type Artifact, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from '../../client/api';
+import { createLoomClient, type Artifact, type LoomClient, type LoomOutputResult } from '../../client/api';
 import { ChartToggle, QualitySummary, QuerySummary } from './ViewerChrome';
 import { FilterRail, OutputCharts, OutputTable, PageControls, textFor, type ViewerRow } from './components';
 import { runtimeSessionKey } from './model';
@@ -9,23 +9,13 @@ import { outputRequestFor } from './serialization';
 import { CellExplanationDialog, type CellExplanationCoordinate } from './CellExplanationDialog';
 import type { CellTraceArgs } from '../../client/api';
 import { useMutation } from '../../data/useMutation';
+import { invokeViewerAction, type LoomViewerActionHandler, type ViewerRuntimeAction } from '../../data/viewerAction';
 import { LoomProvider, useLoomClient, useLoomOutput, useLoomRuntime } from '../../react';
 import { resultUnitTitle } from '../../display/resultUnitDisplay';
 import type { CellTraceResponse } from '../../contracts/cellTrace';
 import type { ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from '../../contracts/types';
 
-type ViewerRuntimeAction = NonNullable<ExplorerRuntimeOutputV1['actions']>[number];
-
-export interface LoomViewerActionContext {
-  readonly project: string;
-  readonly runtime: ExplorerRuntimeV1;
-  readonly output: ExplorerRuntimeOutputV1;
-  readonly action: ViewerRuntimeAction;
-  readonly request: LoomOutputRequest;
-  readonly result?: LoomOutputResult;
-}
-
-export type LoomViewerActionHandler = (context: LoomViewerActionContext, signal: AbortSignal) => Promise<void> | void;
+export type { LoomViewerActionContext, LoomViewerActionHandler } from '../../data/viewerAction';
 
 interface LoomFeatureRepairContext {
   readonly outputId: string;
@@ -242,7 +232,7 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
         : resultCache.current.get(targetOutput.outputId);
       const customAction = customActions?.[action.type];
       if (customAction) {
-        await customAction({ project, runtime, output: targetOutput, action, request: targetRequest, result: targetResult }, new AbortController().signal);
+        await invokeViewerAction(customAction, { project, runtime, output: targetOutput, action, request: targetRequest, result: targetResult });
       } else {
         const exportRequest = {
           ...targetRequest,

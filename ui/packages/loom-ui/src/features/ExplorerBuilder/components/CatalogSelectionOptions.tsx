@@ -1,4 +1,6 @@
-import React, { useCallback, useRef, useState } from 'react';
+import { routeCoverageForm, useRouteCoverage, type CatalogInitialSelection, type ConditionDraft, type RouteCoverage } from '../session/useRouteCoverage';
+export type { CatalogInitialSelection, RouteCoverage } from '../session/useRouteCoverage';
+import React, { useCallback, useState } from 'react';
 import type {
   ConstructionChoice,
   ConstructionChoiceForm,
@@ -51,54 +53,6 @@ const routeTechnicalDetails = (route: ConstructionChoice['route']): string => ro
   : route.map((step) =>
       `${step.fromResourceType} to ${step.toResourceType} via ${step.relationship}; storage ${step.storageDirection.toLowerCase()}; match ${step.matchMode.toLowerCase()}`,
     ).join(' · ');
-
-const routeCoverageForm = (
-  item: CatalogChoiceGroup['item'],
-  choice: ConstructionChoice,
-  rowRoot: string,
-  groupedRows: boolean,
-  initialSelection?: CatalogInitialSelection,
-): 'COUNT' | 'ALL' | undefined => {
-  if (item.kind === 'FIELD' && isRelatedFieldCatalogItem(item, rowRoot)) {
-    const savedForm = choice.choiceId === initialSelection?.choiceId ? initialSelection.form : undefined;
-    if ((savedForm === 'COUNT' || savedForm === 'ALL') &&
-      choice.options.some((option) => option.form === savedForm && option.support === 'SUPPORTED')) return savedForm;
-    if (groupedRows && choice.options.some((option) => option.form === 'ALL' && option.support === 'SUPPORTED')) return 'ALL';
-    if (choice.options.some((option) => option.form === 'COUNT' && option.support === 'SUPPORTED')) return 'COUNT';
-    if (choice.options.some((option) => option.form === 'ALL' && option.support === 'SUPPORTED')) return 'ALL';
-    return undefined;
-  }
-  if (item.kind === 'SEMANTIC' && choice.route.length > 0 &&
-    choice.options.some((option) => option.form === 'ALL' && option.support === 'SUPPORTED')) return 'ALL';
-  return undefined;
-};
-
-type ConditionDraft = { readonly mode: 'ALL' | 'EXISTS' | 'EQUALS'; readonly value: string };
-type RouteMatchCoverage = {
-  readonly zero: number;
-  readonly one: number;
-  readonly many: number;
-  readonly displayedRows: number;
-  readonly sampled: boolean;
-};
-type RouteValueCoverage = {
-  readonly kind: 'VALUES';
-  readonly empty: number;
-  readonly one: number;
-  readonly many: number;
-  readonly displayedRows: number;
-  readonly sampled: boolean;
-};
-export type RouteCoverage = RouteMatchCoverage | RouteValueCoverage;
-type RouteCoverageState =
-  | { readonly status: 'loading' }
-  | { readonly status: 'ready'; readonly coverage: RouteCoverage }
-  | { readonly status: 'error'; readonly message: string };
-export type CatalogInitialSelection = {
-  readonly choiceId: string;
-  readonly form: ConstructionChoiceForm;
-  readonly condition?: ConditionDraft;
-};
 
 type ConstructionRowValuePolicy = NonNullable<ConstructionChoiceSelection['rowValuePolicy']>;
 
@@ -175,38 +129,12 @@ export const CatalogSelectionOptions = ({
   const [unresolvedConditions, setUnresolvedConditions] = useState<ReadonlyMap<string, ConditionDraft>>(
     () => new Map(),
   );
-  const [routeCoverage, setRouteCoverage] = useState<ReadonlyMap<string, RouteCoverageState>>(() => new Map());
-  const coverageRequests = useRef<Map<string, AbortController>>(new Map());
+  const { routeCoverage, inspectRouteCoverage, cancelCoverage } = useRouteCoverage(
+    rowRoot, groupedRowValuePolicy !== undefined, initialSelection, onInspectRouteCoverage,
+  );
   const optionsRegionRef = useCallback((node: HTMLDivElement | null) => {
-    if (node) return;
-    coverageRequests.current.forEach((controller) => controller.abort());
-    coverageRequests.current.clear();
+    if (!node) cancelCoverage();
   }, []);
-  const inspectRouteCoverage = (group: CatalogChoiceGroup, choice: ConstructionChoice) => {
-    const form = routeCoverageForm(group.item, choice, rowRoot, groupedRowValuePolicy !== undefined, initialSelection);
-    if (!onInspectRouteCoverage || !form || coverageRequests.current.has(choice.choiceId)) return;
-    const selection = catalogChoiceIntent({ item: group.item, choice, form, rowRoot });
-    if (form === 'COUNT' && !selection.relatedSource) return;
-    const controller = new AbortController();
-    coverageRequests.current.set(choice.choiceId, controller);
-    setRouteCoverage((current) => new Map(current).set(choice.choiceId, { status: 'loading' }));
-    void onInspectRouteCoverage(selection, controller.signal).then((coverage) => {
-      if (!controller.signal.aborted) {
-        setRouteCoverage((current) => new Map(current).set(choice.choiceId, { status: 'ready', coverage }));
-      }
-    }).catch((error: unknown) => {
-      if (!controller.signal.aborted) {
-        setRouteCoverage((current) => new Map(current).set(choice.choiceId, {
-          status: 'error',
-          message: error instanceof Error ? error.message : 'Route coverage is unavailable.',
-        }));
-      }
-    }).finally(() => {
-      if (coverageRequests.current.get(choice.choiceId) === controller) {
-        coverageRequests.current.delete(choice.choiceId);
-      }
-    });
-  };
 
   const complete = groups.every((group) => {
     const itemKey = catalogItemKey(group.item);

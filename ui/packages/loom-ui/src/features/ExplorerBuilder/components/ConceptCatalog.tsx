@@ -1,12 +1,10 @@
 import { fieldPickerList, fieldPickerMetadata, fieldPickerRow, fieldPickerSelected } from './fieldPickerStyles';
 import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
-import { useLoomClient, useQuery } from '../../../react';
+import { CATALOG_PAGE_SIZE, semanticBrowseReadinessKey, useCatalogRequests, type FieldPresentationCacheEntry } from '../session/useCatalogRequests';
 import type {
   ConstructionChoice,
   ConstructionChoiceOption,
-  ConstructionChoiceSearchSource,
   ExplorerBuilderCatalog,
-  FieldPresentation,
   FieldPresentationRequest,
   SemanticInventoryItemIdentity,
   FieldChoiceSource,
@@ -45,8 +43,6 @@ import {
   type RouteCoverage,
 } from './CatalogSelectionOptions';
 
-const PAGE_SIZE = 50;
-const ROUTE_PAGE_SIZE = 10;
 const MAX_SELECTIONS = 100;
 
 interface CatalogRouteContext {
@@ -66,32 +62,10 @@ interface CatalogRelatedSourceAvailability {
 
 export type ConceptCatalogView = 'all' | 'coded' | 'fields';
 
-type CatalogLoadState =
-  | { readonly status: 'idle' }
-  | { readonly status: 'loading' }
-  | { readonly status: 'ready' }
-  | { readonly status: 'error'; readonly message: string };
-
 type ChoiceDetailsState =
   | { readonly status: 'loading' }
   | { readonly status: 'ready'; readonly group: CatalogChoiceGroup }
   | { readonly status: 'error'; readonly message: string };
-
-type FieldPresentationCacheEntry = {
-  readonly request: FieldPresentationRequest;
-  readonly presentation: FieldPresentation;
-  readonly inventoryBuildId: string;
-  readonly readinessKey: string;
-  readonly searchGeneration: number;
-};
-
-const semanticBrowseReadinessKey = (response: SemanticInventoryBrowseResponse): string =>
-  JSON.stringify([
-    response.contextToken,
-    response.buildId,
-    response.state,
-    response.sourceAvailability ?? '',
-  ]);
 
 const semanticLabel = (item: SemanticInventoryItem): string =>
   item.display.trim() || item.code.trim() || item.sourcePath || item.resourceType;
@@ -808,7 +782,6 @@ const ConceptCatalogContent = ({
   ) => Promise<'preview-ready' | 'preview-pending' | void>;
   readonly onInspectRouteCoverage?: (selection: CatalogChoiceIntent, signal: AbortSignal) => Promise<RouteCoverage>;
 }) => {
-  const client = useLoomClient();
   const queryStateScopeKey = JSON.stringify([
     tableContextKey,
     view,
@@ -871,11 +844,6 @@ const ConceptCatalogContent = ({
   const visibleDisabledReasonId = disabled && disabledReason?.trim()
     ? disabledReasonId
     : undefined;
-  const activeChoiceRequest = useRef<AbortController | undefined>(undefined);
-  const activeMoreRouteRequest = useRef<{
-    readonly controller: AbortController;
-    readonly tableContextKey: string;
-  } | undefined>(undefined);
   const currentTableContextKey = useRef(tableContextKey);
   currentTableContextKey.current = tableContextKey;
   const canAddFromSourceProjection = sourceProjectionAvailability?.available ?? true;
@@ -889,14 +857,8 @@ const ConceptCatalogContent = ({
     }
     return canAddFromSourceProjection;
   };
-  const selectionContext = useRef<string | undefined>(undefined);
-  const semanticContextRef = useRef<{
-    readonly scopeKey: string;
-    readonly client: typeof client;
-    readonly value?: { readonly contextToken: string; readonly buildId: string };
-  }>({ scopeKey: '', client });
   const cancelLoadMoreRoutes = () => {
-    activeMoreRouteRequest.current?.controller.abort();
+    activeMoreRouteRequest.current?.controller.cancel();
     activeMoreRouteRequest.current = undefined;
     setLoadingMoreRoutes(undefined);
     setRouteLoadError(undefined);
@@ -963,7 +925,7 @@ const ConceptCatalogContent = ({
     : [];
   const uniquePresentationCandidates = [...new Map(
     presentationCandidates.map((item) => [item.candidate.candidateId, item] as const),
-  ).values()].slice(0, PAGE_SIZE);
+  ).values()].slice(0, CATALOG_PAGE_SIZE);
   const presentationRequest: FieldPresentationRequest | undefined =
     presentationContext && uniquePresentationCandidates.length > 0 &&
     (view === 'fields' || !searchAcrossSources)
@@ -972,188 +934,25 @@ const ConceptCatalogContent = ({
           candidateIds: uniquePresentationCandidates.map((item) => item.candidate.candidateId),
         }
       : undefined;
-  const presentationScopeKey = JSON.stringify([
-    project,
-    explorerId,
-    authResourcePath ?? '',
-    snapshotToken,
-    outputId,
-    tableContextKey,
-    rowRoot,
-    catalog.authorizationScopeDigest ?? '',
-    catalog.generation,
-    presentationContext?.expectedDraftVersion ?? 0,
-    presentationContext?.expectedDraftDigest ?? '',
-    presentationContext?.sourceNodeId ?? '',
-    presentationContext?.occurrenceId ?? '',
-    presentationContext?.stageId ?? '',
-  ]);
-  const presentationRequestKey = presentationRequest
-    ? JSON.stringify([presentationScopeKey, presentationRequest.candidateIds])
-    : 'none';
-  const presentationCache = useRef<{
-    readonly client: typeof client;
-    readonly scopeKey: string;
-    readonly entries: Map<string, FieldPresentationCacheEntry>;
-  }>({ client, scopeKey: presentationScopeKey, entries: new Map() });
-  if (presentationCache.current.client !== client || presentationCache.current.scopeKey !== presentationScopeKey) {
-    presentationCache.current = { client, scopeKey: presentationScopeKey, entries: new Map() };
-  }
-  const cachedPresentationEntry = presentationRequest
-    ? presentationCache.current.entries.get(presentationRequestKey)
-    : undefined;
-  const cachedPresentation = cachedPresentationEntry && (
-    cachedPresentationEntry.presentation.kind !== 'UNAVAILABLE' ||
-    cachedPresentationEntry.searchGeneration === searchGeneration
-  ) ? cachedPresentationEntry : undefined;
-  const presentationRequestToSend = presentationRequest && !cachedPresentation
-    ? presentationRequest
-    : undefined;
-  const semanticContextScopeKey = JSON.stringify([
-    project,
-    explorerId,
-    authResourcePath ?? '',
-    snapshotToken,
-    outputId,
-    rowRoot,
-    semanticSelectionMode ?? '',
-  ]);
-  if (semanticContextRef.current.scopeKey !== semanticContextScopeKey || semanticContextRef.current.client !== client) {
-    semanticContextRef.current = { scopeKey: semanticContextScopeKey, client };
-  }
-  const catalogRequestScopeKey = JSON.stringify([
-    project,
-    explorerId,
-    authResourcePath ?? '',
-    snapshotToken,
-    tableContextKey,
-    rowRoot,
-    outputId,
-    browseResourceType ?? '',
-    semanticSelectionMode ?? '',
-    viewRevision,
-    query,
-    searchGeneration,
-    presentationRequestKey,
-  ]);
-  const currentPageNavigation = pageNavigation?.scopeKey === catalogRequestScopeKey
-    ? pageNavigation
-    : { scopeKey: catalogRequestScopeKey, cursors: [undefined], index: 0 };
-  const cursor = currentPageNavigation.cursors[currentPageNavigation.index];
-  const pageCache = useRef<{
-    readonly client: typeof client;
-    readonly scopeKey: string;
-    readonly pages: Map<string, SemanticInventoryBrowseResponse>;
-  }>({ client, scopeKey: catalogRequestScopeKey, pages: new Map() });
-  if (pageCache.current.client !== client || pageCache.current.scopeKey !== catalogRequestScopeKey) {
-    pageCache.current = { client, scopeKey: catalogRequestScopeKey, pages: new Map() };
-  }
-  const catalogPageCacheKey = JSON.stringify([catalogRequestScopeKey, cursor ?? null]);
-  const currentCatalogRequestScopeKey = useRef(catalogRequestScopeKey);
-  currentCatalogRequestScopeKey.current = catalogRequestScopeKey;
-  const catalogQuery = useQuery(async (signal) => {
-    if (signal.aborted) return undefined;
-    const cached = pageCache.current.pages.get(catalogPageCacheKey);
-    if (cached) return cached;
-    const browseCurrentPage = (fieldPresentation?: FieldPresentationRequest) =>
-      client.browseSemanticInventory({
-        project,
-        explorerId,
-        authResourcePath,
-        snapshotToken,
-        rowRoot,
-        outputId,
-        selectionMode: semanticSelectionMode,
-        resourceType: browseResourceType,
-        query,
-        cursor,
-        limit: PAGE_SIZE,
-        ...(fieldPresentation ? { fieldPresentation } : {}),
-        requestId: `feature-catalog-${window.crypto.randomUUID()}`,
-      }, signal);
-    let response = await browseCurrentPage(presentationRequestToSend);
-    let proofRequestForResponse = presentationRequestToSend;
-    if (!signal.aborted && presentationRequest && cachedPresentation &&
-      (cachedPresentation.inventoryBuildId !== response.buildId ||
-        cachedPresentation.readinessKey !== semanticBrowseReadinessKey(response))) {
-      if (presentationCache.current.scopeKey === presentationScopeKey) {
-        presentationCache.current.entries.delete(presentationRequestKey);
-      }
-      response = await browseCurrentPage(presentationRequest);
-      proofRequestForResponse = presentationRequest;
-    }
-    if (!signal.aborted && proofRequestForResponse && response.fieldPresentation &&
-      presentationCache.current.scopeKey === presentationScopeKey) {
-      if (response.fieldPresentation.kind === 'UNAVAILABLE' || fieldPresentationMatchesRequest({
-        presentation: response.fieldPresentation,
-        request: proofRequestForResponse,
-        project,
-        explorerId,
-        snapshotToken,
-        outputId,
-        datasetGeneration: catalog.generation,
-        inventoryBuildId: response.buildId,
-        authorizationScopeDigest: catalog.authorizationScopeDigest,
-      })) {
-        presentationCache.current.entries.set(presentationRequestKey, {
-          request: proofRequestForResponse,
-          presentation: response.fieldPresentation,
-          inventoryBuildId: response.buildId,
-          readinessKey: semanticBrowseReadinessKey(response),
-          searchGeneration,
-        });
-      }
-    }
-    if (!signal.aborted && currentCatalogRequestScopeKey.current === catalogRequestScopeKey) {
-      if (selectionContext.current && selectionContext.current !== response.contextToken) {
-        setSelected(new Map());
-        setPendingSelection(undefined);
-        setActionMessage('The dataset catalog changed. Review and select the features again.');
-      }
-      selectionContext.current = response.contextToken;
-      pageCache.current.pages.set(catalogPageCacheKey, response);
-    }
-    return response;
-  }, [
-    authResourcePath,
-    catalogPageCacheKey,
-    client,
-    cursor,
-    explorerId,
-    outputId,
-    project,
-    query,
-    browseResourceType,
-    rowRoot,
-    presentationRequestKey,
-    searchGeneration,
-    snapshotToken,
-  ], Boolean(snapshotToken && rowRoot && (view !== 'fields' || presentationRequestToSend)));
-  const loadState: CatalogLoadState = !snapshotToken || !rowRoot
-    ? { status: 'idle' }
-    : catalogQuery.error
-      ? { status: 'error', message: catalogQuery.error instanceof Error
-        ? catalogQuery.error.message
-        : 'Loom could not load the feature catalog.' }
-      : catalogQuery.isLoading
-        ? { status: 'loading' }
-        : catalogQuery.data
-          ? { status: 'ready' }
-          : { status: 'idle' };
+  const {
+    presentationScopeKey, presentationRequestKey, presentationCache, cachedPresentation,
+    catalogRequestScopeKey, pageIndex, semanticResponse, loadState, resolveChoiceGroup: resolveCatalogChoiceGroup,
+    activeChoiceRequest, activeMoreRouteRequest, startChoiceRequest, startContinuation,
+  } = useCatalogRequests({
+    project, explorerId, authResourcePath, snapshotToken, outputId, tableContextKey,
+    rowRoot, catalog, presentationContext, presentationRequest, searchGeneration, viewRevision,
+    browseResourceType, semanticSelectionMode, query, pageNavigation, view, browseRouteContext,
+    onCatalogChanged() {
+      setSelected(new Map());
+      setPendingSelection(undefined);
+      setActionMessage('The dataset catalog changed. Review and select the features again.');
+    },
+  });
   const sourceProjectionReason = sourceProjectionAvailability?.reason.trim();
   const relatedSourceAvailabilityId = useId();
 
 
-  const semanticResponse = catalogQuery.data ?? pageCache.current.pages.get(catalogPageCacheKey);
-  if (semanticResponse) {
-    semanticContextRef.current = {
-      scopeKey: semanticContextScopeKey,
-      client,
-      value: { contextToken: semanticResponse.contextToken, buildId: semanticResponse.buildId },
-    };
-  }
   const response = view === 'fields' ? undefined : semanticResponse;
-  const pageIndex = currentPageNavigation.index;
   const warning = response ? availabilityMessage(response) : undefined;
   const canBrowseConcepts = response?.state === 'complete';
   const choiceDetailsKey = (item: CatalogItem): string =>
@@ -1212,9 +1011,9 @@ const ConceptCatalogContent = ({
   };
   const catalogOwnerRef = useCallback((element: HTMLElement | null) => {
     if (element) return;
-    activeChoiceRequest.current?.abort();
+    activeChoiceRequest.current?.cancel();
     activeChoiceRequest.current = undefined;
-    activeMoreRouteRequest.current?.controller.abort();
+    activeMoreRouteRequest.current?.controller.cancel();
     activeMoreRouteRequest.current = undefined;
   }, []);
   const currentPresentationCandidates = hasExactPresentationOccurrence && presentationContext && presentationSourceNode
@@ -1391,143 +1190,17 @@ const ConceptCatalogContent = ({
     cancelLoadMoreRoutes();
     const pendingChoiceRequest = activeChoiceRequest.current;
     activeChoiceRequest.current = undefined;
-    pendingChoiceRequest?.abort();
+    pendingChoiceRequest?.cancel();
     if (pendingChoiceRequest) setSelectionPhase('idle');
     setActionMessage(undefined);
   };
 
-  const resolveChoiceGroup = async (
+  const resolveChoiceGroup = (
     item: CatalogItem,
     signal?: AbortSignal,
     cursor?: string,
     semanticContext?: { readonly contextToken: string; readonly buildId: string },
-  ): Promise<CatalogChoiceGroup> => {
-    const existingChoice = catalogItemConstructionChoice(item);
-    if (
-      !cursor &&
-      existingChoice &&
-      !browseRouteContext &&
-      existingChoice.source.resourceType === rowRoot &&
-      existingChoice.route.length === 0
-    ) {
-      return { item, choices: [existingChoice], complete: true, truncated: false };
-    }
-    const retainedSemanticContext = semanticContextRef.current.scopeKey === semanticContextScopeKey && semanticContextRef.current.client === client
-      ? semanticContextRef.current.value
-      : undefined;
-    if (item.kind === 'SEMANTIC' && !semanticResponse) {
-      if (!semanticContext && !retainedSemanticContext) {
-        throw new Error('Loom has not provided a complete concept catalog for this result.');
-      }
-    }
-    let source: ConstructionChoiceSearchSource;
-    if (item.kind === 'FIELD') {
-      source = { kind: 'FIELD', candidateId: item.candidate.candidateId };
-    } else {
-      const effectiveContext = semanticContext ?? (semanticResponse ? {
-        contextToken: semanticResponse.contextToken,
-        buildId: semanticResponse.buildId,
-      } : retainedSemanticContext);
-      if (!effectiveContext) {
-        throw new Error('Loom has not provided a complete concept catalog for this result.');
-      }
-      if (item.item.selectionMode === 'SYSTEM_VERSION_CATEGORY') {
-        if (!existingChoice) throw new Error('Loom did not provide a signed choice for this coded family.');
-        source = {
-          kind: 'SEMANTIC',
-          contextToken: effectiveContext.contextToken,
-          buildId: effectiveContext.buildId,
-          conceptId: item.item.conceptId,
-          bindingId: item.item.bindingId,
-          selectionMode: item.item.selectionMode,
-          choiceId: existingChoice.choiceId,
-        };
-      } else {
-        source = {
-          kind: 'SEMANTIC',
-          contextToken: effectiveContext.contextToken,
-          buildId: effectiveContext.buildId,
-          conceptId: item.item.conceptId,
-          bindingId: item.item.bindingId,
-        };
-      }
-    }
-    const choicesById = new Map<string, ConstructionChoice>();
-    const seenCursors = new Set(cursor ? [cursor] : []);
-    let pageCursor = cursor;
-    let nextCursor: string | undefined;
-    let resolved: Awaited<ReturnType<typeof client.searchConstructionChoices>> | undefined;
-    let choices: ReadonlyArray<ConstructionChoice> = [];
-    do {
-      if (signal?.aborted) throw new Error('Construction choice search was cancelled.');
-      resolved = await client.searchConstructionChoices({
-        project,
-        explorerId,
-        authResourcePath,
-        snapshotToken,
-        outputId,
-        ...(browseRouteContext ? { occurrenceId: browseRouteContext.occurrenceId } : {}),
-        source,
-        limit: ROUTE_PAGE_SIZE,
-        ...(pageCursor ? { cursor: pageCursor } : {}),
-        requestId: `construction-choices-${window.crypto.randomUUID()}`,
-      }, signal);
-      if (
-        resolved.snapshotToken !== snapshotToken ||
-        resolved.outputId !== outputId
-      ) {
-        throw new Error('Loom returned construction choices for another table or catalog snapshot.');
-      }
-      for (const choice of resolved.choices) {
-        if (!choicesById.has(choice.choiceId)) choicesById.set(choice.choiceId, choice);
-      }
-      choices = [...choicesById.values()];
-      nextCursor = resolved.nextCursor;
-      const usableChoices = item.kind === 'FIELD'
-        ? choiceGroupsForRelatedSource([{
-            item,
-            choices,
-            complete: resolved.complete,
-            truncated: resolved.truncated,
-            ...(resolved.nextCursor ? { nextCursor: resolved.nextCursor } : {}),
-          }], rowRoot, relatedSourceAvailability)[0]?.choices ?? []
-        : choices;
-      if (usableChoices.length > 0) {
-        if (nextCursor && seenCursors.has(nextCursor)) nextCursor = undefined;
-        break;
-      }
-      if (nextCursor && seenCursors.has(nextCursor)) {
-        throw new Error('Construction choice pagination repeated a page.');
-      }
-      if (!nextCursor) break;
-      seenCursors.add(nextCursor);
-      pageCursor = nextCursor;
-    } while (nextCursor);
-    if (!resolved) throw new Error('Loom did not return construction choices.');
-    const finalGroup: CatalogChoiceGroup = {
-      item,
-      choices,
-      complete: resolved.complete,
-      truncated: resolved.truncated,
-      ...(nextCursor ? { nextCursor } : {}),
-    };
-    if (!resolved.complete && !nextCursor && choicesForCurrentTable(finalGroup).length === 0) {
-      throw new Error('Loom could not finish checking construction choices.');
-    }
-    return {
-      item,
-      choices,
-      complete: resolved.complete,
-      truncated: resolved.truncated,
-      ...(nextCursor ? { nextCursor } : {}),
-      ...(item.kind === 'SEMANTIC' ? {
-        semanticContext: semanticContext ?? (semanticResponse ? {
-          contextToken: semanticResponse.contextToken,
-          buildId: semanticResponse.buildId,
-        } : retainedSemanticContext),
-      } : {}),
-    };
-  };
+  ) => resolveCatalogChoiceGroup(choicesForCurrentTable, item, signal, cursor, semanticContext);
 
   const resolveSelectedGroups = async (
     items: ReadonlyArray<CatalogItem>,
@@ -1600,8 +1273,10 @@ const ConceptCatalogContent = ({
   const loadMoreChoices = async (group: CatalogChoiceGroup) => {
     if (!group.nextCursor || loadingMoreRoutes) return;
     const key = catalogItemKey(group.item);
-    activeMoreRouteRequest.current?.controller.abort();
-    const request = { controller: new AbortController(), tableContextKey };
+    activeMoreRouteRequest.current?.controller.cancel();
+    const controller = startContinuation();
+    if (!controller) return;
+    const request = { controller, tableContextKey };
     activeMoreRouteRequest.current = request;
     setLoadingMoreRoutes(key);
     setRouteLoadError(undefined);
@@ -1641,6 +1316,7 @@ const ConceptCatalogContent = ({
         message: error instanceof Error ? error.message : 'Loom could not load more routes.',
       });
     } finally {
+      request.controller.finish();
       if (activeMoreRouteRequest.current === request) {
         activeMoreRouteRequest.current = undefined;
         setLoadingMoreRoutes(undefined);
@@ -1733,8 +1409,9 @@ const ConceptCatalogContent = ({
     setAdvancedOpen(true);
     if (pendingSelection?.length === selectedItems.length) return;
     setRouteLoadError(undefined);
-    const controller = new AbortController();
-    activeChoiceRequest.current?.abort();
+    activeChoiceRequest.current?.cancel();
+    const controller = startChoiceRequest();
+    if (!controller) return;
     activeChoiceRequest.current = controller;
     setSelectionPhase('loading-options');
     setActionMessage(undefined);
@@ -1756,6 +1433,7 @@ const ConceptCatalogContent = ({
           : 'Loom could not resolve the selected feature routes.',
       );
     } finally {
+      controller.finish();
       if (activeChoiceRequest.current === controller) {
         activeChoiceRequest.current = undefined;
         setSelectionPhase('idle');
@@ -1772,8 +1450,9 @@ const ConceptCatalogContent = ({
     if (selectionPhase !== 'idle' || !selectedItems.length || !onAddSelected || !selectedItems.every(canAddCatalogItem)) return;
     setRouteLoadError(undefined);
     setActionMessage(undefined);
-    const controller = new AbortController();
-    activeChoiceRequest.current?.abort();
+    activeChoiceRequest.current?.cancel();
+    const controller = startChoiceRequest();
+    if (!controller) return;
     activeChoiceRequest.current = controller;
     setSelectionPhase('loading-options');
     try {
@@ -1800,6 +1479,7 @@ const ConceptCatalogContent = ({
       );
       if (resolvedIntents.length === groups.length) {
         activeChoiceRequest.current = undefined;
+        controller.finish();
         await submitIntents(resolvedIntents);
         return;
       }
@@ -1811,6 +1491,7 @@ const ConceptCatalogContent = ({
         ? error.message
         : 'Loom could not resolve the selected feature routes.');
     } finally {
+      controller.finish();
       if (activeChoiceRequest.current === controller) {
         activeChoiceRequest.current = undefined;
         setSelectionPhase('idle');
@@ -2026,7 +1707,7 @@ const ConceptCatalogContent = ({
             disabled={disabled || submitting}
             onClick={() => {
               if (advancedOpen) {
-                activeChoiceRequest.current?.abort();
+                activeChoiceRequest.current?.cancel();
                 activeChoiceRequest.current = undefined;
                 cancelLoadMoreRoutes();
                 setPendingSelection(undefined);
@@ -2063,7 +1744,7 @@ const ConceptCatalogContent = ({
                   onLoadMoreRoutes={(group) => void loadMoreChoices(group)}
                   onInspectRouteCoverage={onInspectRouteCoverage}
                   onCancel={() => {
-                    activeChoiceRequest.current?.abort();
+                    activeChoiceRequest.current?.cancel();
                     cancelLoadMoreRoutes();
                     setPendingSelection(undefined);
                     setAdvancedOpen(false);
