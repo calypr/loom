@@ -33,6 +33,12 @@ vi.mock('../../src/features/ExplorerBuilder/session/useBuilderLoad', () => ({
   useGetExplorerBuilderStateV2Query: () => ({ data: fixture.state, isLoading: false, refetch: vi.fn() }),
 }));
 
+vi.mock('../../src/data/builderQueries', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../src/data/builderQueries')>(),
+  useResolveConfiguredColumnContextsQuery: () => ({ data: undefined, error: undefined, isLoading: false, isFetching: false }),
+  useResolvePopulationSelectionQuery: () => ({ data: undefined, error: undefined, isLoading: false, isFetching: false, refetch: vi.fn() }),
+}));
+
 vi.mock('../../src/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/react')>();
   const mutation = () => [vi.fn(), { isLoading: false }];
@@ -49,8 +55,6 @@ vi.mock('../../src/react', async (importOriginal) => {
     usePreviewExplorerAuthoringV2Mutation: mutation,
     usePublishExplorerAuthoringV2Mutation: mutation,
     useReconcileExplorerBuilderV2Mutation: mutation,
-    useResolveConfiguredColumnContextsQuery: () => ({ data: undefined, error: undefined, isLoading: false, isFetching: false }),
-    useResolvePopulationSelectionQuery: () => ({ data: undefined, error: undefined, isLoading: false, isFetching: false, refetch: vi.fn() }),
   };
 });
 

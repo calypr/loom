@@ -10,8 +10,8 @@ import {
   useGetExplorerAuthoringExplorersQuery,
   useGetExplorerAuthoringCapabilityV2Query,
   usePreviewExplorerAuthoringV2Mutation,
-  useResolveConfiguredColumnContextsQuery,
 } from './react';
+import { useResolveConfiguredColumnContextsQuery } from './data/builderQueries';
 import { useGetExplorerBuilderStateV2Query } from './features/ExplorerBuilder/session/useBuilderLoad';
 
 const ExplorerStatus = () => {

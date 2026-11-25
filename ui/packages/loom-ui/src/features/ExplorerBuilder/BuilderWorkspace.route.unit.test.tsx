@@ -26,6 +26,24 @@ vi.mock('./session/useBuilderLoad', () => ({
   useGetExplorerBuilderStateV2Query: vi.fn(),
 }));
 
+vi.mock('../../data/builderQueries', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../data/builderQueries')>(),
+  useResolveConfiguredColumnContextsQuery: vi.fn(() => ({
+    data: undefined,
+    error: undefined,
+    isLoading: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  })),
+  useResolvePopulationSelectionQuery: vi.fn(() => ({
+    data: undefined,
+    error: undefined,
+    isLoading: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  })),
+}));
+
 vi.mock('../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../react')>();
   return {
@@ -37,20 +55,6 @@ vi.mock('../../react', async (importOriginal) => {
     useDeleteExplorerAuthoringMutation: vi.fn(),
     useGetExplorerAuthoringCapabilityV2Query: vi.fn(),
     useGetExplorerAuthoringExplorersQuery: vi.fn(),
-    useResolveConfiguredColumnContextsQuery: vi.fn(() => ({
-      data: undefined,
-      error: undefined,
-      isLoading: false,
-      isFetching: false,
-      refetch: vi.fn(),
-    })),
-    useResolvePopulationSelectionQuery: vi.fn(() => ({
-      data: undefined,
-      error: undefined,
-      isLoading: false,
-      isFetching: false,
-      refetch: vi.fn(),
-    })),
     useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
     usePreviewExplorerAuthoringV2Mutation: vi.fn(),
     usePopulationMappingMutation: vi.fn(),

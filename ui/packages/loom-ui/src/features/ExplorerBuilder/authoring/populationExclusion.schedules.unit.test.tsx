@@ -99,6 +99,11 @@ vi.mock('../session/useBuilderLoad', () => ({
   useGetExplorerBuilderStateV2Query: vi.fn(),
 }));
 
+vi.mock('../../../data/builderQueries', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../data/builderQueries')>(),
+  useResolveConfiguredColumnContextsQuery: mockLoomClient.configuredColumnContextsQuery,
+}));
+
 vi.mock('../../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../react')>();
   return {
@@ -120,7 +125,6 @@ vi.mock('../../../react', async (importOriginal) => {
       mockUseActualReconcile.isLoading = result[1].isLoading;
       return result;
     },
-    useResolveConfiguredColumnContextsQuery: mockLoomClient.configuredColumnContextsQuery,
   };
 });
 

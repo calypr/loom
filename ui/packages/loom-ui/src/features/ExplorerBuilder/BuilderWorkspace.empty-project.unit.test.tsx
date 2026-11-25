@@ -17,6 +17,24 @@ import {
 } from '../../react';
 import BuilderWorkspace from './BuilderWorkspace';
 
+vi.mock('../../data/builderQueries', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../data/builderQueries')>(),
+  useResolveConfiguredColumnContextsQuery: vi.fn(() => ({
+    data: undefined,
+    error: undefined,
+    isLoading: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  })),
+  useResolvePopulationSelectionQuery: vi.fn(() => ({
+    data: undefined,
+    error: undefined,
+    isLoading: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  })),
+}));
+
 vi.mock('../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../react')>();
   return {
@@ -25,20 +43,6 @@ vi.mock('../../react', async (importOriginal) => {
     useAssessExplorerRowChangeMutation: vi.fn(),
     useCreateExplorerAuthoringMutation: vi.fn(),
     useDeleteExplorerAuthoringMutation: vi.fn(),
-    useResolveConfiguredColumnContextsQuery: vi.fn(() => ({
-      data: undefined,
-      error: undefined,
-      isLoading: false,
-      isFetching: false,
-      refetch: vi.fn(),
-    })),
-    useResolvePopulationSelectionQuery: vi.fn(() => ({
-      data: undefined,
-      error: undefined,
-      isLoading: false,
-      isFetching: false,
-      refetch: vi.fn(),
-    })),
     useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
     usePreviewExplorerAuthoringV2Mutation: vi.fn(),
     usePopulationMappingMutation: vi.fn(),

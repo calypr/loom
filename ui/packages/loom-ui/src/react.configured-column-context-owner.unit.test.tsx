@@ -5,8 +5,8 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { createLoomClient, type ResolveConfiguredColumnContextsArgs } from './client/api';
 import {
   LoomProvider,
-  useResolveConfiguredColumnContextsQuery,
 } from './react';
+import { useResolveConfiguredColumnContextsQuery } from './data/builderQueries';
 
 describe('configured column context request ownership', () => {
   it('binds a unique request ID to each real query attempt and aborts retired owners', async () => {

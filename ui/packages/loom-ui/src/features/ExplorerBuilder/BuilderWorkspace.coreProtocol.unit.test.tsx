@@ -170,6 +170,31 @@ vi.mock('./session/useBuilderLoad', () => ({
   }),
 }));
 
+vi.mock('../../data/builderQueries', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../data/builderQueries')>(),
+  useResolveConfiguredColumnContextsQuery: (args?: {
+    readonly snapshotToken: string;
+    readonly expectedDraftVersion: number;
+    readonly expectedDraftDigest: string;
+  }) => ({
+    data: args ? {
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      columns: [{
+        outputId,
+        column: 'patient_id',
+        occurrenceId: 'base',
+        resolution: { state: 'READY', capabilityCandidateIds: ['patient-id-candidate'] },
+      }],
+    } : undefined,
+    error: undefined,
+    isLoading: false,
+    isFetching: false,
+  }),
+  useResolvePopulationSelectionQuery: () => ({ data: undefined, error: undefined, isLoading: false, isFetching: false, refetch: vi.fn() }),
+}));
+
 vi.mock('../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../react')>();
   const mutation = () => [vi.fn(() => ({ unwrap: () => Promise.resolve(undefined), abort: () => undefined })), { isLoading: false }];
@@ -190,27 +215,6 @@ vi.mock('../../react', async (importOriginal) => {
     usePreviewExplorerAuthoringV2Mutation: () => [mutationTrigger(harness.previewCalls, harness.previewGates), { isLoading: false }],
     usePublishExplorerAuthoringV2Mutation: mutation,
     useReconcileExplorerBuilderV2Mutation: () => [mutationTrigger(harness.reconcileCalls, harness.reconcileGates), { isLoading: false }],
-    useResolveConfiguredColumnContextsQuery: (args?: {
-      readonly snapshotToken: string;
-      readonly expectedDraftVersion: number;
-      readonly expectedDraftDigest: string;
-    }) => ({
-      data: args ? {
-        snapshotToken: args.snapshotToken,
-        draftVersion: args.expectedDraftVersion,
-        draftDigest: args.expectedDraftDigest,
-        columns: [{
-          outputId,
-          column: 'patient_id',
-          occurrenceId: 'base',
-          resolution: { state: 'READY', capabilityCandidateIds: ['patient-id-candidate'] },
-        }],
-      } : undefined,
-      error: undefined,
-      isLoading: false,
-      isFetching: false,
-    }),
-    useResolvePopulationSelectionQuery: () => ({ data: undefined, error: undefined, isLoading: false, isFetching: false, refetch: vi.fn() }),
   };
 });
 

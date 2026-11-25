@@ -68,6 +68,12 @@ vi.mock('./session/useBuilderLoad', () => ({
   }),
 }));
 
+vi.mock('../../data/builderQueries', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../data/builderQueries')>(),
+  useResolveConfiguredColumnContextsQuery: () => ({ data: harness.configuredContext, error: undefined, isLoading: false, isFetching: false }),
+  useResolvePopulationSelectionQuery: () => ({ data: undefined, error: undefined, isLoading: false, isFetching: false, refetch: vi.fn() }),
+}));
+
 vi.mock('../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../react')>();
   const mutation = () => [vi.fn(), { isLoading: false }];
@@ -88,8 +94,6 @@ vi.mock('../../react', async (importOriginal) => {
     usePreviewExplorerAuthoringV2Mutation: mutation,
     usePublishExplorerAuthoringV2Mutation: mutation,
     useReconcileExplorerBuilderV2Mutation: mutation,
-    useResolveConfiguredColumnContextsQuery: () => ({ data: harness.configuredContext, error: undefined, isLoading: false, isFetching: false }),
-    useResolvePopulationSelectionQuery: () => ({ data: undefined, error: undefined, isLoading: false, isFetching: false, refetch: vi.fn() }),
   };
 });
 

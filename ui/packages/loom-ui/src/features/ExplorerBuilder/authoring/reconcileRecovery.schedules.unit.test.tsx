@@ -23,13 +23,18 @@ vi.mock('../session/useBuilderLoad', () => ({
   useGetExplorerBuilderStateV2Query: vi.fn(() => ({ data: harness.state, isLoading: false, refetch: harness.refetch })),
 }));
 
+vi.mock('../../../data/builderQueries', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../data/builderQueries')>(),
+  useResolvePopulationSelectionQuery: () => ({ data: undefined, isLoading: false, isFetching: false, refetch: vi.fn() }),
+  useResolveConfiguredColumnContextsQuery: () => ({ data: undefined, isLoading: false, isFetching: false, refetch: vi.fn() }),
+}));
+
 vi.mock('../../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../react')>();
   return {
     ...actual,
     useLoomClient: () => harness.client,
     useGetExplorerAuthoringExplorersQuery: () => ({ data: [{ explorerId: 'patients', title: 'Patients' }], isLoading: false, refetch: vi.fn() }),
-    useResolvePopulationSelectionQuery: () => ({ data: undefined, isLoading: false, isFetching: false, refetch: vi.fn() }),
     useGetExplorerAuthoringCapabilityV2Query: () => ({ data: { features: { deleteExplorer: false } } }),
     useReconcileExplorerBuilderV2Mutation: () => [harness.reconcile, { isLoading: false }],
     usePreviewExplorerAuthoringV2Mutation: () => [harness.preview, { isLoading: false }],
@@ -40,7 +45,6 @@ vi.mock('../../../react', async (importOriginal) => {
     useDeleteExplorerAuthoringMutation: () => [vi.fn(), { isLoading: false }],
     useGetExplorerCandidateSuggestionsV2Mutation: () => [vi.fn(), { isLoading: false }],
     usePopulationMappingMutation: () => [vi.fn(), { isLoading: false }],
-    useResolveConfiguredColumnContextsQuery: () => ({ data: undefined, isLoading: false, isFetching: false, refetch: vi.fn() }),
   };
 });
 

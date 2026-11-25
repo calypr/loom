@@ -1,3 +1,4 @@
+import { useResolveConfiguredColumnContextsQuery, useResolvePopulationSelectionQuery } from '../../data/builderQueries';
 import { useWorkspaceUi } from './session/useWorkspaceUi';
 import type { DatasetReviewTarget } from './model/datasetReviewSelection';
 import { useWorkspaceSelection } from './session/useWorkspaceSelection';
@@ -14,8 +15,6 @@ import {
   useAssessExplorerRowChangeMutation,
   useGetExplorerAuthoringCapabilityV2Query,
   useGetExplorerAuthoringExplorersQuery,
-  useResolveConfiguredColumnContextsQuery,
-  useResolvePopulationSelectionQuery,
   useGetExplorerCandidateSuggestionsV2Mutation,
   useLoomClient,
 } from '../../react';
