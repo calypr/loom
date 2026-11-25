@@ -1,8 +1,6 @@
 import { useMemo, useRef, useSyncExternalStore } from 'react';
 import { resourceFor, type QueryRefetchOptions } from './resource';
 
-export { resourceFor } from './resource';
-
 export interface QueryResult<T> {
   readonly data?: T;
   readonly error?: unknown;

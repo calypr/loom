@@ -2,11 +2,11 @@
 
 import React, { StrictMode } from 'react';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { resourceFor } from './data/resource';
 import { createLoomClient } from './client/api';
 import type { ResolveConfiguredColumnContextsArgs } from './client/api';
 import {
   LoomProvider,
-  resourceFor,
   useGetExplorerAuthoringExplorersQuery,
   useGetExplorerAuthoringCapabilityV2Query,
   usePreviewExplorerAuthoringV2Mutation,

@@ -1,6 +1,6 @@
 import {useCallback, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import { useCommitLifecycle } from '../hooks/useBrowserSubscription';
-import { resourceFor } from '../../../react';
+import { resourceFor } from '../../../data/resource';
+import { constructionCapabilitiesResource } from '../session/constructionCapabilities';
 import { LoomRequestError } from '../../../client/api';
 import type {
   DiscoverConstructionCategoriesArgs,
@@ -9,7 +9,6 @@ import type {
   ProposeConstructionArgs,
 } from '../../../client/api';
 import type {
-  ConstructionCapabilitiesResponse,
   ConstructionCategoryDiscoveryResponse,
   ConstructionProposalRequest,
   ConstructionProposalResponse,
@@ -47,17 +46,6 @@ interface ConstructionEditingAttempt {
 interface ConstructionEditingOwner {
   onStart(intent: ConstructionCandidateIntent, request: GetConstructionCapabilitiesArgs): ConstructionEditingAttempt | undefined;
 }
-
-type ConstructionCapabilitiesViewState =
-  | { readonly status: 'idle' }
-  | { readonly status: 'loading' }
-  | { readonly status: 'ready'; readonly response: ConstructionCapabilitiesResponse }
-  | { readonly status: 'error'; readonly message: string };
-
-type CapabilitiesLoad = {
-  readonly key: string;
-  readonly state: ConstructionCapabilitiesViewState;
-};
 
 type ProposalOutcome = Extract<ConstructionProposalViewState, { readonly status: 'ready' | 'needs-repair' }>;
 type ReadyProposalOutcome = Extract<ProposalOutcome, { readonly status: 'ready' }>;
@@ -167,14 +155,9 @@ export const useConstructionLifecycle = ({
   readonly previewLimit?: number;
   readonly editingOwner?: ConstructionEditingOwner;
 }) => {
-  const [capabilitiesLoad, setCapabilitiesLoad] = useState<CapabilitiesLoad>({
-    key: '',
-    state: { status: 'idle' },
-  });
   const [proposalOwner, setProposalOwner] = useState<ProposalOwner | undefined>();
   const [proposalOverride, setProposalOverride] = useState<ProposalOverride | undefined>();
   const [pivotDiscoveryLoad, setPivotDiscoveryLoad] = useState<PivotDiscoveryLoad>({ key: '', state: undefined });
-  const capabilitiesController = useRef<AbortController | undefined>(undefined);
   const pivotDiscoveryController = useRef<AbortController | undefined>(undefined);
   const proposalGeneration = useRef(0);
   const proposalOwnerSequence = useRef(0);
@@ -218,59 +201,23 @@ export const useConstructionLifecycle = ({
     pivotDiscoveryController.current = undefined;
   }, []);
 
-  useCommitLifecycle(() => {
+  const capabilities = useMemo(
+    () => constructionCapabilitiesResource(client, () => capabilitiesRequestRef.current, Boolean(requestKey)),
+    [client, requestKey],
+  );
+  const subscribeCapabilities = useCallback((listener: () => void) => {
     invalidatePivotDiscovery();
     setPivotDiscoveryLoad({ key: '', state: undefined });
-    capabilitiesController.current?.abort();
-    capabilitiesController.current = undefined;
-    let controller: AbortController | undefined;
-
-    if (!requestKey) {
-      setCapabilitiesLoad({ key: '', state: { status: 'idle' } });
-    } else {
-      const args = capabilitiesRequestRef.current;
-      if (args) {
-        const requestController = new AbortController();
-        controller = requestController;
-        capabilitiesController.current = requestController;
-        setCapabilitiesLoad({ key: requestKey, state: { status: 'loading' } });
-        void client.getConstructionCapabilities(args, requestController.signal).then(
-          (response) => {
-            if (requestController.signal.aborted) return;
-            const matchesRequest =
-              response.snapshotToken === args.snapshotToken &&
-              response.draftVersion === args.expectedDraftVersion &&
-              response.draftDigest === args.expectedDraftDigest &&
-              response.outputId === args.outputId &&
-              response.stageId === args.stageId;
-            setCapabilitiesLoad({
-              key: requestKey,
-              state: matchesRequest
-                ? { status: 'ready', response }
-                : {
-                    status: 'error',
-                    message: 'Loom returned capabilities for a different draft or table.',
-                  },
-            });
-          },
-        ).catch((error: unknown) => {
-          if (requestController.signal.aborted) return;
-          setCapabilitiesLoad({
-            key: requestKey,
-            state: {
-              status: 'error',
-              message: errorMessage(error, 'Loom could not load construction capabilities.'),
-            },
-          });
-        });
-      }
-    }
-
+    const unsubscribe = capabilities.subscribe(listener);
     return () => {
-      controller?.abort();
+      unsubscribe();
       invalidatePivotDiscovery();
     };
-  }, [client, invalidatePivotDiscovery, requestKey]);
+  }, [capabilities, invalidatePivotDiscovery]);
+  const capabilitiesSnapshot = useSyncExternalStore(subscribeCapabilities, capabilities.getSnapshot, capabilities.getSnapshot);
+  const activeCapabilities = useMemo(() => capabilitiesSnapshot.data ?? (
+    requestKey ? { status: 'loading' as const } : { status: 'idle' as const }
+  ), [capabilitiesSnapshot.data, requestKey]);
 
   const invalidateProposalRequest = useCallback(() => {
     proposalGeneration.current += 1;
@@ -433,7 +380,6 @@ export const useConstructionLifecycle = ({
       });
       return;
     }
-    const activeCapabilities = capabilitiesLoad.key === requestKey ? capabilitiesLoad.state : { status: 'loading' as const };
     if (activeCapabilities.status !== 'ready' || activeCapabilities.response.selectedStage.id !== request.stageId) {
       setPivotDiscoveryLoad({
         key: discoveryKey,
@@ -516,7 +462,7 @@ export const useConstructionLifecycle = ({
         },
       });
     });
-  }, [capabilitiesLoad, client, invalidatePivotDiscovery, requestKey]);
+  }, [activeCapabilities, client, invalidatePivotDiscovery, requestKey]);
 
   const beginApply = useCallback((expectedProposal?: ReadyProposalOutcome) => {
     if (applyingOwnerRef.current) return undefined;
@@ -584,11 +530,6 @@ export const useConstructionLifecycle = ({
     return { proposalId, finish };
   }, [activeProposal, activeProposalOwner, invalidateProposalRequest]);
 
-  const activeCapabilities = capabilitiesLoad.key === requestKey
-    ? capabilitiesLoad.state
-    : requestKey
-      ? { status: 'loading' as const }
-      : { status: 'idle' as const };
   const activePivotDiscoveryKey = pivotDiscoveryLoad.state
     ? pivotDiscoveryLoadIdentity(requestKey, pivotDiscoveryLoad.state)
     : '';

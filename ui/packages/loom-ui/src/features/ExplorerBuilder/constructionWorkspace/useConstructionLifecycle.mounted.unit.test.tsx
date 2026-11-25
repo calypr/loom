@@ -15,7 +15,7 @@ import {
   type ConstructionCandidateIntent,
 } from './useConstructionLifecycle';
 
-import { resourceFor } from '../../../react';
+import { resourceFor } from '../../../data/resource';
 import {
   reconcileReceiptMatchesRequest,
   reconcileRecoveryAction,

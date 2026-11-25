@@ -21,7 +21,7 @@ import { useQuery, type QueryResult } from './data/queries';
 import { useMutation } from './data/useMutation';
 
 export { LoomProvider, useLoomClient } from './data/provider';
-export { resourceFor, useQuery } from './data/queries';
+export { useQuery } from './data/queries';
 
 export const useGetExplorerAuthoringExplorersQuery = (args: ExplorerAuthoringProjectArgs): QueryResult<Awaited<ReturnType<LoomClient['listExplorers']>>> => {
   const client = useLoomClient();
