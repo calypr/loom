@@ -25,7 +25,7 @@ import { PopulationPanel } from '../population/PopulationPanel';
 import { RowChangePreviewPanel } from '../review/RowChangePreviewPanel';
 import { RowDefinitionPanel } from '../rowDefinition/RowDefinitionPanel';
 import { RowDefinitionSettingsPanel } from '../rowDefinition/RowDefinitionSettingsPanel';
-import { useBrowserSubscription } from '../../hooks/useBrowserSubscription';
+import { useReviewFocusRefs } from '../../dom/useReviewFocusRefs';
 import { FrameSourcePanel } from '../construction/FrameSourcePanel';
 import { derivedOccurrences, routeNode } from '../../model/authoring';
 import { shouldShowBuilderLoadError } from '../../authoring/builderLoadError';
@@ -96,10 +96,6 @@ function BuilderWorkspaceScope(props: BuilderWorkspaceProps) {
   );
 }
 
-const focusFirstTableName = () => {
-  window.setTimeout(() => document.getElementById('first-table-name')?.focus(), 0);
-};
-
 const confirmWorkspaceAction = (message: string) => window.confirm(message);
 
 const BuilderWorkspaceContent = ({
@@ -141,7 +137,7 @@ const BuilderWorkspaceContent = ({
     excludePopulationMember, constructionHistorySelection, sourceStepInspectorHost,
     sourceChangeReviewHost, sourceFieldEditAction, sourceOutputEditAction,
     sourceStepSwitchOccurrenceAction, automaticPreviewFailureMessage, previewLimit, setPreviewLimit,
-    setSourceChangeReviewHost, reviewFocusTarget, selectConstructionFamily,
+    setSourceChangeReviewHost, selectConstructionFamily,
     selectConstructionHistory, editConstructionStep, closeConstructionWorkspace,
     removeConstructionStep, restorePreviousDraft, capabilityStage, capabilityIsForAppendStage,
     calculateUnavailableReason, relationshipOwner, loadRecipeNetwork, pendingRelationship,
@@ -155,39 +151,11 @@ const BuilderWorkspaceContent = ({
     constructionWorkspaceSession, toolbarSession, removeProjectedField, traversalTable,
   } = useBuilderWorkspaceActions({
     populationSelection, populationSelectionLoading, populationSelectionError, onExplorerChange,
-    featureFocus, scope, focusFirstTableName, confirmWorkspaceAction,
+    featureFocus, scope, confirmWorkspaceAction,
   });
   useDirtyBeforeUnload(state.dirty || pendingCommands > 0);
   const toolbarHost = usePortalHost('explorer-builder-toolbar-host');
-  useBrowserSubscription((_onStoreChange) => {
-    if (!reviewFocusTarget || state.selectedOutputId !== reviewFocusTarget.outputId) return () => {};
-    const focusTarget = reviewFocusTarget;
-    const timer = window.setTimeout(() => {
-      if (focusTarget.kind === 'column') {
-        document
-          .querySelector<HTMLElement>('[data-feature-focus="true"]')
-          ?.scrollIntoView({ block: 'center' });
-        return;
-      }
-      if (focusTarget.kind === 'row') {
-        const selector = focusTarget.control === 'row-type'
-          ? '[aria-label="Search row types"]'
-          : '[aria-label="One row per"]';
-        const control = document.querySelector<HTMLElement>(selector);
-        control?.closest('section')?.scrollIntoView({ block: 'center' });
-        control?.focus();
-        return;
-      }
-      const targetTable = state.tables.find((candidate) => candidate.outputId === focusTarget.outputId);
-      const selector = targetTable?.document.rootResourceType
-        ? '[aria-label="Search columns"]'
-        : '[aria-label="Search row types"]';
-      const control = document.querySelector<HTMLElement>(selector);
-      control?.closest('section')?.scrollIntoView({ block: 'center' });
-      control?.focus();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [reviewFocusTarget, state.selectedOutputId, state.tables], Boolean(reviewFocusTarget && state.selectedOutputId === reviewFocusTarget.outputId));
+  const { tableNameRef, rowTypeRef } = useReviewFocusRefs(state.selectedOutputId);
   if (
     explorers.isLoading ||
     (explorerQueryEnabled && builder.isLoading)
@@ -537,6 +505,8 @@ const BuilderWorkspaceContent = ({
   const externalWorkspaceEditor = sourceRecipeInspector ?? (sourceRowsOpen ? <div className="construction-inspector-portal-host" ref={setSourceRowsInspectorHost} aria-label="Source row settings inspector" /> : workspaceEditor);
   const tableCreatorPanel = (
     <TableCreatorPanel
+      tableNameRef={tableNameRef}
+      rowTypeRef={rowTypeRef}
       isFirstTable={state.tables.length === 0}
       previousDraftRevisionId={previousDraftRevisionId}
       pendingCommands={pendingCommands}

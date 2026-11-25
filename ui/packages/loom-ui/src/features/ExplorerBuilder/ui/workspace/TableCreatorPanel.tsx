@@ -13,6 +13,8 @@ type FirstTableProgress =
 
 export const TableCreatorPanel = ({
   isFirstTable,
+  tableNameRef,
+  rowTypeRef,
   previousDraftRevisionId,
   pendingCommands,
   publishing,
@@ -26,6 +28,8 @@ export const TableCreatorPanel = ({
   onCancel,
 }: {
   readonly isFirstTable: boolean;
+  readonly tableNameRef?: React.Ref<HTMLInputElement>;
+  readonly rowTypeRef?: React.Ref<HTMLInputElement>;
   readonly previousDraftRevisionId?: string;
   readonly pendingCommands: number;
   readonly publishing: boolean;
@@ -60,6 +64,7 @@ export const TableCreatorPanel = ({
       </label>
       <input
         id="first-table-name"
+        ref={tableNameRef}
         value={firstTableName}
         onChange={(event) => onFirstTableNameChange(event.currentTarget.value)}
         placeholder="Defaults to the record type"
@@ -69,6 +74,7 @@ export const TableCreatorPanel = ({
     </div>
     <div className="mt-5 max-w-3xl">
       <RowRootPicker
+        searchRef={rowTypeRef}
         catalog={catalog}
         disabled={
           pendingCommands > 0 ||

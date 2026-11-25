@@ -15,6 +15,10 @@ type ClearedPopulationSelection<Client> = {
   readonly selectionID: string;
 };
 
+type PendingReviewFocus =
+  | { readonly kind: 'table-name' }
+  | { readonly kind: 'row-type'; readonly outputId: string };
+
 type WorkspaceUiState<Client> = {
   readonly message: string | undefined;
   readonly pendingSavedRuleRemoval: string | undefined;
@@ -26,6 +30,7 @@ type WorkspaceUiState<Client> = {
   readonly rowValuePolicy: NonNullable<ConstructionChoiceSelection['rowValuePolicy']>;
   readonly reviewOpen: boolean;
   readonly reviewFocusTarget: Exclude<DatasetReviewTarget, { readonly kind: 'new-table' }> | undefined;
+  readonly pendingReviewFocus: PendingReviewFocus | undefined;
   readonly reviewFocusColumn: Extract<DatasetReviewTarget, { readonly kind: 'column' }> | undefined;
   readonly interpretationContextRefreshVersion: number;
 };
@@ -44,6 +49,7 @@ export function createWorkspaceUi<Panel, Client>() {
     rowValuePolicy: 'ALL',
     reviewOpen: false,
     reviewFocusTarget: undefined,
+    pendingReviewFocus: undefined,
     reviewFocusColumn: undefined,
     interpretationContextRefreshVersion: 0,
   });
@@ -67,6 +73,12 @@ export function createWorkspaceUi<Panel, Client>() {
     setRowValuePolicy: (update: Update<WorkspaceUiState<Client>['rowValuePolicy']>) => set('rowValuePolicy', update),
     setReviewOpen: (update: Update<WorkspaceUiState<Client>['reviewOpen']>) => set('reviewOpen', update),
     setReviewFocusTarget: (update: Update<WorkspaceUiState<Client>['reviewFocusTarget']>) => set('reviewFocusTarget', update),
+    setPendingReviewFocus: (token: PendingReviewFocus | undefined) => set('pendingReviewFocus', token),
+    consumeReviewFocus(token: PendingReviewFocus) {
+      if (store.getSnapshot().pendingReviewFocus !== token) return false;
+      set('pendingReviewFocus', undefined);
+      return true;
+    },
     setReviewFocusColumn: (update: Update<WorkspaceUiState<Client>['reviewFocusColumn']>) => set('reviewFocusColumn', update),
     setInterpretationContextRefreshVersion: (update: Update<WorkspaceUiState<Client>['interpretationContextRefreshVersion']>) => set('interpretationContextRefreshVersion', update),
     isCancelingConstructionProposal: () => store.getSnapshot().cancelingConstructionProposal,

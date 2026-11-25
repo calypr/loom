@@ -3,10 +3,12 @@ import type { ExplorerBuilderCatalog } from '../../../../contracts/types';
 
 export const RowRootPicker = ({
   catalog,
+  searchRef,
   disabled,
   onChoose,
 }: {
   readonly catalog: ExplorerBuilderCatalog;
+  readonly searchRef?: React.Ref<HTMLInputElement>;
   readonly disabled: boolean;
   readonly onChoose: (nodeId: string) => void;
 }) => {
@@ -41,6 +43,7 @@ export const RowRootPicker = ({
         Search row types
         <input
           aria-label="Search row types"
+          ref={searchRef}
           value={query}
           onChange={(event) => setQuery(event.currentTarget.value)}
           placeholder="Patient, Specimen, Observation…"

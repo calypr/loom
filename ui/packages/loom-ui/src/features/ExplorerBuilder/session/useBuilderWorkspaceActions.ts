@@ -101,7 +101,7 @@ const receiptContainsOutputIds = (
 
 export function useBuilderWorkspaceActions({
   populationSelection, populationSelectionLoading, populationSelectionError, onExplorerChange,
-  featureFocus, scope, focusFirstTableName, confirmWorkspaceAction,
+  featureFocus, scope, confirmWorkspaceAction,
 }: {
   readonly populationSelection?: SelectionRevision;
   readonly populationSelectionLoading: boolean;
@@ -109,7 +109,6 @@ export function useBuilderWorkspaceActions({
   readonly onExplorerChange?: (explorerId: string) => void;
   readonly featureFocus?: { readonly outputId: string; readonly column: string; readonly label?: string };
   readonly scope: ReturnType<typeof useBuilderWorkspaceScope>;
-  readonly focusFirstTableName: () => void;
   readonly confirmWorkspaceAction: (message: string) => boolean;
 }) {
   const {
@@ -144,7 +143,7 @@ export function useBuilderWorkspaceActions({
     setMessage, setPendingSavedRuleRemoval, beginConstructionCancellation, finishConstructionCancellation,
     isCancelingConstructionProposal, setPopulationSelectionOverride, setClearedPopulationSelection, setFeatureMode,
     occurrencePanelsFor, setRowValuePolicy, setReviewOpen, setReviewFocusTarget, setReviewFocusColumn,
-    setInterpretationContextRefreshVersion,
+    setInterpretationContextRefreshVersion, setPendingReviewFocus,
   } = useWorkspaceUiActions();
   const traversalState = useTraversalState();
   const { occurrenceInspectorHost, setOccurrenceInspectorHost, editingRecipeColumn, setEditingRecipeColumn,
@@ -601,12 +600,18 @@ export function useBuilderWorkspaceActions({
       setReviewOpen(false);
       setReviewFocusColumn(undefined);
       setReviewFocusTarget(undefined);
-      focusFirstTableName();
+      setPendingReviewFocus(state.tables.length === 0 || tableCreatorOpen ? { kind: 'table-name' } : undefined);
       return;
     }
     selectTableFromUser(target.outputId);
     setReviewOpen(false);
     setReviewFocusTarget(target);
+    const targetTable = state.tables.find((candidate) => candidate.outputId === target.outputId);
+    const canFocusRowType = (target.kind === 'row' && target.control === 'row-type') ||
+      (target.kind === 'table' && !targetTable?.document.rootResourceType);
+    setPendingReviewFocus(canFocusRowType && tableCreatorOpen
+      ? { kind: 'row-type', outputId: target.outputId }
+      : undefined);
     if (target.kind === 'column') {
       setFeatureMode('catalog');
       setReviewFocusColumn(target);
@@ -617,7 +622,7 @@ export function useBuilderWorkspaceActions({
     if (target.kind === 'table' || (target.kind === 'row' && target.control === 'row-type')) {
       setFeatureMode('catalog');
     }
-  }, [dispatch, selectTableFromUser, focusFirstTableName]);
+  }, [dispatch, selectTableFromUser, state.tables, tableCreatorOpen, setPendingReviewFocus]);
   const handedOffPopulationSelectionID = populationSelection?.id;
   const cohortRevisionID = table && table.document.rows.kind === 'GROUPS' &&
     table.document.rows.groups.source.kind === 'EXPLICIT'
@@ -1340,7 +1345,7 @@ export function useBuilderWorkspaceActions({
     excludePopulationMember, constructionHistorySelection, sourceStepInspectorHost,
     sourceChangeReviewHost, sourceFieldEditAction, sourceOutputEditAction,
     sourceStepSwitchOccurrenceAction, automaticPreviewFailureMessage, previewLimit, setPreviewLimit,
-    setSourceChangeReviewHost, reviewFocusTarget, selectConstructionFamily,
+    setSourceChangeReviewHost, selectConstructionFamily,
     selectConstructionHistory, editConstructionStep, closeConstructionWorkspace,
     removeConstructionStep, restorePreviousDraft, capabilityStage, capabilityIsForAppendStage,
     calculateUnavailableReason, relationshipOwner, loadRecipeNetwork, pendingRelationship,
