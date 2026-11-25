@@ -100,10 +100,7 @@ export {
   publicScalarListColumnIds,
 } from '../model/reshapeForms';
 export type {
-  CompletePivotDiscovery,
   ConstructionReshapeEditorEntry,
-  ConstructionReshapePivotDiscovery,
-  ConstructionReshapePivotDiscoveryRequest,
   ReshapeEntryKind,
   ReshapeForm,
 } from '../model/reshapeForms';

@@ -9,7 +9,7 @@ import { ConstructionActionBar,
   type ConstructionOperationFamily } from './ConstructionWorkspace';
 import { constructionHistorySteps, constructionRowMeaning } from '../model/constructionHistory';
 import { ConstructionColumnSelection } from './ConstructionColumnSelection';
-import { constructionProposalIsApplicable } from './ConstructionProposalPanel';
+import { constructionProposalIsApplicable } from '../model/constructionProposal';
 import { sourceProjectionAvailability } from '../model/sourceProjectionAvailability';
 import type { Construction, ConstructionProposalResponse, ExplorerBuilderPreviewResult } from '../../../contracts/types';
 

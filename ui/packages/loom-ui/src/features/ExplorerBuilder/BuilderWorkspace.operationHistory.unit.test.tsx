@@ -24,7 +24,8 @@ import type {
   ExplorerBuilderWorkspace,
 } from '../../contracts/types';
 import BuilderWorkspace from './BuilderWorkspace';
-import { ConstructionProposalPanel, constructionProposalIsApplicable } from './constructionWorkspace/ConstructionProposalPanel';
+import { ConstructionProposalPanel } from './constructionWorkspace/ConstructionProposalPanel';
+import { constructionProposalIsApplicable } from './model/constructionProposal';
 import { ConstructionReshapeEditor } from './constructionOperations/ConstructionReshapeEditor';
 import { useConstructionLifecycle, type ConstructionCandidateIntent } from './constructionWorkspace/useConstructionLifecycle';
 
