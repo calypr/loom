@@ -87,7 +87,7 @@ import { useBuilderSessionDraft } from './session/useBuilderSessionDraft';
 import { useRecipeFocus } from './authoring/useRecipeFocus';
 import { useReshapeAvailability } from './authoring/useReshapeAvailability';
 import { useConstructionNavigation } from './authoring/useConstructionNavigation';
-import { useFirstTable } from './authoring/useFirstTable';
+import { useFirstTableActions } from './session/useFirstTableActions';
 import { useTableExplorerCrud } from './authoring/useTableExplorerCrud';
 import { useSuggestions } from './authoring/useSuggestions';
 import { usePopulationExclusion } from './authoring/usePopulationExclusion';
@@ -328,10 +328,10 @@ const BuilderWorkspaceContent = ({
   const sourceStepEditDirty = useRef(false);
   const advancedRuleEditorReturn = useRef<string | undefined>(undefined);
   const sourceStepEditCancelAction = useRef<(() => void) | undefined>(undefined);
-  const { firstTableName, setFirstTableName, tableCreatorOpen, setTableCreatorOpen,
-    firstTableProgress, firstTableActionPending, actionsFor: firstTableActionsFor } = useFirstTable({
-    draftAccess, getSuggestions, projectId, authResourcePath, setMessage,
-  });
+  const {
+    firstTableName, setFirstTableName, tableCreatorOpen, setTableCreatorOpen,
+    firstTableProgress, isFirstTableActionPending, createFirstTableFromRoot,
+  } = useFirstTableActions({ getSuggestions, setMessage });
   const { sourceRelationshipRequest, recipeEditToken, sourceProposal, setSourceProposal,
     lastAcceptedOutputPreview, connectingRelationship, setConnectingRelationship, savedNetwork,
     recipeNotice, setRecipeNotice, setRelationshipEdit, actionsFor: sourceRecipeActionsFor } = useSourceRecipe();
@@ -1002,12 +1002,11 @@ const BuilderWorkspaceContent = ({
     constructionLifecycle.proposal.status !== 'idle';
   const { addTable, duplicateTable, renameTable, renameTableById, deleteSelectedTable,
     createCustomExplorer, deleteCurrentExplorer, createStatus, deleteStatus } = useTableExplorerCrud({
-    state, table, draftAccess, dispatch, recipeMutationAllowed, firstTableActionPending,
+    state, table, draftAccess, dispatch, recipeMutationAllowed, isFirstTableActionPending,
     tableCreatorOpen, setFirstTableName, setTableCreatorOpen, rememberSelectedTable, applyCommands,
     projectId, authResourcePath, selectExplorer, onExplorerChange, explorers, capabilities,
     effectiveExplorerId, invalidateCompile: compileRequests.invalidate, setMessage, opaqueId,
   });
-  const { createFirstTableFromRoot } = firstTableActionsFor({ applyCommandsWithResult });
 
   const automaticPreviewQuery = useAutomaticPreview(queryOptionsFor({
     previewDisabled,
@@ -1708,7 +1707,7 @@ const BuilderWorkspaceContent = ({
       onFirstTableNameChange={setFirstTableName}
       firstTableProgress={firstTableProgress}
       catalog={state.catalog}
-      onChooseRoot={(nodeId) => void createFirstTableFromRoot(nodeId)}
+      onChooseRoot={(nodeId) => void createFirstTableFromRoot(nodeId, applyCommandsWithResult)}
       onUndo={() => void restorePreviousDraft()}
       onCancel={() => {
         setTableCreatorOpen(false);

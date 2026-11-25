@@ -11,9 +11,9 @@ type UseTableExplorerCrudOptions = {
   readonly draftAccess: { getState(): BuilderAuthoringState };
   readonly dispatch: Dispatch<BuilderAction>;
   readonly recipeMutationAllowed: () => boolean;
-  readonly firstTableActionPending: MutableRefObject<boolean>;
+  readonly isFirstTableActionPending: () => boolean;
   readonly tableCreatorOpen: boolean;
-  readonly setFirstTableName: Dispatch<SetStateAction<string>>;
+  readonly setFirstTableName: (name: string) => void;
   readonly setTableCreatorOpen: Dispatch<SetStateAction<boolean>>;
   readonly rememberSelectedTable: (outputId: string) => void;
   readonly applyCommands: ReturnType<typeof useCommandQueueActions>['applyCommands'];
@@ -42,7 +42,7 @@ type UseTableExplorerCrudResult = {
 };
 
 export const useTableExplorerCrud = ({
-  state, table, draftAccess, dispatch, recipeMutationAllowed, firstTableActionPending,
+  state, table, draftAccess, dispatch, recipeMutationAllowed, isFirstTableActionPending,
   tableCreatorOpen, setFirstTableName, setTableCreatorOpen, rememberSelectedTable, applyCommands,
   projectId, authResourcePath, selectExplorer, onExplorerChange, explorers, capabilities,
   effectiveExplorerId, invalidateCompile, setMessage, opaqueId,
@@ -52,7 +52,7 @@ export const useTableExplorerCrud = ({
   const addTable = () => {
     if (!recipeMutationAllowed()) return;
     if (
-      firstTableActionPending.current ||
+      isFirstTableActionPending() ||
       draftAccess.getState().tables.length === 0
     ) return;
     if (!tableCreatorOpen) setFirstTableName('');
