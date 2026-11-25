@@ -254,7 +254,9 @@ const effectSites = [];
 const uiServerAccessSites = [];
 function visitMetrics(file) {
   if (!isProductionSource(file.path)) return;
-  const builderPath = relative(src, file.path).startsWith('features/ExplorerBuilder/');
+  const sourcePath = relative(src, file.path);
+  const builderPath = sourcePath.startsWith('features/ExplorerBuilder/')
+    && sourcePath !== 'features/ExplorerBuilder/Builder.tsx';
   function visit(node) {
     if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
       const component = node.tagName.getText(file.source);

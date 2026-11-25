@@ -11,7 +11,7 @@ import type {
   SemanticInventoryBrowseResponse,
   SemanticInventoryItem,
 } from '../../../contracts/types';
-import { constructionWithStep } from './editorShared';
+import { constructionWithStep, createOpaqueId } from './editorShared';
 import { semanticConceptLabel } from '../catalogItems';
 
 type CandidateIntent = Pick<ConstructionProposalRequest, 'candidateConstruction' | 'changedStepId'>;
@@ -58,7 +58,6 @@ const selectedCategoryContext = (category: Category, categories: ReadonlyArray<C
 const isAvailableCodedValue = (item: SemanticInventoryItem) =>
   Boolean(item.code) && !item.codingVersion && Boolean(item.constructionChoice) &&
   (item.readiness.status === 'READY' || item.readiness.status === 'READY_WITH_WARNING');
-const newId = (prefix: string) => `${prefix}_${globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
 const columnName = (label: string, used: ReadonlySet<string>) => {
   const base = label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'coded_value';
   let name = base;
@@ -81,7 +80,7 @@ const CodedPivotEditorBody = ({
   onCandidateChange,
 }: CodedPivotEditorProps) => {
   const saved = editingStep?.operation.kind === 'CODED_PIVOT' ? editingStep.operation.codedPivot : undefined;
-  const [stepId] = useState(() => editingStep?.id ?? newId('coded-pivot'));
+  const [stepId] = useState(() => editingStep?.id ?? createOpaqueId('coded-pivot'));
   const [sourceQuery, setSourceQuery] = useState('');
   const [sourceCursor, setSourceCursor] = useState<string>();
   const [sourceNextCursor, setSourceNextCursor] = useState<string>();
@@ -318,7 +317,7 @@ const CodedPivotEditorBody = ({
     const name = columnName(label, new Set(selected.map((category) => category.name)));
     const nextSelected = [...selected, {
       key, system: item.system, code: item.code, choiceId: item.constructionChoice!.choiceId,
-      outputColumnId: newId('coded-column'), name, label,
+      outputColumnId: createOpaqueId('coded-column'), name, label,
     }];
     setSelected(nextSelected);
     emitCandidate(source, nextSelected);

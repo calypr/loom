@@ -16,4 +16,4 @@ export type {
 } from './contracts/projectViewBuilder';
 export { getProjectViewBuilderState, projectViewBuilderPath, encodeLoomProjectPath } from './client/api';
 export type { ProjectViewBuilderArgs, SaveProjectViewConfigArgs, DeleteProjectViewConfigArgs, SaveProjectViewDefaultsArgs } from './client/api';
-export { selectedProjectViewId, selectedProjectViewTab, useProjectViewTab } from './projectViewSelection';
+export { selectedProjectViewId, selectedProjectViewTab, useProjectViewTab } from './features/ExplorerViewBuilder/projectViewSelection';

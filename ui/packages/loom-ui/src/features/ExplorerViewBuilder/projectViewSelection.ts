@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ExplorerRuntimeV1 } from './contracts/types';
+import type { ExplorerRuntimeV1 } from '../../contracts/types';
 
 export const selectedProjectViewId = (
   explicitId: string | undefined,

@@ -12,10 +12,10 @@ export type CodedPivotContext = {
   readonly rowRoot: string;
 };
 
-export const createOpaqueId = (prefix: string): string => {
-  const randomPart = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
-  return `${prefix}_${randomPart}`;
-};
+export const createOpaqueId = (
+  prefix: string,
+  randomPart = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2),
+): string => `${prefix}_${randomPart}`;
 
 export const normalizedLogicalType = (type: string | undefined): string =>
   (type ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');

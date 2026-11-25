@@ -1,3 +1,4 @@
+import { sameChoiceRequestScope } from '../../../contracts/identity';
 import React, { useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useLoomClient, useQuery } from '../../../react';
 import type {
@@ -9,7 +10,7 @@ import type {
   ExplorerBuilderCatalog,
   RelatedExpandChoiceSearchResponse,
 } from '../../../contracts/types';
-import { constructionWithStep } from './editorShared';
+import { constructionWithStep, createOpaqueId } from './editorShared';
 import { constructionInputForStage } from '../constructionWorkspace/constructionStages';
 import { RelatedExpandContributorEditor, type ContributorChoice, type ContributorCondition } from './RelatedExpandContributorEditor';
 import { relationshipLabel, routePath } from '../constructionWorkspace/routeDisplay';
@@ -40,7 +41,6 @@ interface ActiveRoutePage {
   readonly task: Promise<void>;
 }
 
-const newId = (prefix: string): string => `${prefix}_${globalThis.crypto.randomUUID()}`;
 
 const contributorQuantifier = (choice: ContributorChoice) =>
   choice.source.cardinality === 'many' ? { quantifier: 'ANY' as const } : {};
@@ -73,10 +73,7 @@ const choicesMatchRequest = (
   stageId: string,
   anchorColumnId: string,
   targetResourceType: string,
-): boolean => result.snapshotToken === snapshotToken
-  && result.draftVersion === draftVersion && result.draftDigest === draftDigest
-  && result.outputId === outputId
-  && result.stageId === stageId
+): boolean => sameChoiceRequestScope(result, { snapshotToken, draftVersion, draftDigest, outputId, stageId })
   && result.choices.every((item) => item.anchorColumnId === anchorColumnId && item.targetResourceType === targetResourceType);
 
 const candidateFor = (
@@ -181,8 +178,8 @@ export const RelatedExpandEditor = ({
   const [anchorColumnId, setAnchorColumnId] = useState(() => anchors.find((anchor) => anchor.anchorColumnId === saved?.anchorColumnId)?.anchorColumnId
     ?? anchors.find((anchor) => anchor.kind === 'activeRelatedRecord')?.anchorColumnId
     ?? anchors[0]?.anchorColumnId ?? '');
-  const [stepId] = useState(() => step?.id ?? newId('related_expand'));
-  const [outputColumnId] = useState(() => saved?.relatedRecordColumnId ?? newId('related_record'));
+  const [stepId] = useState(() => step?.id ?? createOpaqueId('related_expand', globalThis.crypto.randomUUID()));
+  const [outputColumnId] = useState(() => saved?.relatedRecordColumnId ?? createOpaqueId('related_record', globalThis.crypto.randomUUID()));
   const [targetResourceType, setTargetResourceType] = useState(saved?.targetResourceType ?? '');
   const [choice, setChoice] = useState<RouteChoice | undefined>(() => saved && savedAnchor ? {
     choiceId: saved.choiceId,

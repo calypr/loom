@@ -1,16 +1,18 @@
 import React, { useMemo, useReducer, useRef, useState } from 'react';
 import { Alert, Button, Center, Group, Loader, MantineProvider, Modal, Stack, Tabs, Text, Title } from '@mantine/core';
-import { createLoomClient, type Artifact, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './client/api';
-import { ChartToggle, QualitySummary, QuerySummary } from './features/ExplorerViewer/ViewerChrome';
-import { FilterRail, OutputCharts, OutputTable, PageControls, textFor, type ViewerRow } from './features/ExplorerViewer/components';
-import { runtimeSessionKey } from './features/ExplorerViewer/model';
-import { createViewerReducerState, viewerReducer } from './features/ExplorerViewer/reducer';
-import { outputRequestFor } from './features/ExplorerViewer/serialization';
-import { CellExplanationDialog, type CellExplanationCoordinate } from './features/ExplorerViewer/CellExplanationDialog';
-import { LoomProvider, useCellTraceMutation, useLoomClient, useLoomOutput, useLoomRuntime } from './react';
-import { resultUnitTitle } from './resultUnitDisplay';
-import type { CellTraceResponse } from './cellTrace';
-import type { ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from './contracts/types';
+import { createLoomClient, type Artifact, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from '../../client/api';
+import { ChartToggle, QualitySummary, QuerySummary } from './ViewerChrome';
+import { FilterRail, OutputCharts, OutputTable, PageControls, textFor, type ViewerRow } from './components';
+import { runtimeSessionKey } from './model';
+import { createViewerReducerState, viewerReducer } from './reducer';
+import { outputRequestFor } from './serialization';
+import { CellExplanationDialog, type CellExplanationCoordinate } from './CellExplanationDialog';
+import type { CellTraceArgs } from '../../client/api';
+import { useMutation } from '../../data/useMutation';
+import { LoomProvider, useLoomClient, useLoomOutput, useLoomRuntime } from '../../react';
+import { resultUnitTitle } from '../../display/resultUnitDisplay';
+import type { CellTraceResponse } from '../../contracts/cellTrace';
+import type { ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from '../../contracts/types';
 
 type ViewerRuntimeAction = NonNullable<ExplorerRuntimeOutputV1['actions']>[number];
 
@@ -175,7 +177,6 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
   const datasetDownloadRequest = useRef(0);
   const [cellExplanation, setCellExplanation] = useState<CellExplanationState>({ kind: 'closed' });
   const cellExplanationToken = useRef(0);
-  const [traceCell] = useCellTraceMutation();
   const output = runtime.outputs.find((candidate) => candidate.outputId === controlledOutputId)
     ?? runtime.outputs.find((candidate) => candidate.outputId === state.activeOutputId)
     ?? runtime.outputs[0];
@@ -191,6 +192,7 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
   if (resultQuery.data) resultCache.current.set(outputId, resultQuery.data);
   const result = resultQuery.data ?? resultCache.current.get(outputId);
   const client = useLoomClient();
+  const [traceCell] = useMutation((args: CellTraceArgs, signal) => client.cellTrace(args, signal));
   if (!output || !request) return null;
   const actionKeys = actionRunKeys(outputId, output.actions ?? []);
 

@@ -4,7 +4,7 @@ import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 
 import { createLoomClient } from './client/api';
-import { LoomExplorerBuilder } from './Builder';
+import { LoomExplorerBuilder } from './features/ExplorerBuilder/Builder';
 import type { SelectionPage, SelectionRevision } from './contracts/selection';
 
 const renderedPopulationStates = vi.hoisted(

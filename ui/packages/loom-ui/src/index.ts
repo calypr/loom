@@ -3,10 +3,10 @@ import './styles.css';
 export { createLoomClient, LoomRequestError } from './client/api';
 export type { LoomClient, LoomClientOptions, LoomRowsOptions, LoomOutputFilterOperator, LoomOutputFilter, LoomOutputSort, LoomFacetSpec, LoomOutputRequest, LoomFacetResult, LoomOutputResult, ExplorerAuthoringApiError, ExplorerSummary, BrowseSemanticInventoryArgs } from './client/api';
 export { LoomProvider, useLoomClient, useLoomRows, useLoomRuntime, useLoomOutput } from './react';
-export { LoomExplorerBuilder } from './Builder';
-export type { LoomExplorerBuilderProps } from './Builder';
-export { LoomExplorerViewer } from './Viewer';
-export type { LoomExplorerViewerProps, LoomViewerActionContext, LoomViewerActionHandler } from './Viewer';
+export { LoomExplorerBuilder } from './features/ExplorerBuilder/Builder';
+export type { LoomExplorerBuilderProps } from './features/ExplorerBuilder/Builder';
+export { LoomExplorerViewer } from './features/ExplorerViewer/Viewer';
+export type { LoomExplorerViewerProps, LoomViewerActionContext, LoomViewerActionHandler } from './features/ExplorerViewer/Viewer';
 export {
   EXPLORER_AUTHORING_API_VERSION,
   EXPLORER_AUTHORING_SEMANTICS_VERSION,
@@ -339,4 +339,4 @@ export type {
 } from './contracts/projectViewBuilder';
 export { projectViewBuilderPath, getProjectViewBuilderState, encodeLoomProjectPath } from './client/api';
 export type { ProjectViewBuilderArgs, SaveProjectViewConfigArgs, DeleteProjectViewConfigArgs, SaveProjectViewDefaultsArgs } from './client/api';
-export { selectedProjectViewId, selectedProjectViewTab, useProjectViewTab } from './projectViewSelection';
+export { selectedProjectViewId, selectedProjectViewTab, useProjectViewTab } from './features/ExplorerViewBuilder/projectViewSelection';

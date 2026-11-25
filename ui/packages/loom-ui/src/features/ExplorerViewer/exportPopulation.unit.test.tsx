@@ -3,8 +3,8 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createLoomClient, type Artifact, type LoomClient, type LoomOutputRequest } from '../../client/api';
-import { LoomExplorerViewer, type LoomViewerActionHandler } from '../../Viewer';
-import type { CellTraceResponse } from '../../cellTrace';
+import { LoomExplorerViewer, type LoomViewerActionHandler } from './Viewer';
+import type { CellTraceResponse } from '../../contracts/cellTrace';
 import type { ExplorerRuntimeV1 } from '../../contracts/types';
 
 const runtime: ExplorerRuntimeV1 = {

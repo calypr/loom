@@ -1,4 +1,4 @@
-import { isRecord } from './contracts/guards';
+import { isRecord } from '../contracts/guards';
 type UnknownRecordDisplay = 'json' | 'parts';
 
 interface ValueDisplayOptions {

@@ -114,7 +114,7 @@ import {
   type InterpretationRevision,
 } from '../contracts/interpretation';
 import { z } from 'zod';
-import { cellTraceResponseSchema, type CellTraceResponse } from '../cellTrace';
+import { cellTraceResponseSchema, type CellTraceResponse } from '../contracts/cellTrace';
 import {
   selectionPageSchema,
   selectionRevisionSchema,

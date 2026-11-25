@@ -66,3 +66,20 @@ export const semanticItemMatchesIdentity = (
   const candidate = semanticIdentityForItem(item);
   return candidate !== undefined && sameSemanticItemIdentity(candidate, identity);
 };
+
+type ChoiceRequestScope = {
+  readonly snapshotToken: string;
+  readonly draftVersion: number;
+  readonly draftDigest: string;
+  readonly outputId: string;
+  readonly stageId: string;
+};
+
+export const sameChoiceRequestScope = (
+  response: ChoiceRequestScope,
+  request: ChoiceRequestScope,
+): boolean => response.snapshotToken === request.snapshotToken
+  && response.draftVersion === request.draftVersion
+  && response.draftDigest === request.draftDigest
+  && response.outputId === request.outputId
+  && response.stageId === request.stageId;

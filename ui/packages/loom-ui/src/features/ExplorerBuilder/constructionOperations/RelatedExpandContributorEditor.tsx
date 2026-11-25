@@ -1,3 +1,4 @@
+import { sameChoiceRequestScope } from '../../../contracts/identity';
 import { fieldPickerList, fieldPickerMetadata, fieldPickerRow, fieldPickerSelected } from '../components/fieldPickerStyles';
 import React, { useRef, useState } from 'react';
 import { useCommitLifecycle } from '../hooks/useBrowserSubscription';
@@ -43,9 +44,7 @@ const choicesMatchRequest = (
   routeChoiceId: string,
   targetNodeId: string,
   targetResourceType: string,
-): boolean => response.snapshotToken === snapshotToken
-  && response.draftVersion === draftVersion && response.draftDigest === draftDigest
-  && response.outputId === outputId && response.stageId === stageId
+): boolean => sameChoiceRequestScope(response, { snapshotToken, draftVersion, draftDigest, outputId, stageId })
   && response.routeChoiceId === routeChoiceId
   && response.choices.every((choice) => {
     const scalar = choice.source.cardinality === 'optional_one' || choice.source.cardinality === 'required_one';

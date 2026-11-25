@@ -1,11 +1,9 @@
-import React, { createContext, useCallback, useContext, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createLoomClient, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './client/api';
 import type { SelectionRevision } from './contracts/selection';
 import type {
   ApplyExplorerBuilderCommandsArgs,
   AssessExplorerRowChangeArgs,
   BrowseSemanticInventoryArgs,
-  CellTraceArgs,
   CreateExplorerArgs,
   DeleteExplorerArgs,
   ExplorerAuthoringProjectArgs,
@@ -18,157 +16,13 @@ import type {
   ResolveConfiguredColumnContextsArgs,
 } from './client/api';
 
-const LoomClientContext = createContext<LoomClient | null>(null);
+import { useLoomClient, useOptionalLoomClient } from './data/provider';
+import { useQuery, type QueryResult } from './data/queries';
+import { useMutation } from './data/useMutation';
 
-export const LoomProvider = ({
-  client,
-  children,
-}: {
-  readonly client: LoomClient;
-  readonly children: React.ReactNode;
-}) => (
-  <LoomClientContext.Provider value={client}>
-    {children}
-  </LoomClientContext.Provider>
-);
-
-export const useLoomClient = (): LoomClient => {
-  const client = useContext(LoomClientContext);
-  if (!client) throw new Error('Loom UI must be rendered inside LoomProvider.');
-  return client;
-};
-
-interface QueryResult<T> {
-  readonly data?: T;
-  readonly error?: unknown;
-  readonly isLoading: boolean;
-  readonly isFetching: boolean;
-  readonly refetch: (options?: QueryRefetchOptions) => Promise<{ readonly data?: T; readonly error?: unknown }>;
-}
-
-export interface QueryRefetchOptions {
-  readonly reload?: boolean;
-}
-
-interface ResourceSnapshot<T> {
-  readonly data?: T;
-  readonly error?: unknown;
-  readonly loading: boolean;
-}
-
-interface Resource<T> {
-  readonly getSnapshot: () => ResourceSnapshot<T>;
-  readonly subscribe: (listener: () => void) => () => void;
-  readonly refresh: (options?: QueryRefetchOptions) => Promise<{ readonly data?: T; readonly error?: unknown }>;
-}
-
-export const resourceFor = <T,>(
-  loader: (signal: AbortSignal, options?: QueryRefetchOptions) => Promise<T>,
-  enabled = true,
-): Resource<T> => {
-  let snapshot: ResourceSnapshot<T> = { loading: enabled };
-  let controller: AbortController | undefined;
-  const listeners = new Set<() => void>();
-  let started = false;
-  let epoch = 0;
-  const notify = () => listeners.forEach((listener) => listener());
-  const refresh = async (options?: QueryRefetchOptions) => {
-    if (!enabled) return {};
-    controller?.abort();
-    const requestController = new AbortController();
-    controller = requestController;
-    const requestEpoch = ++epoch;
-    started = true;
-    snapshot = { ...snapshot, loading: true, error: undefined };
-    notify();
-    try {
-      const data = await loader(requestController.signal, options);
-      if (controller !== requestController || epoch !== requestEpoch) return { data };
-      snapshot = { data, loading: false };
-      notify();
-      return { data };
-    } catch (error) {
-      if (requestController.signal.aborted || controller !== requestController || epoch !== requestEpoch) {
-        return { error };
-      }
-      snapshot = { error, loading: false };
-      notify();
-      return { error };
-    }
-  };
-  const resource: Resource<T> = {
-    getSnapshot: () => snapshot,
-    subscribe: (listener) => {
-      listeners.add(listener);
-      if (!started && enabled) void refresh();
-      return () => {
-        listeners.delete(listener);
-        queueMicrotask(() => {
-          if (listeners.size > 0) return;
-          controller?.abort();
-          controller = undefined;
-          epoch += 1;
-          started = false;
-          snapshot = { loading: enabled };
-        });
-      };
-    },
-    refresh,
-  };
-  return resource;
-};
-
-export const useQuery = <T,>(
-  loader: (signal: AbortSignal, options?: QueryRefetchOptions) => Promise<T>,
-  dependencies: ReadonlyArray<unknown>,
-  enabled = true,
-): QueryResult<T> => {
-  const loaderRef = useRef(loader);
-  loaderRef.current = loader;
-  const resource = useMemo(
-    () => resourceFor((signal, options) => loaderRef.current(signal, options), enabled),
-    [...dependencies, enabled],
-  );
-  const snapshot = useSyncExternalStore(resource.subscribe, resource.getSnapshot, resource.getSnapshot);
-  return {
-    ...snapshot,
-    isLoading: enabled && snapshot.loading,
-    isFetching: enabled && snapshot.loading,
-    refetch: resource.refresh,
-  };
-};
-
-export const useKeyedQuery = <T,>(
-  key: string | undefined,
-  loader: (signal: AbortSignal, options?: QueryRefetchOptions) => Promise<T>,
-  enabled = true,
-): QueryResult<T> => useQuery(loader, [key], Boolean(key) && enabled);
-
-interface MutationState {
-  readonly isLoading: boolean;
-}
-
-type Trigger<TArgs, TResult> = (args: TArgs) => {
-  readonly unwrap: () => Promise<TResult>;
-  readonly abort: () => void;
-};
-
-const useMutation = <TArgs, TResult>(
-  operation: (args: TArgs, signal: AbortSignal) => Promise<TResult>,
-): [Trigger<TArgs, TResult>, MutationState] => {
-  const [pendingRequests, setPendingRequests] = useState(0);
-  const operationRef = useRef(operation);
-  operationRef.current = operation;
-  const trigger = useCallback<Trigger<TArgs, TResult>>((args) => {
-    const controller = new AbortController();
-    const promise = operationRef.current(args, controller.signal);
-    setPendingRequests((count) => count + 1);
-    const settle = () => setPendingRequests((count) => count - 1);
-    void promise.then(settle, settle);
-    return { unwrap: () => promise, abort: () => controller.abort() };
-  }, []);
-  return [trigger, { isLoading: pendingRequests > 0 }];
-};
+export { LoomProvider, useLoomClient } from './data/provider';
+export { resourceFor, useKeyedQuery, useQuery } from './data/queries';
+export type { QueryRefetchOptions } from './data/queries';
 
 export const useGetExplorerAuthoringExplorersQuery = (args: ExplorerAuthoringProjectArgs): QueryResult<Awaited<ReturnType<LoomClient['listExplorers']>>> => {
   const client = useLoomClient();
@@ -310,16 +164,11 @@ export const usePreviewExplorerAuthoringV2Mutation = () => {
 };
 
 export const usePopulationMappingMutation = () => {
-  const client = useContext(LoomClientContext);
+  const client = useOptionalLoomClient();
   return useMutation<PopulationMappingArgs, Awaited<ReturnType<LoomClient['populationMapping']>>>((args, signal) => {
     if (!client) return Promise.reject(new Error('Loom UI must be rendered inside LoomProvider.'));
     return client.populationMapping(args, signal);
   });
-};
-
-export const useCellTraceMutation = () => {
-  const client = useLoomClient();
-  return useMutation<CellTraceArgs, Awaited<ReturnType<LoomClient['cellTrace']>>>((args, signal) => client.cellTrace(args, signal));
 };
 
 export const usePublishExplorerAuthoringV2Mutation = () => {

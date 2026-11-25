@@ -11,8 +11,8 @@ import type {
 } from '../../../contracts/types';
 import type { DraftTable } from '../authoring/model';
 import { effectiveOutputAvailability } from '../constructionWorkspace/outputEligibility';
-import { displayValue, losslessText } from '../../../valueDisplay';
-import { resultUnitTitle } from '../../../resultUnitDisplay';
+import { displayValue, losslessText } from '../../../display/valueDisplay';
+import { resultUnitTitle } from '../../../display/resultUnitDisplay';
 import { BoundedCache, useVirtualViewport, virtualRange } from './virtualization';
 
 const PREVIEW_ROW_HEIGHT = 44;

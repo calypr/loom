@@ -17,7 +17,7 @@ import {
   LoomProvider,
 } from '../../../react';
 import BuilderWorkspace from '../BuilderWorkspace';
-import { LoomExplorerBuilder } from '../../../Builder';
+import { LoomExplorerBuilder } from '../Builder';
 import { ordinaryNetworkFixture } from '../../../../testSupport/ordinaryNetworkFixture';
 import type { SelectionRevision } from '../../../contracts/selection';
 import type {

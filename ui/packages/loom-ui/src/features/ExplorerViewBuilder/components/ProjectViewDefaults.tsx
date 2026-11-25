@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Alert, Button, Group, Select, Stack, Text } from '@mantine/core';
 import type { ProjectViewBuilderState } from '../../../contracts/projectViewBuilder';
-import { useSaveProjectViewDefaultsMutation } from '../../../projectViewBuilderReact';
+import type { SaveProjectViewDefaultsArgs } from '../../../client/api';
+import { useMutation } from '../../../data/useMutation';
+import { useLoomClient } from '../../../react';
 import {
   projectViewFrameRef,
   viewForFrameReference,
@@ -38,7 +40,8 @@ export const ProjectViewDefaults = ({
   readonly canEdit: boolean;
   readonly onSaved?: (state: ProjectViewBuilderState) => void | Promise<unknown>;
 }) => {
-  const [saveDefaults, saveDefaultsStatus] = useSaveProjectViewDefaultsMutation();
+  const client = useLoomClient();
+  const [saveDefaults, saveDefaultsStatus] = useMutation((args: SaveProjectViewDefaultsArgs, signal) => client.saveProjectViewDefaults(args, signal));
   const [pendingDefaults, setPendingDefaults] = useState<PendingDefaults>();
   const [saveError, setSaveError] = useState<string>();
   const defaultDraft = pendingDefaults ?? {

@@ -15,12 +15,12 @@ import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tan
 import type { EChartsOption } from 'echarts';
 import type { LoomFacetResult, LoomOutputResult } from '../../client/api';
 import type { ExplorerRuntimeBindingV1, ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from '../../contracts/types';
-import { resultUnitTitle } from '../../resultUnitDisplay';
+import { resultUnitTitle } from '../../display/resultUnitDisplay';
 import { PAGE_SIZES, activeOutputState, clearedSelection, isPageSize, isSelectedSelection, missingSelection, valuesSelection, type ViewerFieldSelection, type ViewerState } from './model';
 import type { ViewerAction } from './reducer';
 import { chartFacetName, facetName, filterLabel, filterType, isMissingValue, MISSING_VALUE, MISSING_VALUE_DESCRIPTION } from './serialization';
 import { BoundedFormatCache } from './formatCache';
-import { displayValue } from '../../valueDisplay';
+import { displayValue } from '../../display/valueDisplay';
 import type { CellExplanationCoordinate } from './CellExplanationDialog';
 
 const LazyReactECharts = React.lazy(() =>
