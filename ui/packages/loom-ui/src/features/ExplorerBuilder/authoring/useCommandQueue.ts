@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { useApplyExplorerBuilderCommandsV2Mutation, useGetExplorerBuilderStateV2Query } from '../../../react';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
+import { sameDraftRevision, type DraftIdentity } from '../../../contracts/identity';
 import { explorerBuilderAcceptedConstructionSchema } from '../../../contracts/types';
 import type { ExplorerAuthoringDiagnostic, ExplorerBuilderCommand, ExplorerBuilderCommandsResult, ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult, ExplorerBuilderState } from '../../../contracts/types';
 import { admitAuthoringRequest } from '../model/admission';
@@ -14,11 +15,7 @@ import type { AutomaticPreviewIdentity } from '../useAutomaticPreview';
 import type { AppliedPreviewHandoff } from '../constructionWorkspace/appliedChoicePreview';
 import type { RelatedExpandQueryOwner } from '../constructionOperations/RelatedExpandEditor';
 
-type ConstructionApplyPreviewIdentity = {
-  readonly ownerKey: string;
-  readonly snapshotToken: string;
-  readonly draftVersion: number;
-  readonly draftDigest: string;
+type ConstructionApplyPreviewIdentity = DraftIdentity & {
   readonly previewRequestVersion: number;
   readonly outputId: string;
   readonly proposalId: string;
@@ -38,15 +35,11 @@ const acceptedConstructionForApply = (
     command.proposalId !== request.proposalId ||
     command.outputId !== request.outputId ||
     currentPreviewIdentity.ownerKey !== request.ownerKey ||
-    currentPreviewIdentity.snapshotToken !== request.snapshotToken ||
-    currentPreviewIdentity.draftVersion !== request.draftVersion ||
-    currentPreviewIdentity.draftDigest !== request.draftDigest ||
+    !sameDraftRevision(currentPreviewIdentity, request) ||
     currentPreviewIdentity.previewRequestVersion !== request.previewRequestVersion ||
     currentPreviewIdentity.outputId !== request.outputId ||
     currentPreviewIdentity.limit !== request.limit ||
-    current.catalog.snapshotToken !== request.snapshotToken ||
-    current.draftVersion !== request.draftVersion ||
-    current.draftDigest !== request.draftDigest ||
+    !sameDraftRevision({ snapshotToken: current.catalog.snapshotToken, draftVersion: current.draftVersion, draftDigest: current.draftDigest }, request) ||
     selectedTable(current)?.outputId !== request.outputId
   ) return undefined;
   const parsed = explorerBuilderAcceptedConstructionSchema.safeParse(value.acceptedConstruction);

@@ -1,14 +1,11 @@
 import { useRef } from 'react';
+import type { DraftIdentity } from '../../contracts/identity';
 import { useKeyedQuery, type QueryRefetchOptions } from '../../react';
 import type { ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult } from '../../contracts/types';
 import type { PreviewLimit } from './model/previewRecovery';
 
-export type AutomaticPreviewIdentity = {
+export type AutomaticPreviewIdentity = DraftIdentity & {
   readonly key: string;
-  readonly ownerKey: string;
-  readonly snapshotToken: string;
-  readonly draftVersion: number;
-  readonly draftDigest: string;
   readonly previewRequestVersion: number;
   readonly outputId: string;
   readonly limit: PreviewLimit;

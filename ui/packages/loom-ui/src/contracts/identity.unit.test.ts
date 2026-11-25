@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { semanticIdentityForItem, semanticItemMatchesIdentity } from './identity';
+import { sameDraftRevision, semanticIdentityForItem, semanticItemMatchesIdentity } from './identity';
 import type { SemanticInventoryItemIdentity } from './types';
 
 const concept = { conceptId: 'concept', bindingId: 'binding' };
@@ -34,5 +34,21 @@ describe('semantic inventory identity', () => {
     { name: 'family without category mode', item: { ...concept, familyId: 'family' }, identity: exactIdentity, expected: false },
   ])('checks $name', ({ item, identity, expected }) => {
     expect(semanticItemMatchesIdentity(item, identity)).toBe(expected);
+  });
+});
+
+describe('draft revision identity', () => {
+  const revision = { snapshotToken: 'snapshot', draftVersion: 2, draftDigest: 'digest' };
+
+  it('accepts the same revision', () => {
+    expect(sameDraftRevision(revision, { ...revision })).toBe(true);
+  });
+
+  it.each([
+    { ...revision, snapshotToken: 'previous' },
+    { ...revision, draftVersion: 1 },
+    { ...revision, draftDigest: 'other' },
+  ])('rejects a different revision %j', (other) => {
+    expect(sameDraftRevision(revision, other)).toBe(false);
   });
 });

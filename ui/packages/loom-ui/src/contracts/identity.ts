@@ -83,3 +83,21 @@ export const sameChoiceRequestScope = (
   && response.draftDigest === request.draftDigest
   && response.outputId === request.outputId
   && response.stageId === request.stageId;
+
+type DraftRevision = {
+  readonly snapshotToken: string;
+  readonly draftVersion: number;
+  readonly draftDigest: string;
+};
+
+export type DraftIdentity = DraftRevision & {
+  readonly ownerKey: string;
+  readonly outputId?: string;
+  readonly proposalId?: string;
+  readonly limit?: number;
+};
+
+export const sameDraftRevision = (left: DraftRevision, right: DraftRevision): boolean =>
+  left.snapshotToken === right.snapshotToken
+  && left.draftVersion === right.draftVersion
+  && left.draftDigest === right.draftDigest;

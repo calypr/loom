@@ -1,3 +1,4 @@
+import { sameDraftRevision } from '../../../contracts/identity';
 import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
 import type { ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult } from '../../../contracts/types';
@@ -116,9 +117,7 @@ export const useAutomaticPreviewOwner = ({
         const current = draftAccess.getState();
         return !signal.aborted &&
           automaticPreviewRequest.current?.key === identity.key &&
-          current.catalog.snapshotToken === identity.snapshotToken &&
-          current.draftVersion === identity.draftVersion &&
-          current.draftDigest === identity.draftDigest &&
+          sameDraftRevision({ snapshotToken: current.catalog.snapshotToken, draftVersion: current.draftVersion, draftDigest: current.draftDigest }, identity) &&
           current.previewRequestVersion === identity.previewRequestVersion &&
           selectedTable(current)?.outputId === identity.outputId;
       };
