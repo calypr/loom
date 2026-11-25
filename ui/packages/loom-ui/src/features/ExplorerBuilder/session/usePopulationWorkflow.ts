@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { useLoomClient, usePopulationMappingMutation, useQuery } from '../../../react';
+import { useBuilderMutation, useLoomClient, useQuery } from '../../../react';
 import type { PopulationMappingResponse } from '../../../client/api';
 import type { SelectionRevision } from '../../../contracts/selection';
 import type { DraftTable } from '../model/authoring';
@@ -29,7 +29,7 @@ export function usePopulationWorkflow({
     readonly pathIndex: number;
     readonly otherConnectionsOpen: boolean;
   }>();
-  const [checkPopulation] = usePopulationMappingMutation();
+  const [checkPopulation] = useBuilderMutation('populationMapping');
   const [coverageState, setCoverageState] = useState<{
     readonly scopeKey: string;
     readonly client: typeof client;

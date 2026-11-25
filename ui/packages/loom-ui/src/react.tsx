@@ -1,22 +1,13 @@
 import { createLoomClient, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './client/api';
 import type {
-  ApplyExplorerBuilderCommandsArgs,
-  AssessExplorerRowChangeArgs,
   BrowseSemanticInventoryArgs,
-  CreateExplorerArgs,
-  DeleteExplorerArgs,
   ExplorerAuthoringProjectArgs,
   ExplorerAuthoringStateArgs,
-  ExplorerCandidateSuggestionsArgs,
-  PreviewExplorerBuilderArgs,
-  PopulationMappingArgs,
-  PublishExplorerBuilderArgs,
-  ReconcileExplorerBuilderArgs,
 } from './client/api';
 
-import { useLoomClient, useOptionalLoomClient } from './data/provider';
+import { useLoomClient } from './data/provider';
 import { useQuery, type QueryResult } from './data/queries';
-import { useMutation } from './data/useMutation';
+export { useBuilderMutation, type BuilderMutationResult } from './data/builderMutations';
 
 export { LoomProvider, useLoomClient } from './data/provider';
 export { useQuery } from './data/queries';
@@ -29,56 +20,6 @@ export const useGetExplorerAuthoringExplorersQuery = (args: ExplorerAuthoringPro
 export const useGetExplorerAuthoringCapabilityV2Query = (args: ExplorerAuthoringStateArgs): QueryResult<Awaited<ReturnType<LoomClient['getCapability']>>> => {
   const client = useLoomClient();
   return useQuery((signal) => client.getCapability(args, signal), [client, args.project, args.explorerId, args.authResourcePath], Boolean(args.explorerId));
-};
-
-export const useApplyExplorerBuilderCommandsV2Mutation = () => {
-  const client = useLoomClient();
-  return useMutation<ApplyExplorerBuilderCommandsArgs, Awaited<ReturnType<LoomClient['applyCommands']>>>((args, signal) => client.applyCommands(args, signal));
-};
-
-export const useAssessExplorerRowChangeMutation = () => {
-  const client = useLoomClient();
-  return useMutation<AssessExplorerRowChangeArgs, Awaited<ReturnType<LoomClient['assessRowChange']>>>((args, signal) => client.assessRowChange(args, signal));
-};
-
-export const useReconcileExplorerBuilderV2Mutation = () => {
-  const client = useLoomClient();
-  return useMutation<ReconcileExplorerBuilderArgs, Awaited<ReturnType<LoomClient['reconcile']>>>((args, signal) => client.reconcile(args, signal));
-};
-
-export const useGetExplorerCandidateSuggestionsV2Mutation = () => {
-  const client = useLoomClient();
-  return useMutation<ExplorerCandidateSuggestionsArgs, Awaited<ReturnType<LoomClient['suggestions']>>>((args, signal) => client.suggestions(args, signal));
-};
-
-
-
-export const usePreviewExplorerAuthoringV2Mutation = () => {
-  const client = useLoomClient();
-  return useMutation<PreviewExplorerBuilderArgs, Awaited<ReturnType<LoomClient['preview']>>>((args, signal) => client.preview(args, signal));
-};
-
-export const usePopulationMappingMutation = () => {
-  const client = useOptionalLoomClient();
-  return useMutation<PopulationMappingArgs, Awaited<ReturnType<LoomClient['populationMapping']>>>((args, signal) => {
-    if (!client) return Promise.reject(new Error('Loom UI must be rendered inside LoomProvider.'));
-    return client.populationMapping(args, signal);
-  });
-};
-
-export const usePublishExplorerAuthoringV2Mutation = () => {
-  const client = useLoomClient();
-  return useMutation<PublishExplorerBuilderArgs, Awaited<ReturnType<LoomClient['publish']>>>((args, signal) => client.publish(args, signal));
-};
-
-export const useCreateExplorerAuthoringMutation = () => {
-  const client = useLoomClient();
-  return useMutation<CreateExplorerArgs, Awaited<ReturnType<LoomClient['createExplorer']>>>((args, signal) => client.createExplorer(args, signal));
-};
-
-export const useDeleteExplorerAuthoringMutation = () => {
-  const client = useLoomClient();
-  return useMutation<DeleteExplorerArgs, null>((args, signal) => client.deleteExplorer(args, signal));
 };
 
 export const useLoomRuntime = (args: ExplorerAuthoringStateArgs): QueryResult<Awaited<ReturnType<LoomClient['getExplorer']>>> => {

@@ -33,20 +33,26 @@ vi.mock('../../react', async (importOriginal) => {
   return {
     ...actual,
     useLoomClient: () => hooks.client,
-    useApplyExplorerBuilderCommandsV2Mutation: () => mutation(),
-    useAssessExplorerRowChangeMutation: () => mutation(),
-    useCreateExplorerAuthoringMutation: () => mutation(),
-    useDeleteExplorerAuthoringMutation: () => mutation(),
+    useBuilderMutation: (method: string) => {
+      const overrides: Readonly<Record<string, () => unknown>> = {
+        applyCommands: () => mutation(),
+        assessRowChange: () => mutation(),
+        createExplorer: () => mutation(),
+        deleteExplorer: () => mutation(),
+        suggestions: () => [hooks.getSuggestions, { isLoading: false }],
+        preview: () => mutation(),
+        publish: () => mutation(),
+        reconcile: () => mutation(),
+      };
+      const override = overrides[method];
+      return override ? override() : actual.useBuilderMutation(method as Parameters<typeof actual.useBuilderMutation>[0]);
+    },
     useGetExplorerAuthoringCapabilityV2Query: () => ({ data: { features: {} } }),
     useGetExplorerAuthoringExplorersQuery: () => ({
       data: [{ explorerId: 'test', title: 'Test Explorer' }],
       isLoading: false,
       refetch: vi.fn(),
     }),
-    useGetExplorerCandidateSuggestionsV2Mutation: () => [hooks.getSuggestions, { isLoading: false }],
-    usePreviewExplorerAuthoringV2Mutation: () => mutation(),
-    usePublishExplorerAuthoringV2Mutation: () => mutation(),
-    useReconcileExplorerBuilderV2Mutation: () => mutation(),
   };
 });
 

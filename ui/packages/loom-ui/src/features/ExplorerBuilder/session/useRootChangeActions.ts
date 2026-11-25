@@ -10,15 +10,13 @@ import {
 } from '../model/rootChangeSelection';
 import type { ExplorerBuilderPreviewResult } from '../../../contracts/types';
 import type { PreviewExplorerBuilderArgs } from '../../../client/api';
-import type {
-  useAssessExplorerRowChangeMutation,
-} from '../../../react';
+import type { BuilderMutationResult } from '../../../react';
 import { selectedTable } from '../model/authoring';
 import { type PreviewLimit } from '../model/previewRecovery';
 
 type RootChangeOptions = {
   readonly workspaceAttached: MutableRefObject<boolean>;
-  readonly assessRowChange: ReturnType<typeof useAssessExplorerRowChangeMutation>[0];
+  readonly assessRowChange: BuilderMutationResult<'assessRowChange'>[0];
   readonly loomClient: { preview(args: PreviewExplorerBuilderArgs, signal?: AbortSignal): Promise<ExplorerBuilderPreviewResult> };
   readonly previewLimit: PreviewLimit;
   readonly rowSettingsOpenAction: MutableRefObject<(() => void) | undefined>;

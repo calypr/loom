@@ -201,20 +201,26 @@ vi.mock('../../react', async (importOriginal) => {
   return {
     ...actual,
     useLoomClient: () => harness.client,
-    useApplyExplorerBuilderCommandsV2Mutation: () => [mutationTrigger(harness.applyCalls, harness.applyGates), { isLoading: false }],
-    useAssessExplorerRowChangeMutation: mutation,
-    useCreateExplorerAuthoringMutation: mutation,
-    useDeleteExplorerAuthoringMutation: mutation,
+    useBuilderMutation: (method: string) => {
+      const overrides: Readonly<Record<string, () => unknown>> = {
+        applyCommands: () => [mutationTrigger(harness.applyCalls, harness.applyGates), { isLoading: false }],
+        assessRowChange: mutation,
+        createExplorer: mutation,
+        deleteExplorer: mutation,
+        suggestions: mutation,
+        preview: () => [mutationTrigger(harness.previewCalls, harness.previewGates), { isLoading: false }],
+        publish: mutation,
+        reconcile: () => [mutationTrigger(harness.reconcileCalls, harness.reconcileGates), { isLoading: false }],
+      };
+      const override = overrides[method];
+      return override ? override() : actual.useBuilderMutation(method as Parameters<typeof actual.useBuilderMutation>[0]);
+    },
     useGetExplorerAuthoringCapabilityV2Query: () => ({ data: { features: {} } }),
     useGetExplorerAuthoringExplorersQuery: () => ({
       data: [{ explorerId: 'builder', title: 'Core protocol' }],
       isLoading: false,
       refetch: vi.fn(),
     }),
-    useGetExplorerCandidateSuggestionsV2Mutation: mutation,
-    usePreviewExplorerAuthoringV2Mutation: () => [mutationTrigger(harness.previewCalls, harness.previewGates), { isLoading: false }],
-    usePublishExplorerAuthoringV2Mutation: mutation,
-    useReconcileExplorerBuilderV2Mutation: () => [mutationTrigger(harness.reconcileCalls, harness.reconcileGates), { isLoading: false }],
   };
 });
 

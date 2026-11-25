@@ -2,19 +2,7 @@
 import React from 'react';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { act, fireEvent, render as renderUI, screen, waitFor, within } from '@testing-library/react';
-import {
-  useApplyExplorerBuilderCommandsV2Mutation,
-  useAssessExplorerRowChangeMutation,
-  useCreateExplorerAuthoringMutation,
-  useDeleteExplorerAuthoringMutation,
-  useGetExplorerAuthoringCapabilityV2Query,
-  useGetExplorerAuthoringExplorersQuery,
-  useGetExplorerCandidateSuggestionsV2Mutation,
-  usePreviewExplorerAuthoringV2Mutation,
-  usePopulationMappingMutation,
-  usePublishExplorerAuthoringV2Mutation,
-  LoomProvider,
-} from '../../react';
+import { useGetExplorerAuthoringCapabilityV2Query, useGetExplorerAuthoringExplorersQuery, LoomProvider } from '../../react';
 import { useGetExplorerBuilderStateV2Query } from './session/useBuilderLoad';
 import BuilderWorkspace from './BuilderWorkspace';
 import { LoomExplorerBuilder } from './Builder';
@@ -38,11 +26,23 @@ import { createLoomClient } from '../../client/api';
 import type { LoomClient } from '../../client/api';
 import { createLoomClientMock } from '../../../testSupport/loomClientMock';
 import type {
-  ApplyExplorerBuilderCommandsArgs,
   PreviewExplorerBuilderArgs,
   ProposeConstructionArgs,
-  ReconcileExplorerBuilderArgs,
 } from '../../client/api';
+
+type ApplyExplorerBuilderCommandsArgs = Parameters<LoomClient['applyCommands']>[0];
+type ReconcileExplorerBuilderArgs = Parameters<LoomClient['reconcile']>[0];
+
+const { useApplyExplorerBuilderCommandsV2Mutation, useAssessExplorerRowChangeMutation, useCreateExplorerAuthoringMutation, useDeleteExplorerAuthoringMutation, useGetExplorerCandidateSuggestionsV2Mutation, usePreviewExplorerAuthoringV2Mutation, usePopulationMappingMutation, usePublishExplorerAuthoringV2Mutation } = vi.hoisted(() => ({
+  useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
+  useAssessExplorerRowChangeMutation: vi.fn(),
+  useCreateExplorerAuthoringMutation: vi.fn(),
+  useDeleteExplorerAuthoringMutation: vi.fn(),
+  useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
+  usePreviewExplorerAuthoringV2Mutation: vi.fn(),
+  usePopulationMappingMutation: vi.fn(),
+  usePublishExplorerAuthoringV2Mutation: vi.fn(),
+}));
 
 const mockLoomClientReference = vi.hoisted(() => ({
   current: undefined as unknown,
@@ -94,22 +94,28 @@ vi.mock('../../react', async (importOriginal) => {
     ...actual,
     useLoomClient: () => (mockLoomClientReference.current as LoomClient | undefined)
       ?? (mockLoomClientReference.fallback as LoomClient),
-    useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
-    useAssessExplorerRowChangeMutation: vi.fn(),
-    useCreateExplorerAuthoringMutation: vi.fn(),
-    useDeleteExplorerAuthoringMutation: vi.fn(),
-    useGetExplorerAuthoringCapabilityV2Query: vi.fn(),
-    useGetExplorerAuthoringExplorersQuery: vi.fn(),
-    useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
-    usePreviewExplorerAuthoringV2Mutation: vi.fn(),
-    usePopulationMappingMutation: vi.fn(),
-    usePublishExplorerAuthoringV2Mutation: vi.fn(),
-    useReconcileExplorerBuilderV2Mutation: (...args: Parameters<typeof actual.useReconcileExplorerBuilderV2Mutation>) => {
-      if (!mockUseActualReconcile.enabled) return mockReconcileMutation(...args);
-      const result = actual.useReconcileExplorerBuilderV2Mutation(...args);
+    useBuilderMutation: (method: string) => {
+      const overrides: Readonly<Record<string, () => unknown>> = {
+        applyCommands: useApplyExplorerBuilderCommandsV2Mutation,
+        assessRowChange: useAssessExplorerRowChangeMutation,
+        createExplorer: useCreateExplorerAuthoringMutation,
+        deleteExplorer: useDeleteExplorerAuthoringMutation,
+        suggestions: useGetExplorerCandidateSuggestionsV2Mutation,
+        preview: usePreviewExplorerAuthoringV2Mutation,
+        populationMapping: usePopulationMappingMutation,
+        publish: usePublishExplorerAuthoringV2Mutation,
+        reconcile: () => {
+      if (!mockUseActualReconcile.enabled) return mockReconcileMutation();
+      const result = actual.useBuilderMutation('reconcile');
       mockUseActualReconcile.isLoading = result[1].isLoading;
       return result;
     },
+      };
+      const override = overrides[method];
+      return override ? override() : actual.useBuilderMutation(method as Parameters<typeof actual.useBuilderMutation>[0]);
+    },
+    useGetExplorerAuthoringCapabilityV2Query: vi.fn(),
+    useGetExplorerAuthoringExplorersQuery: vi.fn(),
   };
 });
 

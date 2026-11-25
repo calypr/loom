@@ -1,4 +1,4 @@
-import type { useReconcileExplorerBuilderV2Mutation, usePreviewExplorerAuthoringV2Mutation } from '../../../react';
+import type { BuilderMutationResult } from '../../../react';
 import type { useGetExplorerBuilderStateV2Query } from './useBuilderLoad';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
 import type { ExplorerAuthoringDiagnostic, ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult, ExplorerBuilderState } from '../../../contracts/types';
@@ -28,7 +28,7 @@ type ReconcileEnvironment = DraftActions & {
 type CompilePorts = ReconcileEnvironment & {
   readonly workspaceAttached: Ref<boolean>;
   readonly compileRequests: ReconcileRequestSlot;
-  readonly reconcileBuilder: ReturnType<typeof useReconcileExplorerBuilderV2Mutation>[0];
+  readonly reconcileBuilder: BuilderMutationResult<'reconcile'>[0];
   readonly diagnosticsFromError: (error: unknown) => ReadonlyArray<ExplorerAuthoringDiagnostic>;
 };
 
@@ -170,7 +170,7 @@ export function reconcileCurrentFor({
 
 type PreviewPorts = Omit<ReconcileEnvironment, 'dispatch'> & {
   readonly previewRequests: ReconcileRequestSlot;
-  readonly previewBuilder: ReturnType<typeof usePreviewExplorerAuthoringV2Mutation>[0];
+  readonly previewBuilder: BuilderMutationResult<'preview'>[0];
   readonly reconcileCurrent: ReturnType<typeof reconcileCurrentFor>;
 };
 

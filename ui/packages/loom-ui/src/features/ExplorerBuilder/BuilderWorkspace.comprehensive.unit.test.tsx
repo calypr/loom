@@ -4,7 +4,7 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { builderWorkspaceNullMocks } from '../../../testSupport/builderWorkspaceMocks';
-import { createLoomClient, type LoomClient, type ApplyExplorerBuilderCommandsArgs } from '../../client/api';
+import { createLoomClient, type LoomClient } from '../../client/api';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
@@ -23,6 +23,8 @@ import {
 import { relationalAdapters } from '../../../testSupport/builderContractAdapters/relational';
 import { coreAdapters } from '../../../testSupport/builderContractAdapters/core';
 import BuilderWorkspace from './BuilderWorkspace';
+
+type ApplyExplorerBuilderCommandsArgs = Parameters<LoomClient['applyCommands']>[0];
 
 type CapturedRequest = {
   readonly url: string;
@@ -72,20 +74,26 @@ vi.mock('../../react', async (importOriginal) => {
   return {
     ...actual,
     useLoomClient: () => client,
-    useApplyExplorerBuilderCommandsV2Mutation: () => [harness.applyCommands, { isLoading: false }],
-    useAssessExplorerRowChangeMutation: mutation,
-    useCreateExplorerAuthoringMutation: mutation,
-    useDeleteExplorerAuthoringMutation: mutation,
+    useBuilderMutation: (method: string) => {
+      const overrides: Readonly<Record<string, () => unknown>> = {
+        applyCommands: () => [harness.applyCommands, { isLoading: false }],
+        assessRowChange: mutation,
+        createExplorer: mutation,
+        deleteExplorer: mutation,
+        suggestions: () => [harness.getSuggestions, { isLoading: false }],
+        preview: mutation,
+        publish: mutation,
+        reconcile: mutation,
+      };
+      const override = overrides[method];
+      return override ? override() : actual.useBuilderMutation(method as Parameters<typeof actual.useBuilderMutation>[0]);
+    },
     useGetExplorerAuthoringCapabilityV2Query: () => ({ data: { features: {} } }),
     useGetExplorerAuthoringExplorersQuery: () => ({
       data: [{ explorerId: 'builder', title: 'UI contract capture' }],
       isLoading: false,
       refetch: vi.fn(),
     }),
-    useGetExplorerCandidateSuggestionsV2Mutation: () => [harness.getSuggestions, { isLoading: false }],
-    usePreviewExplorerAuthoringV2Mutation: mutation,
-    usePublishExplorerAuthoringV2Mutation: mutation,
-    useReconcileExplorerBuilderV2Mutation: mutation,
   };
 });
 

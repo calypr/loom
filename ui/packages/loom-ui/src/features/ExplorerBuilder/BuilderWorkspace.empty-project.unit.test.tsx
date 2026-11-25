@@ -3,19 +3,20 @@ import React from 'react';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createLoomClient } from '../../client/api';
-import {
-  useApplyExplorerBuilderCommandsV2Mutation,
-  useAssessExplorerRowChangeMutation,
-  useCreateExplorerAuthoringMutation,
-  useDeleteExplorerAuthoringMutation,
-  useGetExplorerCandidateSuggestionsV2Mutation,
-  usePreviewExplorerAuthoringV2Mutation,
-  usePopulationMappingMutation,
-  usePublishExplorerAuthoringV2Mutation,
-  useReconcileExplorerBuilderV2Mutation,
-  LoomProvider,
-} from '../../react';
+import { LoomProvider } from '../../react';
 import BuilderWorkspace from './BuilderWorkspace';
+
+const { useApplyExplorerBuilderCommandsV2Mutation, useAssessExplorerRowChangeMutation, useCreateExplorerAuthoringMutation, useDeleteExplorerAuthoringMutation, useGetExplorerCandidateSuggestionsV2Mutation, usePreviewExplorerAuthoringV2Mutation, usePopulationMappingMutation, usePublishExplorerAuthoringV2Mutation, useReconcileExplorerBuilderV2Mutation } = vi.hoisted(() => ({
+  useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
+  useAssessExplorerRowChangeMutation: vi.fn(),
+  useCreateExplorerAuthoringMutation: vi.fn(),
+  useDeleteExplorerAuthoringMutation: vi.fn(),
+  useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
+  usePreviewExplorerAuthoringV2Mutation: vi.fn(),
+  usePopulationMappingMutation: vi.fn(),
+  usePublishExplorerAuthoringV2Mutation: vi.fn(),
+  useReconcileExplorerBuilderV2Mutation: vi.fn(),
+}));
 
 vi.mock('../../data/builderQueries', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../data/builderQueries')>(),
@@ -39,15 +40,21 @@ vi.mock('../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../react')>();
   return {
     ...actual,
-    useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
-    useAssessExplorerRowChangeMutation: vi.fn(),
-    useCreateExplorerAuthoringMutation: vi.fn(),
-    useDeleteExplorerAuthoringMutation: vi.fn(),
-    useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
-    usePreviewExplorerAuthoringV2Mutation: vi.fn(),
-    usePopulationMappingMutation: vi.fn(),
-    usePublishExplorerAuthoringV2Mutation: vi.fn(),
-    useReconcileExplorerBuilderV2Mutation: vi.fn(),
+    useBuilderMutation: (method: string) => {
+      const overrides: Readonly<Record<string, () => unknown>> = {
+        applyCommands: useApplyExplorerBuilderCommandsV2Mutation,
+        assessRowChange: useAssessExplorerRowChangeMutation,
+        createExplorer: useCreateExplorerAuthoringMutation,
+        deleteExplorer: useDeleteExplorerAuthoringMutation,
+        suggestions: useGetExplorerCandidateSuggestionsV2Mutation,
+        preview: usePreviewExplorerAuthoringV2Mutation,
+        populationMapping: usePopulationMappingMutation,
+        publish: usePublishExplorerAuthoringV2Mutation,
+        reconcile: useReconcileExplorerBuilderV2Mutation,
+      };
+      const override = overrides[method];
+      return override ? override() : actual.useBuilderMutation(method as Parameters<typeof actual.useBuilderMutation>[0]);
+    },
   };
 });
 

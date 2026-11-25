@@ -1,5 +1,5 @@
 import { useState, useSyncExternalStore } from 'react';
-import type { useGetExplorerCandidateSuggestionsV2Mutation } from '../../../react';
+import type { BuilderMutationResult } from '../../../react';
 import { useBuilderSession } from './BuilderSessionProvider';
 import { createFirstTable, createFirstTableFromRootFor } from './firstTable';
 
@@ -15,7 +15,7 @@ export function useFirstTableActions({
   getSuggestions,
   setMessage,
 }: {
-  readonly getSuggestions: ReturnType<typeof useGetExplorerCandidateSuggestionsV2Mutation>[0];
+  readonly getSuggestions: BuilderMutationResult<'suggestions'>[0];
   readonly setMessage: (message: string | undefined) => void;
 }): FirstTableBinding {
   const { draftAccess, builderQueryArgs } = useBuilderSession(draft => draft);

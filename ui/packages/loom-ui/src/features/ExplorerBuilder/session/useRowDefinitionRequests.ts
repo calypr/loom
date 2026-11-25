@@ -99,7 +99,7 @@ export function useRowDefinitionRequests(client: RowDefinitionTransport, preview
       if (!client.preview) throw new Error('The candidate preview is unavailable.');
       return client.preview(args, signal);
     },
-    replacementTransport: () => {
+    replacementTransport: (): Required<Pick<RowDefinitionTransport, 'assessRowChange' | 'preview'>> | undefined => {
       const assessRowChange = client.assessRowChange;
       const preview = client.preview;
       return assessRowChange && preview ? { assessRowChange, preview } : undefined;

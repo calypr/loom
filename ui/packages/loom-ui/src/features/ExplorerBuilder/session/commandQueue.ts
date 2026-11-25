@@ -1,4 +1,4 @@
-import type { useApplyExplorerBuilderCommandsV2Mutation } from '../../../react';
+import type { BuilderMutationResult } from '../../../react';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
 import { sameDraftRevision, type DraftIdentity } from '../../../contracts/identity';
 import { explorerBuilderAcceptedConstructionSchema } from '../../../contracts/types';
@@ -88,7 +88,7 @@ type CommandQueuePorts = {
   readonly automaticPreview: AutomaticPreviewChannels;
   readonly builderOwnerKeyFor: (project: string, authResourcePath: string | undefined, explorerId: string) => string;
   readonly diagnosticsFromError: (error: unknown) => ReadonlyArray<ExplorerAuthoringDiagnostic>;
-  readonly applyBuilderCommands: ReturnType<typeof useApplyExplorerBuilderCommandsV2Mutation>[0];
+  readonly applyBuilderCommands: BuilderMutationResult<'applyCommands'>[0];
   readonly setActiveConstructionSelection: (value: undefined) => void;
   readonly setMessage: (message: string | undefined) => void;
 };

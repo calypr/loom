@@ -2,23 +2,23 @@
 import React from 'react';
 import { vi, type Mock } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import {
-  useApplyExplorerBuilderCommandsV2Mutation,
-  useAssessExplorerRowChangeMutation,
-  useCreateExplorerAuthoringMutation,
-  useDeleteExplorerAuthoringMutation,
-  useGetExplorerAuthoringCapabilityV2Query,
-  useGetExplorerAuthoringExplorersQuery,
-  useGetExplorerCandidateSuggestionsV2Mutation,
-  usePreviewExplorerAuthoringV2Mutation,
-  usePopulationMappingMutation,
-  usePublishExplorerAuthoringV2Mutation,
-  useReconcileExplorerBuilderV2Mutation,
-} from '../../react';
+import { useGetExplorerAuthoringCapabilityV2Query, useGetExplorerAuthoringExplorersQuery } from '../../react';
 import { useGetExplorerBuilderStateV2Query } from './session/useBuilderLoad';
 import type { LoomClient } from '../../client/api';
 import { createLoomClientMock } from '../../../testSupport/loomClientMock';
 import BuilderWorkspace from './BuilderWorkspace';
+
+const { useApplyExplorerBuilderCommandsV2Mutation, useAssessExplorerRowChangeMutation, useCreateExplorerAuthoringMutation, useDeleteExplorerAuthoringMutation, useGetExplorerCandidateSuggestionsV2Mutation, usePreviewExplorerAuthoringV2Mutation, usePopulationMappingMutation, usePublishExplorerAuthoringV2Mutation, useReconcileExplorerBuilderV2Mutation } = vi.hoisted(() => ({
+  useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
+  useAssessExplorerRowChangeMutation: vi.fn(),
+  useCreateExplorerAuthoringMutation: vi.fn(),
+  useDeleteExplorerAuthoringMutation: vi.fn(),
+  useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
+  usePreviewExplorerAuthoringV2Mutation: vi.fn(),
+  usePopulationMappingMutation: vi.fn(),
+  usePublishExplorerAuthoringV2Mutation: vi.fn(),
+  useReconcileExplorerBuilderV2Mutation: vi.fn(),
+}));
 
 const mockLoomClient = vi.hoisted(() => ({ client: null as unknown as LoomClient }));
 
@@ -49,17 +49,23 @@ vi.mock('../../react', async (importOriginal) => {
   return {
     ...actual,
     useLoomClient: () => mockLoomClient.client,
-    useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
-    useAssessExplorerRowChangeMutation: vi.fn(),
-    useCreateExplorerAuthoringMutation: vi.fn(),
-    useDeleteExplorerAuthoringMutation: vi.fn(),
+    useBuilderMutation: (method: string) => {
+      const overrides: Readonly<Record<string, () => unknown>> = {
+        applyCommands: useApplyExplorerBuilderCommandsV2Mutation,
+        assessRowChange: useAssessExplorerRowChangeMutation,
+        createExplorer: useCreateExplorerAuthoringMutation,
+        deleteExplorer: useDeleteExplorerAuthoringMutation,
+        suggestions: useGetExplorerCandidateSuggestionsV2Mutation,
+        preview: usePreviewExplorerAuthoringV2Mutation,
+        populationMapping: usePopulationMappingMutation,
+        publish: usePublishExplorerAuthoringV2Mutation,
+        reconcile: useReconcileExplorerBuilderV2Mutation,
+      };
+      const override = overrides[method];
+      return override ? override() : actual.useBuilderMutation(method as Parameters<typeof actual.useBuilderMutation>[0]);
+    },
     useGetExplorerAuthoringCapabilityV2Query: vi.fn(),
     useGetExplorerAuthoringExplorersQuery: vi.fn(),
-    useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
-    usePreviewExplorerAuthoringV2Mutation: vi.fn(),
-    usePopulationMappingMutation: vi.fn(),
-    usePublishExplorerAuthoringV2Mutation: vi.fn(),
-    useReconcileExplorerBuilderV2Mutation: vi.fn(),
   };
 });
 

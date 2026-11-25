@@ -1,7 +1,7 @@
 import { useBuilderActions, useBuilderSession } from './BuilderSessionProvider';
 import type { useGetExplorerBuilderStateV2Query } from './useBuilderLoad';
 import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import { usePublishExplorerAuthoringV2Mutation } from '../../../react';
+import { useBuilderMutation } from '../../../react';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
 import type { ExplorerBuilderCompileResult, ExplorerBuilderState } from '../../../contracts/types';
 import { intentFingerprint, workspaceFromState, type BuilderAuthoringState } from '../model/authoring';
@@ -52,7 +52,7 @@ export const usePublish = ({
     readonly draftDigest: string;
   }>();
   const [publishing, setPublishing] = useState(false);
-  const [publishBuilder] = usePublishExplorerAuthoringV2Mutation();
+  const [publishBuilder] = useBuilderMutation('publish');
 
   const publishDisabled =
     (lastPublished?.ownerKey === ownerKey &&

@@ -1,5 +1,5 @@
 import { useCallback, useState, type MutableRefObject } from 'react';
-import { useReconcileExplorerBuilderV2Mutation, usePreviewExplorerAuthoringV2Mutation } from '../../../react';
+import { useBuilderMutation } from '../../../react';
 import type { ExplorerAuthoringDiagnostic } from '../../../contracts/types';
 import { useBuilderActions, useBuilderSession } from './BuilderSessionProvider';
 import { executePreviewFor, reconcileCurrentFor } from './reconcileActions';
@@ -17,8 +17,8 @@ export function useReconcileActions({
   const { draftAccess, builderQueryArgs } = useBuilderSession(draft => draft);
   const { dispatch, refetchBuilder, syncBuilderData } = useBuilderActions();
   const { project: projectId, authResourcePath } = builderQueryArgs;
-  const [reconcileBuilder, reconcileStatus] = useReconcileExplorerBuilderV2Mutation();
-  const [previewBuilder, previewStatus] = usePreviewExplorerAuthoringV2Mutation();
+  const [reconcileBuilder, reconcileStatus] = useBuilderMutation('reconcile');
+  const [previewBuilder, previewStatus] = useBuilderMutation('preview');
   const [requests] = useState(createReconcileRequests);
   const { compileRequests, previewRequests } = requests;
 

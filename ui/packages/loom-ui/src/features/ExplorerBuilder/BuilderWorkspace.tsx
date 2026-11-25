@@ -12,10 +12,9 @@ import { useReconcileActions } from './session/useReconcileActions';
 import { constructionAppendStageFor, constructionInputStageFor } from './model/constructionStages';
 import { effectiveOutputAvailability } from './model/outputEligibility';
 import {
-  useAssessExplorerRowChangeMutation,
+  useBuilderMutation,
   useGetExplorerAuthoringCapabilityV2Query,
   useGetExplorerAuthoringExplorersQuery,
-  useGetExplorerCandidateSuggestionsV2Mutation,
   useLoomClient,
 } from '../../react';
 import type { SelectionRevision } from '../../contracts/selection';
@@ -309,9 +308,9 @@ const BuilderWorkspaceContent = ({
   } = useBuilderSession(draft => draft);
   const { refetchBuilder, dispatch, rememberSelectedTable, syncBuilderData } = useBuilderActions();
   const capabilities = useGetExplorerAuthoringCapabilityV2Query(builderQueryArgs);
-  const [assessRowChange, rowChangeStatus] = useAssessExplorerRowChangeMutation();
+  const [assessRowChange, rowChangeStatus] = useBuilderMutation('assessRowChange');
   const [getSuggestions, suggestionsStatus] =
-    useGetExplorerCandidateSuggestionsV2Mutation();
+    useBuilderMutation('suggestions');
   const {
     message, setMessage, pendingSavedRuleRemoval, setPendingSavedRuleRemoval, advancedView, setAdvancedView,
     cancelingConstructionProposal, beginConstructionCancellation, finishConstructionCancellation,

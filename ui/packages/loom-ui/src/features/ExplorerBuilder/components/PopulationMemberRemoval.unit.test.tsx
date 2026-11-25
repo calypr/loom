@@ -16,7 +16,13 @@ const loomClient = vi.hoisted(() => ({
 vi.mock('../../../react', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../../react')>(),
   useLoomClient: () => loomClient,
-  usePopulationMappingMutation: () => [vi.fn(), { isLoading: false }],
+  useBuilderMutation: (method: string) => {
+    const overrides: Readonly<Record<string, () => unknown>> = {
+      populationMapping: () => [vi.fn(), { isLoading: false }],
+    };
+    const override = overrides[method];
+    return override ? override() : undefined;
+  },
 }));
 
 const selection: SelectionRevision = {

@@ -1,4 +1,4 @@
-import type { useGetExplorerCandidateSuggestionsV2Mutation } from '../../../react';
+import type { BuilderMutationResult } from '../../../react';
 import { createStore } from '../../../data/createStore';
 import type { BuilderAuthoringState } from '../model/authoring';
 import { planInitialTable, type InitialTableCandidateEvidence, type InitialTablePlan } from '../model/initialTablePlan';
@@ -39,7 +39,7 @@ export function createFirstTableFromRootFor(
   { isFirstTableActionPending, setFirstTableProgress, setTableCreatorOpen }: ReturnType<typeof createFirstTable>,
   { draftAccess, getSuggestions, scope, setMessage, firstTableName, setFirstTableName }: {
     readonly draftAccess: { getState(): BuilderAuthoringState };
-    readonly getSuggestions: ReturnType<typeof useGetExplorerCandidateSuggestionsV2Mutation>[0];
+    readonly getSuggestions: BuilderMutationResult<'suggestions'>[0];
     readonly scope: { readonly project: string; readonly authResourcePath?: string };
     readonly setMessage: (message: string | undefined) => void;
     readonly firstTableName: string;

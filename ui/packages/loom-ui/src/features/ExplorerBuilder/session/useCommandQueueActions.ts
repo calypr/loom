@@ -1,5 +1,5 @@
 import { useCallback, useState, useSyncExternalStore } from 'react';
-import { useApplyExplorerBuilderCommandsV2Mutation } from '../../../react';
+import { useBuilderMutation } from '../../../react';
 import type { ExplorerBuilderCommand } from '../../../contracts/types';
 import { useBuilderSession } from './BuilderSessionProvider';
 import { bindCommandQueue, createCommandQueue } from './commandQueue';
@@ -19,7 +19,7 @@ type CommandQueueBinding = Pick<ReturnType<typeof createCommandQueue>, 'commandR
 
 export function useCommandQueueActions(options: CommandQueueOptions): CommandQueueBinding {
   const draft = useBuilderSession(value => value);
-  const [applyBuilderCommands] = useApplyExplorerBuilderCommandsV2Mutation();
+  const [applyBuilderCommands] = useBuilderMutation('applyCommands');
   const [queue] = useState(createCommandQueue);
   const { pending, commandRecipeAdmission, relatedExpandQueryOwnerRef } = queue;
   const pendingCommands = useSyncExternalStore(pending.subscribe, pending.getSnapshot, pending.getSnapshot);

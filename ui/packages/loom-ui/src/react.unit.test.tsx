@@ -6,10 +6,10 @@ import { resourceFor } from './data/resource';
 import { createLoomClient } from './client/api';
 import type { ResolveConfiguredColumnContextsArgs } from './client/api';
 import {
+  useBuilderMutation,
   LoomProvider,
   useGetExplorerAuthoringExplorersQuery,
   useGetExplorerAuthoringCapabilityV2Query,
-  usePreviewExplorerAuthoringV2Mutation,
 } from './react';
 import { useResolveConfiguredColumnContextsQuery } from './data/builderQueries';
 import { useGetExplorerBuilderStateV2Query } from './features/ExplorerBuilder/session/useBuilderLoad';
@@ -479,7 +479,7 @@ describe('Loom React mutations', () => {
       <LoomProvider client={client}>{children}</LoomProvider>
     );
     const { result } = renderHook(
-      () => usePreviewExplorerAuthoringV2Mutation(),
+      () => useBuilderMutation('preview'),
       { wrapper },
     );
     const request = {

@@ -3,7 +3,7 @@ import type { PreviewExplorerBuilderArgs } from '../../../client/api';
 import { sameDraftRevision } from '../../../contracts/identity';
 import type { ExplorerBuilderPreviewResult, ExplorerBuilderState, RowChangeAssessment } from '../../../contracts/types';
 import { bindRequestTransport, type RequestOwner } from '../../../data/requests';
-import type { useAssessExplorerRowChangeMutation } from '../../../react';
+import type { BuilderMutationResult } from '../../../react';
 import { isDraftRestoreError } from '../model/draftRestore';
 import {
   sameRootChangeRequestIdentity,
@@ -41,7 +41,7 @@ type RootChangePorts = {
   readonly rowChangeRequests: RequestOwner;
   readonly getCurrentRootChangeIdentity: () => RootChangeRequestIdentity | undefined;
   readonly workspaceAttached: Cell<boolean>;
-  readonly assessRowChange: ReturnType<typeof useAssessExplorerRowChangeMutation>[0];
+  readonly assessRowChange: BuilderMutationResult<'assessRowChange'>[0];
   readonly loadPreview: (args: PreviewExplorerBuilderArgs, signal: AbortSignal) => Promise<ExplorerBuilderPreviewResult>;
   readonly previewLimit: PreviewLimit;
   readonly refetchBuilder: ReturnType<typeof useGetExplorerBuilderStateV2Query>['refetch'];

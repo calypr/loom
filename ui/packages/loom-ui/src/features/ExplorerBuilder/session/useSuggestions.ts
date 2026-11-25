@@ -1,12 +1,12 @@
 import { useBuilderActions, useBuilderSession } from './BuilderSessionProvider';
 import { useCallback, useRef, useState, type Dispatch } from 'react';
-import type { useGetExplorerCandidateSuggestionsV2Mutation } from '../../../react';
+import type { BuilderMutationResult } from '../../../react';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
 import { derivedOccurrences, selectedTable, type BuilderAuthoringState } from '../model/authoring';
 import type { BuilderAction } from '../model/reducer';
 
 type UseSuggestionsOptions = {
-  readonly getSuggestions: ReturnType<typeof useGetExplorerCandidateSuggestionsV2Mutation>[0];
+  readonly getSuggestions: BuilderMutationResult<'suggestions'>[0];
 };
 
 export const useSuggestions = ({

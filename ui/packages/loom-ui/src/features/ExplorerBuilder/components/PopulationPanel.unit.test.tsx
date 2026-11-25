@@ -13,7 +13,13 @@ const searchPopulationRoutes = loomClient.searchPopulationRoutes;
 vi.mock('../../../react', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../../react')>(),
   useLoomClient: () => loomClient,
-  usePopulationMappingMutation: () => [triggerPopulation, { isLoading: false }],
+  useBuilderMutation: (method: string) => {
+    const overrides: Readonly<Record<string, () => unknown>> = {
+      populationMapping: () => [triggerPopulation, { isLoading: false }],
+    };
+    const override = overrides[method];
+    return override ? override() : undefined;
+  },
 }));
 
 const populationChoice: PopulationRouteChoice = {

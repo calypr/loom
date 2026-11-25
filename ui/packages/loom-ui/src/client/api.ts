@@ -149,7 +149,7 @@ export interface ExplorerAuthoringProjectArgs {
   readonly authResourcePath?: string;
 }
 
-export interface ApplyExplorerBuilderCommandsArgs extends ExplorerAuthoringStateArgs {
+interface ApplyExplorerBuilderCommandsArgs extends ExplorerAuthoringStateArgs {
   readonly commandId: string;
   readonly snapshotToken: string;
   readonly expectedDraftVersion: number;
@@ -158,7 +158,7 @@ export interface ApplyExplorerBuilderCommandsArgs extends ExplorerAuthoringState
   readonly requestId?: string;
 }
 
-export interface AssessExplorerRowChangeArgs extends ExplorerAuthoringStateArgs {
+interface AssessExplorerRowChangeArgs extends ExplorerAuthoringStateArgs {
   readonly mode?: RowChangeMode;
   readonly snapshotToken: string;
   readonly draftVersion: number;
@@ -173,7 +173,7 @@ export interface AssessExplorerRowChangeArgs extends ExplorerAuthoringStateArgs 
   readonly requestId?: string;
 }
 
-export interface ReconcileExplorerBuilderArgs extends ExplorerAuthoringStateArgs {
+interface ReconcileExplorerBuilderArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly draftVersion: number;
   readonly draftDigest: string;
@@ -188,7 +188,7 @@ export interface PreviewExplorerBuilderArgs extends ExplorerAuthoringStateArgs {
   readonly requestId?: string;
 }
 
-export interface PopulationMappingArgs extends ExplorerAuthoringStateArgs {
+interface PopulationMappingArgs extends ExplorerAuthoringStateArgs {
   readonly receiptId: string;
   readonly outputId: string;
   readonly cursor?: string;
@@ -314,12 +314,12 @@ const artifactSchema = z.object({
 }).strict();
 export type Artifact = z.infer<typeof artifactSchema>;
 
-export interface PublishExplorerBuilderArgs extends ExplorerAuthoringStateArgs {
+interface PublishExplorerBuilderArgs extends ExplorerAuthoringStateArgs {
   readonly receiptId: string;
   readonly requestId?: string;
 }
 
-export interface ExplorerCandidateSuggestionsArgs extends ExplorerAuthoringStateArgs {
+interface ExplorerCandidateSuggestionsArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly nodeId: string;
   readonly query?: string;
@@ -485,14 +485,14 @@ interface CreateExplicitGroupRevisionArgs extends ExplorerAuthoringStateArgs {
   readonly requestId?: string;
 }
 
-export interface CreateExplorerArgs extends ExplorerAuthoringProjectArgs {
+interface CreateExplorerArgs extends ExplorerAuthoringProjectArgs {
   readonly name: string;
   readonly title?: string;
   readonly sourceExplorerId?: string;
   readonly requestId?: string;
 }
 
-export interface DeleteExplorerArgs extends ExplorerAuthoringStateArgs {
+interface DeleteExplorerArgs extends ExplorerAuthoringStateArgs {
   readonly requestId?: string;
 }
 

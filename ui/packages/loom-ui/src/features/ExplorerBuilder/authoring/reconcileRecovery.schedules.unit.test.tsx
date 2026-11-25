@@ -36,15 +36,21 @@ vi.mock('../../../react', async (importOriginal) => {
     useLoomClient: () => harness.client,
     useGetExplorerAuthoringExplorersQuery: () => ({ data: [{ explorerId: 'patients', title: 'Patients' }], isLoading: false, refetch: vi.fn() }),
     useGetExplorerAuthoringCapabilityV2Query: () => ({ data: { features: { deleteExplorer: false } } }),
-    useReconcileExplorerBuilderV2Mutation: () => [harness.reconcile, { isLoading: false }],
-    usePreviewExplorerAuthoringV2Mutation: () => [harness.preview, { isLoading: false }],
-    usePublishExplorerAuthoringV2Mutation: vi.fn(() => [harness.publish, { isLoading: false }]),
-    useApplyExplorerBuilderCommandsV2Mutation: () => [vi.fn(), { isLoading: false }],
-    useAssessExplorerRowChangeMutation: () => [vi.fn(), { isLoading: false }],
-    useCreateExplorerAuthoringMutation: () => [vi.fn(), { isLoading: false }],
-    useDeleteExplorerAuthoringMutation: () => [vi.fn(), { isLoading: false }],
-    useGetExplorerCandidateSuggestionsV2Mutation: () => [vi.fn(), { isLoading: false }],
-    usePopulationMappingMutation: () => [vi.fn(), { isLoading: false }],
+    useBuilderMutation: (method: string) => {
+      const overrides: Readonly<Record<string, () => unknown>> = {
+        reconcile: () => [harness.reconcile, { isLoading: false }],
+        preview: () => [harness.preview, { isLoading: false }],
+        publish: vi.fn(() => [harness.publish, { isLoading: false }]),
+        applyCommands: () => [vi.fn(), { isLoading: false }],
+        assessRowChange: () => [vi.fn(), { isLoading: false }],
+        createExplorer: () => [vi.fn(), { isLoading: false }],
+        deleteExplorer: () => [vi.fn(), { isLoading: false }],
+        suggestions: () => [vi.fn(), { isLoading: false }],
+        populationMapping: () => [vi.fn(), { isLoading: false }],
+      };
+      const override = overrides[method];
+      return override ? override() : actual.useBuilderMutation(method as Parameters<typeof actual.useBuilderMutation>[0]);
+    },
   };
 });
 

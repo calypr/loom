@@ -1,7 +1,12 @@
 import { useBuilderActions, useBuilderSession } from './BuilderSessionProvider';
 import { selectedTable } from '../model/authoring';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
-import { useCreateExplorerAuthoringMutation, useDeleteExplorerAuthoringMutation, type useGetExplorerAuthoringExplorersQuery, type useGetExplorerAuthoringCapabilityV2Query } from '../../../react';
+import {
+  useBuilderMutation,
+  type BuilderMutationResult,
+  type useGetExplorerAuthoringExplorersQuery,
+  type useGetExplorerAuthoringCapabilityV2Query,
+} from '../../../react';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
 import type { BuilderAuthoringState, DraftTable } from '../model/authoring';
 import type { BuilderAction } from '../model/reducer';
@@ -32,8 +37,8 @@ type UseTableExplorerCrudResult = {
   readonly deleteSelectedTable: () => void;
   readonly createCustomExplorer: (title: string, fromCurrent: boolean) => Promise<void>;
   readonly deleteCurrentExplorer: () => Promise<void>;
-  readonly createStatus: ReturnType<typeof useCreateExplorerAuthoringMutation>[1];
-  readonly deleteStatus: ReturnType<typeof useDeleteExplorerAuthoringMutation>[1];
+  readonly createStatus: BuilderMutationResult<'createExplorer'>[1];
+  readonly deleteStatus: BuilderMutationResult<'deleteExplorer'>[1];
 };
 
 export const useTableExplorerCrud = ({
@@ -46,8 +51,8 @@ export const useTableExplorerCrud = ({
   const { dispatch, rememberSelectedTable } = useBuilderActions();
   const { project: projectId, authResourcePath } = builderQueryArgs;
   const table = selectedTable(state);
-  const [createExplorer, createStatus] = useCreateExplorerAuthoringMutation();
-  const [deleteExplorer, deleteStatus] = useDeleteExplorerAuthoringMutation();
+  const [createExplorer, createStatus] = useBuilderMutation('createExplorer');
+  const [deleteExplorer, deleteStatus] = useBuilderMutation('deleteExplorer');
   const addTable = () => {
     if (!recipeMutationAllowed()) return;
     if (
