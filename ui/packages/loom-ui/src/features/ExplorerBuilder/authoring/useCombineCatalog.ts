@@ -1,4 +1,4 @@
-import { useRef, useState, type MutableRefObject } from 'react';
+import { useRef, useState } from 'react';
 import type { useLoomClient } from '../../../react';
 import type { ConstructionCombineCatalog, ConstructionCombinePublishedRevision } from '../constructionOperations/combineEditorTypes';
 import { selectedTable, type BuilderAuthoringState } from '../model/authoring';
@@ -21,7 +21,7 @@ type UseCombineCatalogOptions = {
   readonly projectId: string;
   readonly authResourcePath?: string;
   readonly state: BuilderAuthoringState;
-  readonly latestState: MutableRefObject<BuilderAuthoringState>;
+  readonly draftAccess: { getState(): BuilderAuthoringState };
   readonly loomClient: ReturnType<typeof useLoomClient>;
 };
 
@@ -31,7 +31,7 @@ export const useCombineCatalog = ({
   projectId,
   authResourcePath,
   state,
-  latestState,
+  draftAccess,
   loomClient,
 }: UseCombineCatalogOptions) => {
   const [combineCatalogLoad, setCombineCatalogLoad] = useState<ConstructionCombineCatalogLoad>({
@@ -68,7 +68,7 @@ export const useCombineCatalog = ({
     setCombineCatalogLoad((current) => current.loadingMore ? { ...current, loadingMore: false } : current);
   };
   const loadCombineCatalogPage = async (cursor?: string) => {
-    const requestState = latestState.current;
+    const requestState = draftAccess.getState();
     const requestTable = selectedTable(requestState);
     const identity = combineCatalogIdentityFor(requestState);
     if (!requestTable || !requestState.catalog.snapshotToken || requestState.draftVersion <= 0 || !requestState.draftDigest) {
@@ -108,7 +108,7 @@ export const useCombineCatalog = ({
         ...(cursor ? { cursor } : {}),
         limit: 100,
       }, controller.signal);
-      const latest = latestState.current;
+      const latest = draftAccess.getState();
       if (
         controller.signal.aborted ||
         requestGeneration !== combineCatalogRequestGeneration.current ||

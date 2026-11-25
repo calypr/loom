@@ -22,7 +22,7 @@ type UsePublishOptions = {
   readonly projectId: string;
   readonly authResourcePath?: string;
   readonly state: BuilderAuthoringState;
-  readonly latestState: MutableRefObject<BuilderAuthoringState>;
+  readonly draftAccess: { getState(): BuilderAuthoringState; setCurrentDraft(state: BuilderAuthoringState): void };
   readonly workspaceAttached: MutableRefObject<boolean>;
   readonly compileGeneration: MutableRefObject<number>;
   readonly dispatch: Dispatch<Parameters<typeof builderAuthoringReducer>[1]>;
@@ -41,7 +41,7 @@ export const usePublish = ({
   projectId,
   authResourcePath,
   state,
-  latestState,
+  draftAccess,
   workspaceAttached,
   compileGeneration,
   dispatch,
@@ -82,16 +82,16 @@ export const usePublish = ({
         workspaceAttached.current && publicationOwnerKeyRef.current === ownerKey;
       for (;;) {
         if (!publicationOwnerIsCurrent()) return;
-        const submitted = latestState.current;
+        const submitted = draftAccess.getState();
         const generation = compileGeneration.current;
         const submittedFingerprint = intentFingerprint(workspaceFromState(submitted));
         const publicationIsCurrent = () => publicationOwnerIsCurrent() && reconcileResultIsCurrent({
           generation,
           currentGeneration: compileGeneration.current,
           submittedExplorerId: submitted.explorerId,
-          currentExplorerId: latestState.current.explorerId,
+          currentExplorerId: draftAccess.getState().explorerId,
           submittedFingerprint,
-          currentFingerprint: intentFingerprint(workspaceFromState(latestState.current)),
+          currentFingerprint: intentFingerprint(workspaceFromState(draftAccess.getState())),
         });
         const acknowledgementIdentity: PublicationAcknowledgementIdentity = {
           ownerKey,
@@ -103,14 +103,14 @@ export const usePublish = ({
         const acknowledgementIsCurrent = () =>
           publicationOwnerIsCurrent() &&
           publicationOwnerKeyRef.current === acknowledgementIdentity.ownerKey &&
-          latestState.current.explorerId === acknowledgementIdentity.explorerId &&
-          latestState.current.draftDigest === acknowledgementIdentity.draftDigest &&
-          latestState.current.catalog.snapshotToken === acknowledgementIdentity.snapshotToken &&
-          intentFingerprint(workspaceFromState(latestState.current)) === acknowledgementIdentity.intentFingerprint;
+          draftAccess.getState().explorerId === acknowledgementIdentity.explorerId &&
+          draftAccess.getState().draftDigest === acknowledgementIdentity.draftDigest &&
+          draftAccess.getState().catalog.snapshotToken === acknowledgementIdentity.snapshotToken &&
+          intentFingerprint(workspaceFromState(draftAccess.getState())) === acknowledgementIdentity.intentFingerprint;
         try {
           await publishBuilder({
             project: projectId,
-            explorerId: latestState.current.explorerId,
+            explorerId: draftAccess.getState().explorerId,
             authResourcePath,
             receiptId: activeReceiptId,
           }).unwrap();
@@ -130,10 +130,10 @@ export const usePublish = ({
             refreshes += 1;
             const refreshed = await refetchBuilder({ reload: true });
             if (!refreshed.data || !publicationIsCurrent()) return;
-            latestState.current = builderAuthoringReducer(latestState.current, {
+            draftAccess.setCurrentDraft(builderAuthoringReducer(draftAccess.getState(), {
               type: 'catalogRefreshed',
               catalog: refreshed.data.catalog,
-            });
+            }));
             syncBuilderData(refreshed.data, 'catalog');
             const receipt = await reconcileCurrent();
             if (!receipt || !publicationOwnerIsCurrent()) return;

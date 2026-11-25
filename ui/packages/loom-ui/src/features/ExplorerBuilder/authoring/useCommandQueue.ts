@@ -81,7 +81,7 @@ type UseCommandQueueOptions = {
   readonly refetchBuilder: ReturnType<typeof useGetExplorerBuilderStateV2Query>['refetch'];
   readonly rememberSelectedTable: (outputId: string) => void;
   readonly syncBuilderData: (value: ExplorerBuilderState, mode: 'hydrate' | 'catalog') => void;
-  readonly latestState: MutableRefObject<BuilderAuthoringState>;
+  readonly draftAccess: { getState(): BuilderAuthoringState; setCurrentDraft(state: BuilderAuthoringState): void };
   readonly serverDraft: MutableRefObject<ServerDraftIdentity>;
   readonly serverDraftKey: MutableRefObject<string>;
   readonly automaticPreviewGeneration: MutableRefObject<number>;
@@ -91,7 +91,7 @@ type UseCommandQueueOptions = {
   readonly activePreview: MutableRefObject<{ abort: () => void } | undefined>;
   readonly automaticPreviewRequest: MutableRefObject<AutomaticPreviewIdentity | undefined>;
   readonly appliedChoicePreview: MutableRefObject<AppliedPreviewHandoff | undefined>;
-  readonly setRestorableDraft: Dispatch<SetStateAction<{ readonly ownerKey: string; readonly revisionId?: string } | undefined>>;
+  readonly setRestorableDraft: (draft: { readonly ownerKey: string; readonly revisionId?: string }) => void;
   readonly setActiveConstructionSelection: (value: undefined) => void;
   readonly setLocalState: Dispatch<SetStateAction<{ readonly key: string; readonly value: BuilderAuthoringState } | undefined>>;
   readonly setMessage: Dispatch<SetStateAction<string | undefined>>;
@@ -109,7 +109,7 @@ export const useCommandQueue = ({
   refetchBuilder,
   rememberSelectedTable,
   syncBuilderData,
-  latestState,
+  draftAccess,
   serverDraft,
   serverDraftKey,
   automaticPreviewGeneration,
@@ -137,7 +137,7 @@ export const useCommandQueue = ({
       admitCommand?: () => boolean,
     ) => {
       if (!commandRecipeAdmission.current(commands)) return Promise.resolve(undefined);
-      const admission = admitAuthoringRequest(latestState.current.tables, { kind: 'commands', commands });
+      const admission = admitAuthoringRequest(draftAccess.getState().tables, { kind: 'commands', commands });
       if (admission.kind === 'refused') {
         setMessage(admission.refusal.message);
         return Promise.resolve(undefined);
@@ -157,7 +157,7 @@ export const useCommandQueue = ({
         try {
           await queryOwner?.pauseAndDrain();
           if (!commandRecipeAdmission.current(commands) || (admitCommand && !admitCommand())) return undefined;
-          const current = latestState.current;
+          const current = draftAccess.getState();
           const queuedAdmission = admitAuthoringRequest(current.tables, { kind: 'commands', commands });
           if (queuedAdmission.kind === 'refused') {
             setMessage(queuedAdmission.refusal.message);
@@ -192,7 +192,7 @@ export const useCommandQueue = ({
                 value,
                 constructionApplyIdentity,
                 commands[0],
-                latestState.current,
+                draftAccess.getState(),
                 automaticPreviewRequest.current,
               )
             : undefined;
@@ -209,7 +209,7 @@ export const useCommandQueue = ({
               preview: acceptedConstruction.preview,
             };
           }
-          const next = builderAuthoringReducer(latestState.current, {
+          const next = builderAuthoringReducer(draftAccess.getState(), {
             type: 'commandsApplied',
             value,
             ...(acceptedConstruction ? { acceptedReceipt: acceptedConstruction.receipt } : {}),
@@ -224,7 +224,7 @@ export const useCommandQueue = ({
             rememberSelectedTable(selectedOutputId);
             setActiveConstructionSelection(undefined);
           }
-          latestState.current = next;
+          draftAccess.setCurrentDraft(next);
           setLocalState({ key: builderDataKey, value: next });
           setMessage(undefined);
           return value;

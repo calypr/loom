@@ -50,7 +50,7 @@ type UseRootChangeOptions = {
   readonly authResourcePath?: string;
   readonly state: BuilderAuthoringState;
   readonly table?: DraftTable;
-  readonly latestState: MutableRefObject<BuilderAuthoringState>;
+  readonly draftAccess: { getState(): BuilderAuthoringState };
   readonly serverDraft: MutableRefObject<{ version: number; digest: string }>;
   readonly workspaceAttached: MutableRefObject<boolean>;
   readonly assessRowChange: ReturnType<typeof useAssessExplorerRowChangeMutation>[0];
@@ -162,7 +162,7 @@ export const useRootChange = ({
   authResourcePath,
   state,
   table,
-  latestState,
+  draftAccess,
   serverDraft,
   workspaceAttached,
   assessRowChange,
@@ -260,7 +260,7 @@ export const useRootChange = ({
   }), [rootChangeStateStore]);
 
   const getCurrentRootChangeIdentity = useCallback((): RootChangeRequestIdentity | undefined => {
-    const current = latestState.current;
+    const current = draftAccess.getState();
     const currentTable = selectedTable(current);
     if (!currentTable) return undefined;
     return {

@@ -53,7 +53,7 @@ describe('useRootChange identity changes', () => {
       projectId: 'project',
       state,
       table,
-      latestState,
+      draftAccess: { getState: () => latestState.current },
       serverDraft,
       workspaceAttached: { current: true },
       assessRowChange: vi.fn(),

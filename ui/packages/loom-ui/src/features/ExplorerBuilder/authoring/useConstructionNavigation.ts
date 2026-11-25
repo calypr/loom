@@ -1,4 +1,4 @@
-import { useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import { useState, type Dispatch, type SetStateAction } from 'react';
 import type { Construction, ConstructionOperation, ConstructionStep } from '../../../contracts/types';
 import { derivedOccurrences, selectedTable, type BuilderAuthoringState, type DraftTable } from '../model/authoring';
 import { constructionOperationFamilies, type ConstructionHistorySelection, type ConstructionOperationFamily } from '../constructionWorkspace/ConstructionWorkspace';
@@ -14,7 +14,7 @@ import type { AddColumnsView } from './useAddColumns';
 type UseConstructionNavigationOptions = {
   readonly ownerKey: string;
   readonly state: BuilderAuthoringState;
-  readonly latestState: MutableRefObject<BuilderAuthoringState>;
+  readonly draftAccess: { getState(): BuilderAuthoringState };
 };
 
 type ConstructionNavigationActionsOptions = {
@@ -70,7 +70,7 @@ const editableConstructionFamily = (
   }
 };
 
-export const useConstructionNavigation = ({ ownerKey, state, latestState }: UseConstructionNavigationOptions) => {
+export const useConstructionNavigation = ({ ownerKey, state, draftAccess }: UseConstructionNavigationOptions) => {
   const [activeConstructionSelection, setActiveConstructionSelection] = useState<{
     readonly ownerKey: string;
     readonly explorerId: string;
@@ -93,7 +93,7 @@ export const useConstructionNavigation = ({ ownerKey, state, latestState }: UseC
     next: ConstructionOperationFamily | undefined |
       ((current: ConstructionOperationFamily | undefined) => ConstructionOperationFamily | undefined),
   ) => {
-    const currentState = latestState.current;
+    const currentState = draftAccess.getState();
     const outputId = currentState.selectedOutputId;
     if (!outputId) {
       setActiveConstructionSelection(undefined);
@@ -121,7 +121,7 @@ export const useConstructionNavigation = ({ ownerKey, state, latestState }: UseC
     const reshapeEditorKeyFor = (entry: number, kind: ReshapeEntryKind, stageId: string) =>
       `${ownerKey}:${state.catalog.snapshotToken}:${state.draftVersion}:${state.draftDigest}:${table?.outputId ?? ''}:${stageId}:${entry}:${kind}`;
     const startCombine = async () => {
-      const current = latestState.current;
+      const current = draftAccess.getState();
       const currentTable = selectedTable(current);
       const requestOwner = { ownerKey, explorerId: current.explorerId };
       const rootNodeId = currentTable?.document.rootResourceType

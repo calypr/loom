@@ -8,7 +8,7 @@ import type { useCommandQueue } from './useCommandQueue';
 type UseTableExplorerCrudOptions = {
   readonly state: BuilderAuthoringState;
   readonly table: DraftTable | undefined;
-  readonly latestState: MutableRefObject<BuilderAuthoringState>;
+  readonly draftAccess: { getState(): BuilderAuthoringState };
   readonly dispatch: Dispatch<BuilderAction>;
   readonly recipeMutationAllowed: () => boolean;
   readonly firstTableActionPending: MutableRefObject<boolean>;
@@ -43,7 +43,7 @@ type UseTableExplorerCrudResult = {
 };
 
 export const useTableExplorerCrud = ({
-  state, table, latestState, dispatch, recipeMutationAllowed, firstTableActionPending,
+  state, table, draftAccess, dispatch, recipeMutationAllowed, firstTableActionPending,
   tableCreatorOpen, setFirstTableName, setTableCreatorOpen, rememberSelectedTable, applyCommands,
   projectId, authResourcePath, selectExplorer, onExplorerChange, explorers, capabilities,
   effectiveExplorerId, compileGeneration, activeCompile, setMessage, opaqueId,
@@ -54,7 +54,7 @@ export const useTableExplorerCrud = ({
     if (!recipeMutationAllowed()) return;
     if (
       firstTableActionPending.current ||
-      latestState.current.tables.length === 0
+      draftAccess.getState().tables.length === 0
     ) return;
     if (!tableCreatorOpen) setFirstTableName('');
     setTableCreatorOpen(true);

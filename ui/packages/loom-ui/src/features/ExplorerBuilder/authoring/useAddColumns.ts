@@ -42,7 +42,7 @@ type UseAddColumnsOptions = {
   readonly projectId: string;
   readonly authResourcePath?: string;
   readonly previewLimit: PreviewLimit;
-  readonly latestState: MutableRefObject<BuilderAuthoringState>;
+  readonly draftAccess: { getState(): BuilderAuthoringState };
   readonly loomClient: ReturnType<typeof useLoomClient>;
   readonly sourceStageDescriptors: ConstructionCapabilitiesResponse['stages'] | undefined;
   readonly rowValuePolicy: NonNullable<ConstructionChoiceSelection['rowValuePolicy']>;
@@ -69,7 +69,7 @@ export const useAddColumns = ({
   projectId,
   authResourcePath,
   previewLimit,
-  latestState,
+  draftAccess,
   loomClient,
   sourceStageDescriptors,
   rowValuePolicy,
@@ -234,7 +234,7 @@ export const useAddColumns = ({
   const inspectRelatedRouteCoverage = async (selection: CatalogChoiceIntent, signal: AbortSignal) => {
     const relatedCandidate = selection.relatedSource ? buildRelatedSourceCandidate(selection) : undefined;
     if (selection.constructionChoice.form === 'ALL' && !relatedCandidate) {
-      const current = latestState.current;
+      const current = draftAccess.getState();
       if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest || !table) {
         throw new Error('The current table is still loading.');
       }
@@ -253,7 +253,7 @@ export const useAddColumns = ({
           ...(sourceStageDescriptors?.at(-1)?.capabilities.some((capability) => capability.kind === 'ROW_VALUES' && capability.supported) ? { rowValuePolicy: 'ALL' as const } : {}), ...(selection.title ? { title: selection.title } : {}) }],
         limit: 25,
       }, signal);
-      const latest = latestState.current;
+      const latest = draftAccess.getState();
       if (
         signal.aborted ||
         response.snapshotToken !== current.catalog.snapshotToken ||
@@ -291,7 +291,7 @@ export const useAddColumns = ({
       throw new Error('Route coverage is unavailable for this result form.');
     }
     const candidate = relatedCandidate;
-    const current = latestState.current;
+    const current = draftAccess.getState();
     if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest || !table) {
       throw new Error('The current table is still loading.');
     }
@@ -307,7 +307,7 @@ export const useAddColumns = ({
       limit: 25,
       requestId: `construction-route-coverage-${window.crypto.randomUUID()}`,
     }, signal);
-    const latest = latestState.current;
+    const latest = draftAccess.getState();
     if (
       signal.aborted ||
       response.snapshotToken !== current.catalog.snapshotToken ||
@@ -443,7 +443,7 @@ export const useAddColumns = ({
       if (!applied) throw new Error('Loom could not save these related columns. The table was not changed.');
       return;
     }
-    const current = latestState.current;
+    const current = draftAccess.getState();
     const proposalOwnerKey = ownerKey;
     const proposalLimit = previewLimit;
     if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest) {
@@ -471,7 +471,7 @@ export const useAddColumns = ({
         })),
         limit: proposalLimit,
       }, controller.signal);
-      const latest = latestState.current;
+      const latest = draftAccess.getState();
       if (
         controller.signal.aborted ||
         ownerKey !== proposalOwnerKey ||
@@ -498,7 +498,7 @@ export const useAddColumns = ({
       appliedChoicePreview.current = {
         ownerKey: proposalOwnerKey,
         draftVersion: appliedResult.draftVersion,
-        previewRequestVersion: latestState.current.previewRequestVersion,
+        previewRequestVersion: draftAccess.getState().previewRequestVersion,
         outputId: response.outputId,
         limit: proposalLimit,
         snapshotToken: response.snapshotToken,

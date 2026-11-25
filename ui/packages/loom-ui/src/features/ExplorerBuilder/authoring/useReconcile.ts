@@ -12,7 +12,7 @@ import type { AutomaticPreviewExecution, PreviewRequest } from './useAutomaticPr
 type UseReconcileOptions = {
   readonly projectId: string;
   readonly authResourcePath?: string;
-  readonly latestState: MutableRefObject<BuilderAuthoringState>;
+  readonly draftAccess: { getState(): BuilderAuthoringState; setCurrentDraft(state: BuilderAuthoringState): void };
   readonly workspaceAttached: MutableRefObject<boolean>;
   readonly dispatch: Dispatch<Parameters<typeof builderAuthoringReducer>[1]>;
   readonly refetchBuilder: ReturnType<typeof useGetExplorerBuilderStateV2Query>['refetch'];
@@ -35,7 +35,7 @@ type UseReconcileResult = {
 export const useReconcile = ({
   projectId,
   authResourcePath,
-  latestState,
+  draftAccess,
   workspaceAttached,
   dispatch,
   refetchBuilder,
@@ -57,7 +57,7 @@ export const useReconcile = ({
     outputId?: string,
   ): Promise<ExplorerBuilderCompileResult | undefined> => {
     if (!workspaceAttached.current) return undefined;
-    const submitted = latestState.current;
+    const submitted = draftAccess.getState();
     if (
       !submitted.catalog.snapshotToken ||
       submitted.tables.length === 0 ||
@@ -72,9 +72,9 @@ export const useReconcile = ({
       generation,
       currentGeneration: compileGeneration.current,
       submittedExplorerId: submitted.explorerId,
-      currentExplorerId: latestState.current.explorerId,
+      currentExplorerId: draftAccess.getState().explorerId,
       submittedFingerprint,
-      currentFingerprint: intentFingerprint(workspaceFromState(latestState.current)),
+      currentFingerprint: intentFingerprint(workspaceFromState(draftAccess.getState())),
     });
     let snapshotToken = submitted.catalog.snapshotToken;
     let draftVersion = submitted.draftVersion;
@@ -104,7 +104,7 @@ export const useReconcile = ({
       try {
         const value = await request.unwrap();
         if (owner?.cancelled || !requestIsCurrent()) return undefined;
-        const current = latestState.current;
+        const current = draftAccess.getState();
         const acceptance = reconcileAcceptance(value, {
           generation,
           currentGeneration: compileGeneration.current,
@@ -205,7 +205,7 @@ export const useReconcile = ({
         if (owner?.cancelled || generation !== previewGeneration.current) return undefined;
         const previewRequest = previewBuilder({
           project: projectId,
-          explorerId: latestState.current.explorerId,
+          explorerId: draftAccess.getState().explorerId,
           authResourcePath,
           receiptId: activeReceipt.receiptId,
           outputId: activeRequest.outputId,
@@ -266,10 +266,10 @@ export const useReconcile = ({
             const refreshed = await refetchBuilder({ reload: true });
             if (owner?.cancelled || generation !== previewGeneration.current) return undefined;
             if (!refreshed.data) return undefined;
-            latestState.current = builderAuthoringReducer(latestState.current, {
+            draftAccess.setCurrentDraft(builderAuthoringReducer(draftAccess.getState(), {
               type: 'catalogRefreshed',
               catalog: refreshed.data.catalog,
-            });
+            }));
             syncBuilderData(refreshed.data, 'catalog');
             const refreshedReceipt = await reconcileCurrent(owner, activeRequest.outputId);
             if (owner?.cancelled || generation !== previewGeneration.current) return undefined;

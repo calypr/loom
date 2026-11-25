@@ -4,7 +4,7 @@ import type { BuilderAuthoringState } from '../model/authoring';
 export type RecipeFocusContext = {
   readonly recipeOwner: { readonly state: { readonly identity: { readonly outputId: string } } };
   readonly workspaceAttached: MutableRefObject<boolean>;
-  readonly latestState: MutableRefObject<Pick<BuilderAuthoringState, 'selectedOutputId'>>;
+  readonly draftAccess: { getState(): Pick<BuilderAuthoringState, 'selectedOutputId'> };
 };
 
 export type RecipeFocusRefs = {
@@ -24,7 +24,7 @@ export type RecipeFocusActions = {
 export const createRecipeFocusActions = ({
   recipeOwner,
   workspaceAttached,
-  latestState,
+  draftAccess,
   recipeFocusGeneration,
   pendingRecipeFocus,
   recipeInitiator,
@@ -55,7 +55,7 @@ export const createRecipeFocusActions = ({
     recipeInitiator.current = undefined;
     recipeInitiatorFact.current = undefined;
     window.requestAnimationFrame(() => {
-      if (!workspaceAttached.current || generation !== recipeFocusGeneration.current || latestState.current.selectedOutputId !== expectedOutputId) return;
+      if (!workspaceAttached.current || generation !== recipeFocusGeneration.current || draftAccess.getState().selectedOutputId !== expectedOutputId) return;
       if (document.activeElement !== activeAtCompletion && document.activeElement !== document.body && document.activeElement !== initiator) return;
       let target = initiator?.isConnected ? initiator : undefined;
       if (!target && fact?.testId) target = [...document.querySelectorAll<HTMLElement>('[data-testid]')].find((node) => node.dataset.testid === fact.testId);
@@ -75,7 +75,7 @@ export const createRecipeFocusActions = ({
     const generation = recipeFocusGeneration.current;
     window.requestAnimationFrame(() => {
       const pending = pendingRecipeFocus.current;
-      if (!workspaceAttached.current || generation !== recipeFocusGeneration.current || !pending || pending.outputId !== outputId || latestState.current.selectedOutputId !== pending.outputId) return;
+      if (!workspaceAttached.current || generation !== recipeFocusGeneration.current || !pending || pending.outputId !== outputId || draftAccess.getState().selectedOutputId !== pending.outputId) return;
       if (document.activeElement !== document.body && document.activeElement !== pending.fallback) {
         pendingRecipeFocus.current = undefined;
         return;

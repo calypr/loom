@@ -25,7 +25,7 @@ type UseAutomaticPreviewOwnerOptions = {
   readonly ownerKey: string;
   readonly projectId: string;
   readonly state: BuilderAuthoringState;
-  readonly latestState: MutableRefObject<BuilderAuthoringState>;
+  readonly draftAccess: { getState(): BuilderAuthoringState };
   readonly compileGeneration: MutableRefObject<number>;
   readonly previewGeneration: MutableRefObject<number>;
   readonly dispatch: Dispatch<Parameters<typeof builderAuthoringReducer>[1]>;
@@ -44,7 +44,7 @@ export const useAutomaticPreviewOwner = ({
   ownerKey,
   projectId,
   state,
-  latestState,
+  draftAccess,
   compileGeneration,
   previewGeneration,
   dispatch,
@@ -113,7 +113,7 @@ export const useAutomaticPreviewOwner = ({
       activeAutomaticPreview.current = { generation, execution, cancel };
       signal.addEventListener('abort', cancel, { once: true });
       const identityIsCurrent = () => {
-        const current = latestState.current;
+        const current = draftAccess.getState();
         return !signal.aborted &&
           automaticPreviewRequest.current?.key === identity.key &&
           current.catalog.snapshotToken === identity.snapshotToken &&
@@ -132,7 +132,7 @@ export const useAutomaticPreviewOwner = ({
           type: 'previewAccepted',
           identity: {
             project: projectId,
-            explorerId: latestState.current.explorerId,
+            explorerId: draftAccess.getState().explorerId,
             snapshotToken: identity.snapshotToken,
             draftVersion: identity.draftVersion,
             draftDigest: identity.draftDigest,
@@ -147,7 +147,7 @@ export const useAutomaticPreviewOwner = ({
       };
       try {
         if (!identityIsCurrent()) return undefined;
-        const current = latestState.current;
+        const current = draftAccess.getState();
         const receipt = !options?.reload && current.receipt && current.reconciliation === 'resolved' &&
           current.receipt.snapshotToken === identity.snapshotToken &&
           current.receipt.outputs.some((output) => output.outputId === identity.outputId)

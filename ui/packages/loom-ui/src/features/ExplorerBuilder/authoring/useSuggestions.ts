@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type Dispatch, type MutableRefObject } from 'react';
+import { useCallback, useRef, useState, type Dispatch } from 'react';
 import type { useGetExplorerCandidateSuggestionsV2Mutation } from '../../../react';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
 import { derivedOccurrences, selectedTable, type BuilderAuthoringState } from '../model/authoring';
@@ -6,7 +6,7 @@ import type { BuilderAction } from '../model/reducer';
 
 type UseSuggestionsOptions = {
   readonly state: BuilderAuthoringState;
-  readonly latestState: MutableRefObject<BuilderAuthoringState>;
+  readonly draftAccess: { getState(): BuilderAuthoringState };
   readonly dispatch: Dispatch<BuilderAction>;
   readonly getSuggestions: ReturnType<typeof useGetExplorerCandidateSuggestionsV2Mutation>[0];
   readonly projectId: string;
@@ -14,7 +14,7 @@ type UseSuggestionsOptions = {
 };
 
 export const useSuggestions = ({
-  state, latestState, dispatch, getSuggestions, projectId, authResourcePath,
+  state, draftAccess, dispatch, getSuggestions, projectId, authResourcePath,
 }: UseSuggestionsOptions) => {
   const [suggestionsFailure, setSuggestionsFailure] = useState<{
     readonly key: string;
@@ -22,7 +22,7 @@ export const useSuggestions = ({
   }>();
   const suggestionRequestKey = useRef('');
   const ensureSuggestions = useCallback(() => {
-    const current = latestState.current;
+    const current = draftAccess.getState();
     const currentOccurrence = derivedOccurrences(
       selectedTable(current),
       current.catalog,
@@ -49,7 +49,7 @@ export const useSuggestions = ({
     void request
       .unwrap()
       .then((value) => {
-        const latest = latestState.current;
+        const latest = draftAccess.getState();
         if (
           latest.explorerId === current.explorerId &&
           value.snapshotToken === latest.catalog.snapshotToken &&
@@ -65,7 +65,7 @@ export const useSuggestions = ({
         if (suggestionRequestKey.current === key) suggestionRequestKey.current = '';
         if (error.code !== 'CLIENT_CANCELLED') {
           const suffix = error.code ? ` (${error.code})` : '';
-          const latest = latestState.current;
+          const latest = draftAccess.getState();
           if (latest.explorerId === current.explorerId &&
             latest.catalog.snapshotToken === current.catalog.snapshotToken &&
             latest.selectedOccurrenceId === currentOccurrence.id) {

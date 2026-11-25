@@ -8,7 +8,7 @@ import type { useCommandQueue } from './useCommandQueue';
 
 type UsePopulationExclusionOptions = {
   readonly table: DraftTable | undefined;
-  readonly latestState: MutableRefObject<BuilderAuthoringState>;
+  readonly draftAccess: { getState(): BuilderAuthoringState };
   readonly activePopulationSelection: SelectionRevision | undefined;
   readonly populationSelectionContextKey: string;
   readonly loomClient: ReturnType<typeof useLoomClient>;
@@ -35,7 +35,7 @@ const populationBindingKey = (
 ]);
 
 export const usePopulationExclusion = ({
-  table, latestState, activePopulationSelection, populationSelectionContextKey, loomClient,
+  table, draftAccess, activePopulationSelection, populationSelectionContextKey, loomClient,
   workspaceAttached, serverDraft, applyCommands, projectId, authResourcePath,
   setPopulationSelectionOverride,
 }: UsePopulationExclusionOptions) => {
@@ -56,14 +56,14 @@ export const usePopulationExclusion = ({
     ref: ResourceRef,
     route: ReadonlyArray<ConstructionRouteStep>,
   ) => {
-    const current = latestState.current;
+    const current = draftAccess.getState();
     const currentTable = selectedTable(current);
     const baseSelection = activePopulationSelection;
     if (!currentTable || !baseSelection) return;
     const exclusionContext = populationExclusionContextRef.current;
     const requestIsCurrent = () => {
       const latestContext = populationExclusionContextRef.current;
-      const latest = latestState.current;
+      const latest = draftAccess.getState();
       const latestTable = selectedTable(latest);
       return workspaceAttached.current &&
         latestContext.contextKey === exclusionContext.contextKey &&
@@ -127,7 +127,7 @@ export const usePopulationExclusion = ({
         throw new Error('Loom created the revised collection but could not attach it to this table.');
       }
       const resultContext = populationExclusionContextRef.current;
-      const resultTable = selectedTable(latestState.current);
+      const resultTable = selectedTable(draftAccess.getState());
       if (!workspaceAttached.current ||
           resultContext.contextKey !== exclusionContext.contextKey ||
           resultContext.client !== exclusionContext.client ||

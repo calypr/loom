@@ -4,6 +4,7 @@ import type { ExplorerBuilderCatalog, ExplorerBuilderState } from '../../../cont
 import { stateFromBuilder, type BuilderAuthoringState } from '../model/authoring';
 import { builderAuthoringReducer } from '../model/reducer';
 import { shouldSyncServerDraft } from '../model/serverDraftSync';
+import { createBuilderDraftAccess } from '../session/draftAccess';
 
 const emptyCatalog = (): ExplorerBuilderCatalog => ({
   snapshotToken: '',
@@ -128,8 +129,8 @@ export const useBuilderDraft = ({
     }
   }, [selectedTableStorageKey]);
   const serverDraft = useRef({ version: 0, digest: '' });
-  const latestState = useRef(state);
-  latestState.current = state;
+  const [draftAccess] = useState(() => createBuilderDraftAccess(state));
+  draftAccess.setCurrentDraft(state);
   const serverDraftKey = useRef('');
   if (shouldSyncServerDraft(builder.data, serverDraftKey.current, builderDataKey)) {
     serverDraft.current = {
@@ -165,7 +166,7 @@ export const useBuilderDraft = ({
             : builderAuthoringReducer(
                 current?.key === builderDataKey
                   ? current.value
-                  : latestState.current,
+                  : draftAccess.getState(),
                 { type: 'catalogRefreshed', catalog: value.catalog },
               );
         return { key: nextKey, value: nextValue };
@@ -188,7 +189,7 @@ export const useBuilderDraft = ({
     setRestorableDraft,
     serverDraft,
     serverDraftKey,
-    latestState,
+    draftAccess,
     syncBuilderData,
   };
 };

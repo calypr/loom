@@ -24,7 +24,7 @@ function setup(policyId = 'shared-source-policy-value', firstTableProgress: {kin
   }
   const focus = createRecipeFocusActions({
     recipeOwner: { state: { identity: { outputId: 'tableA' } } },
-    latestState: latest,
+    draftAccess: { getState: () => latest.current },
     workspaceAttached: attached,
     recipeFocusGeneration: { current: 0 },
     recipeInitiator: { current: undefined },

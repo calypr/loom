@@ -322,7 +322,7 @@ const BuilderWorkspaceContent = ({
     setRestorableDraft,
     serverDraft,
     serverDraftKey,
-    latestState,
+    draftAccess,
     syncBuilderData,
   } = useBuilderDraft({
     projectId,
@@ -366,7 +366,7 @@ const BuilderWorkspaceContent = ({
   }>();
   const { firstTableName, setFirstTableName, tableCreatorOpen, setTableCreatorOpen,
     firstTableProgress, firstTableActionPending, actionsFor: firstTableActionsFor } = useFirstTable({
-    latestState, getSuggestions, projectId, authResourcePath, setMessage,
+    draftAccess, getSuggestions, projectId, authResourcePath, setMessage,
   });
   const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
   const { sourceRelationshipRequest, recipeEditToken, sourceProposal, setSourceProposal,
@@ -374,7 +374,7 @@ const BuilderWorkspaceContent = ({
     recipeNotice, setRecipeNotice, setRelationshipEdit, actionsFor: sourceRecipeActionsFor } = useSourceRecipe();
   const { activeConstructionFamily, setActiveConstructionFamily, setActiveConstructionSelection,
     reshapeEntryKind, setReshapeEntryKind, reshapeFormKind, setReshapeFormKind, actionsFor: constructionNavigationActionsFor } = useConstructionNavigation({
-    ownerKey, state, latestState,
+    ownerKey, state, draftAccess,
   });
   const occurrencePanels = useRef<{ key: string; panels: Map<string, OccurrencePanel> } | undefined>(undefined);
   const [rowValuePolicy, setRowValuePolicy] = useState<NonNullable<ConstructionChoiceSelection['rowValuePolicy']>>('ALL');
@@ -394,7 +394,7 @@ const BuilderWorkspaceContent = ({
     projectId,
     authResourcePath,
     state,
-    latestState,
+    draftAccess,
     loomClient,
   });
   const selectTableFromUser = useCallback((outputId: string) => {
@@ -472,7 +472,7 @@ const BuilderWorkspaceContent = ({
   const { compileGeneration, previewGeneration, activeCompile, activePreview, reconcileStatus, previewStatus, reconcileCurrent, executePreview } = useReconcile({
     projectId,
     authResourcePath,
-    latestState,
+    draftAccess,
     workspaceAttached,
     dispatch,
     refetchBuilder,
@@ -485,7 +485,7 @@ const BuilderWorkspaceContent = ({
     ownerKey,
     projectId,
     state,
-    latestState,
+    draftAccess,
     compileGeneration,
     previewGeneration,
     dispatch,
@@ -503,7 +503,7 @@ const BuilderWorkspaceContent = ({
     refetchBuilder,
     rememberSelectedTable,
     syncBuilderData,
-    latestState,
+    draftAccess,
     serverDraft,
     serverDraftKey,
     automaticPreviewGeneration,
@@ -599,7 +599,7 @@ const BuilderWorkspaceContent = ({
   } = useRecipeFocus({
     recipeOwner,
     workspaceAttached,
-    latestState,
+    draftAccess,
   });
   const {
     rootChangeState,
@@ -625,7 +625,7 @@ const BuilderWorkspaceContent = ({
     authResourcePath,
     state,
     table,
-    latestState,
+    draftAccess,
     serverDraft,
     workspaceAttached,
     assessRowChange,
@@ -814,7 +814,7 @@ const BuilderWorkspaceContent = ({
     projectId,
     authResourcePath,
     state,
-    latestState,
+    draftAccess,
     workspaceAttached,
     compileGeneration,
     dispatch,
@@ -1021,7 +1021,7 @@ const BuilderWorkspaceContent = ({
     ? populationSelectionOverride.selection
     : populationSelection ?? populationSelectionQuery.data;
   const { excludePopulationMember, populationVariantError, populationVariantPending } = usePopulationExclusion({
-    table, latestState, activePopulationSelection, populationSelectionContextKey, loomClient,
+    table, draftAccess, activePopulationSelection, populationSelectionContextKey, loomClient,
     workspaceAttached, serverDraft, applyCommands, projectId, authResourcePath,
     setPopulationSelectionOverride,
   });
@@ -1112,7 +1112,7 @@ const BuilderWorkspaceContent = ({
     projectId,
     authResourcePath,
     previewLimit,
-    latestState,
+    draftAccess,
     loomClient,
     sourceStageDescriptors,
     rowValuePolicy,
@@ -1130,7 +1130,7 @@ const BuilderWorkspaceContent = ({
   const {
     suggestionsFailure, setSuggestionsFailure, suggestionRequestKey,
     ensureSuggestions, suggestionHostRef, suggestionIdentity,
-  } = useSuggestions({ state, latestState, dispatch, getSuggestions, projectId, authResourcePath });
+  } = useSuggestions({ state, draftAccess, dispatch, getSuggestions, projectId, authResourcePath });
   const unsupportedSourceProjectionDiagnostic = state.diagnostics.find(
     isUnsupportedUnknownSourceProjectionDiagnostic,
   );
@@ -1145,7 +1145,7 @@ const BuilderWorkspaceContent = ({
     constructionLifecycle.proposal.status !== 'idle';
   const { addTable, duplicateTable, renameTable, renameTableById, deleteSelectedTable,
     createCustomExplorer, deleteCurrentExplorer, createStatus, deleteStatus } = useTableExplorerCrud({
-    state, table, latestState, dispatch, recipeMutationAllowed, firstTableActionPending,
+    state, table, draftAccess, dispatch, recipeMutationAllowed, firstTableActionPending,
     tableCreatorOpen, setFirstTableName, setTableCreatorOpen, rememberSelectedTable, applyCommands,
     projectId, authResourcePath, selectExplorer, onExplorerChange, explorers, capabilities,
     effectiveExplorerId, compileGeneration, activeCompile, setMessage, opaqueId,
@@ -1266,7 +1266,7 @@ const BuilderWorkspaceContent = ({
       onReview={() => {
         const open = !reviewOpen;
         setReviewOpen(open);
-        const current = latestState.current;
+        const current = draftAccess.getState();
         if (open && (!receiptContainsOutputIds(current.receipt, current.tables.map((table) => table.outputId)) ||
           current.reconciliation !== 'resolved')) {
           void reconcileCurrent();

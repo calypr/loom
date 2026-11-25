@@ -4,7 +4,7 @@ import { createRecipeFocusActions, type RecipeFocusContext } from '../session/re
 export const useRecipeFocus = ({
   recipeOwner,
   workspaceAttached,
-  latestState,
+  draftAccess,
 }: RecipeFocusContext) => {
   const recipeFocusGeneration = useRef(0);
   const pendingRecipeFocus = useRef<{ testId: string; outputId: string; fallback?: HTMLElement } | undefined>(undefined);
@@ -14,7 +14,7 @@ export const useRecipeFocus = ({
   const actions = createRecipeFocusActions({
     recipeOwner,
     workspaceAttached,
-    latestState,
+    draftAccess,
     recipeFocusGeneration,
     pendingRecipeFocus,
     recipeInitiator,

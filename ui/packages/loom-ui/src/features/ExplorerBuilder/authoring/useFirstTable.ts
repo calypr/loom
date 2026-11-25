@@ -1,4 +1,4 @@
-import { useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import { useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { useGetExplorerCandidateSuggestionsV2Mutation } from '../../../react';
 import type { BuilderAuthoringState } from '../model/authoring';
 import type { useCommandQueue } from './useCommandQueue';
@@ -13,7 +13,7 @@ type FirstTableProgress =
     };
 
 type UseFirstTableOptions = {
-  readonly latestState: MutableRefObject<BuilderAuthoringState>;
+  readonly draftAccess: { getState(): BuilderAuthoringState };
   readonly getSuggestions: ReturnType<typeof useGetExplorerCandidateSuggestionsV2Mutation>[0];
   readonly projectId: string;
   readonly authResourcePath?: string;
@@ -25,7 +25,7 @@ type FirstTableActionsOptions = {
 };
 
 export const useFirstTable = ({
-  latestState, getSuggestions, projectId, authResourcePath, setMessage,
+  draftAccess, getSuggestions, projectId, authResourcePath, setMessage,
 }: UseFirstTableOptions) => {
   const [firstTableName, setFirstTableName] = useState('');
   const [tableCreatorOpen, setTableCreatorOpen] = useState(false);
@@ -35,7 +35,7 @@ export const useFirstTable = ({
   const actionsFor = ({ applyCommandsWithResult }: FirstTableActionsOptions) => {
     const createFirstTableFromRoot = async (nodeId: string) => {
       if (firstTableActionPending.current) return;
-      const current = latestState.current;
+      const current = draftAccess.getState();
       const root = current.catalog.nodes.find((node) => node.nodeId === nodeId);
       if (!root || !current.catalog.snapshotToken) return;
 
