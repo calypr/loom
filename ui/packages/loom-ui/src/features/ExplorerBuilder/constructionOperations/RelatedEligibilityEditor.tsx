@@ -1,5 +1,5 @@
-import React, { useRef, useState } from 'react';
-import { useLoomClient, useQuery } from '../../../react';
+import React, { useState } from 'react';
+import { useRelatedEligibilityChoices } from '../session/useRelatedEligibilityChoices';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
@@ -128,7 +128,6 @@ export const RelatedEligibilityEditor = ({
   readonly disabled: boolean;
   readonly onCandidateChange: (candidate: CandidateIntent | undefined) => void;
 }) => {
-  const client = useLoomClient();
   const stage = capabilities.selectedStage;
   const saved = step?.operation.relatedEligibility;
   const anchors = stage.relatedExpandAnchors ?? [];
@@ -154,80 +153,16 @@ export const RelatedEligibilityEditor = ({
   const [match, setMatch] = useState<Match>(saved?.match ?? { kind: 'EXISTS' });
   const [condition, setCondition] = useState<ContributorCondition>(() => savedCondition(step));
   const [conditionOpen, setConditionOpen] = useState(savedCondition(step).kind !== 'ALL');
-  const moreController = useRef<AbortController | undefined>(undefined);
   const targetTypes = [...new Set(catalog.nodes.map((node) => node.resourceType))].sort();
   const support = stage.capabilities.find((capability) => capability.kind === 'RELATED_ELIGIBILITY');
 
-  const queryKey = JSON.stringify([
-    snapshotToken, outputId, capabilities.draftVersion, capabilities.draftDigest,
-    stage.id, anchorColumnId, targetResourceType,
-  ]);
-  const choicesQuery = useQuery(
-    async (signal) => {
-      const response = await client.searchRelatedExpandChoices({
-        project, explorerId, authResourcePath, snapshotToken, outputId,
-        expectedDraftVersion: capabilities.draftVersion,
-        expectedDraftDigest: capabilities.draftDigest,
-        stageId: stage.id, anchorColumnId, targetResourceType, limit: 10,
-      }, signal);
-      if (response.snapshotToken !== snapshotToken || response.draftVersion !== capabilities.draftVersion ||
-          response.draftDigest !== capabilities.draftDigest || response.outputId !== outputId ||
-          response.stageId !== stage.id || response.choices.some((item) =>
-            item.anchorColumnId !== anchorColumnId || item.targetResourceType !== targetResourceType)) {
-        throw new Error('The available paths changed. Reload this table to choose related records.');
-      }
-      return response;
-    },
-    [client, project, explorerId, authResourcePath, snapshotToken, outputId,
-      capabilities.draftVersion, capabilities.draftDigest, stage.id, anchorColumnId, targetResourceType, support?.supported],
-    Boolean(support?.supported && targetResourceType && anchorColumnId),
-  );
-  const [moreChoices, setMoreChoices] = useState<{
-    readonly key: string;
-    readonly choices: ReadonlyArray<RouteChoice>;
-    readonly cursor?: string;
-    readonly loading: boolean;
-    readonly error: string;
-  }>({ key: '', choices: [], loading: false, error: '' });
-  const choices = [
-    ...(choicesQuery.data?.choices ?? []),
-    ...(moreChoices.key === queryKey ? moreChoices.choices : []),
-  ];
-  const cursor = moreChoices.key === queryKey ? moreChoices.cursor : choicesQuery.data?.nextCursor;
-  const loading = choicesQuery.isLoading || (moreChoices.key === queryKey && moreChoices.loading);
-  const error = choicesQuery.error
-    ? choicesQuery.error instanceof Error ? choicesQuery.error.message : 'Could not load related paths.'
-    : moreChoices.key === queryKey ? moreChoices.error : '';
+  const { choices, cursor, loading, error, loadMore } = useRelatedEligibilityChoices({
+    project, explorerId, authResourcePath, snapshotToken, outputId, capabilities,
+    anchorColumnId, targetResourceType, supported: support?.supported,
+  });
 
   const emit = (nextChoice = choice, nextMatch = match, nextCondition = condition, nextAnchor = anchorColumnId) =>
     onCandidateChange(candidateFor(construction, stage, step, stepId, nextAnchor, nextChoice, nextMatch, nextCondition));
-  const loadMore = async () => {
-    if (!cursor || !targetResourceType || !anchorColumnId || loading) return;
-    moreController.current?.abort();
-    const controller = new AbortController();
-    moreController.current = controller;
-    const currentChoices = moreChoices.key === queryKey ? moreChoices.choices : [];
-    setMoreChoices({ key: queryKey, choices: currentChoices, cursor, loading: true, error: '' });
-    try {
-      const response = await client.searchRelatedExpandChoices({
-        project, explorerId, authResourcePath, snapshotToken, outputId,
-        expectedDraftVersion: capabilities.draftVersion,
-        expectedDraftDigest: capabilities.draftDigest,
-        stageId: stage.id, anchorColumnId, targetResourceType, limit: 10, cursor,
-      }, controller.signal);
-      if (controller.signal.aborted) return;
-      setMoreChoices((current) => current.key === queryKey
-        ? { key: queryKey, choices: [...current.choices, ...response.choices], cursor: response.nextCursor, loading: false, error: '' }
-        : current);
-    } catch (cause) {
-      if (!controller.signal.aborted) {
-        setMoreChoices((current) => current.key === queryKey
-          ? { ...current, loading: false, error: cause instanceof Error ? cause.message : 'Could not load more paths.' }
-          : current);
-      }
-    }
-  };
-
   const listedRoutes = [...choices, ...(choice && !choices.some((item) => item.choiceId === choice.choiceId) ? [choice] : [])];
   const shortestRoute = Math.min(...listedRoutes.map((item) => item.route.length));
   const directRoutes = listedRoutes.filter((item) => item.route.length === shortestRoute || item.choiceId === choice?.choiceId);

@@ -1,8 +1,8 @@
-import type { CodedPivotContext } from './codedPivotContext';
+import type { CodedPivotContext } from '../session/codedPivotContext';
 import { fieldPickerList, fieldPickerToggleRow } from '../components/fieldPickerStyles';
 import { createOpaqueId, normalizedName, uniqueName, editorContextKey, stageWithSourceInputs } from '../model/editorShared';
 import React, { useCallback, useId, useReducer, useRef, useState } from 'react';
-import { useQuery } from '../../../react';
+import { usePivotPopulation } from '../session/usePivotPopulation';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type {
   Construction,
@@ -314,45 +314,23 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     ? JSON.stringify([capabilities.snapshotToken, capabilities.draftVersion, capabilities.draftDigest,
       capabilities.outputId, populationStage.id, populationColumns])
     : undefined;
-  const populationQuery = useQuery(async (signal) => {
-    const context = props.codedPivotContext;
-    if (!context || !populationIdentity) return { identity: '', statuses: {} as Record<string, 'POPULATED' | 'EMPTY' | 'UNKNOWN'> };
-    const batches: string[][] = [];
-    for (let index = 0; index < populationColumns.length; index += 16) batches.push(populationColumns.slice(index, index + 16));
-    const statuses: Record<string, 'POPULATED' | 'EMPTY' | 'UNKNOWN'> = {};
-    await Promise.all(batches.map(async (columnIds) => {
-      try {
-        const response = await context.client.getConstructionColumnPopulation({
-          project: context.project,
-          explorerId: context.explorerId,
-          authResourcePath: context.authResourcePath,
-          snapshotToken: capabilities.snapshotToken,
-          expectedDraftVersion: capabilities.draftVersion,
-          expectedDraftDigest: capabilities.draftDigest,
-          outputId: capabilities.outputId,
-          stageId: populationStage.id,
-          columnIds,
-        }, signal);
-        if (signal.aborted || response.snapshotToken !== capabilities.snapshotToken || response.draftVersion !== capabilities.draftVersion ||
-          response.draftDigest !== capabilities.draftDigest || response.outputId !== capabilities.outputId || response.stageId !== populationStage.id) return;
-        for (const column of response.columns) statuses[column.columnId] = column.status;
-      } catch {
-        if (!signal.aborted) for (const columnId of columnIds) statuses[columnId] = 'UNKNOWN';
+  const populationQuery = usePivotPopulation({
+    context: props.codedPivotContext, capabilities, populationIdentity,
+    stageId: populationStage.id, populationColumns,
+    onStatuses(statuses) {
+      const current = pivotStateRef.current.snapshot;
+      if (Object.values(statuses).includes('EMPTY') && current.form.kind === 'pivot' &&
+        current.formContextKey === contextKey && [current.form.categoryColumnId, current.form.valueColumnId]
+          .some((columnId) => columnId && statuses[columnId] === 'EMPTY')) {
+        const scheduled = pivotStateRef.current.scheduled;
+        if (scheduled) {
+          window.clearTimeout(scheduled.timer);
+          sendPivotAction({ type: 'schedule-canceled', identity: scheduled.identity, revision: scheduled.revision });
+        }
+        current.onCandidateChange(undefined);
       }
-    }));
-    const current = pivotStateRef.current.snapshot;
-    if (Object.values(statuses).includes('EMPTY') && current.form.kind === 'pivot' &&
-      current.formContextKey === contextKey && [current.form.categoryColumnId, current.form.valueColumnId]
-        .some((columnId) => columnId && statuses[columnId] === 'EMPTY')) {
-      const scheduled = pivotStateRef.current.scheduled;
-      if (scheduled) {
-        window.clearTimeout(scheduled.timer);
-        sendPivotAction({ type: 'schedule-canceled', identity: scheduled.identity, revision: scheduled.revision });
-      }
-      current.onCandidateChange(undefined);
-    }
-    return { identity: populationIdentity, statuses };
-  }, [props.codedPivotContext?.client, populationIdentity], Boolean(populationIdentity));
+    },
+  });
   const populationStatuses = populationQuery.data?.identity === populationIdentity ? populationQuery.data?.statuses : undefined;
   const populationStatusFor = (columnId: string): 'POPULATED' | 'EMPTY' | 'UNKNOWN' => populationStatuses?.[columnId] ?? 'UNKNOWN';
   const pivotEvaluationContextKey = JSON.stringify([

@@ -1,4 +1,4 @@
-import type { CodedPivotContext } from './codedPivotContext';
+import type { CodedPivotContext } from '../session/codedPivotContext';
 import { fieldPickerList, fieldPickerToggleRow } from '../components/fieldPickerStyles';
 import { useId, useState } from 'react';
 import { createOpaqueId, normalizedName, uniqueName } from '../model/editorShared';
