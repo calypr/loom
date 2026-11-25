@@ -1,0 +1,18 @@
+{
+  "unreachableProductionFiles": 9,
+  "unusedExports": 203,
+  "importCycles": 1,
+  "effectLikeSites": 16,
+  "stalenessComparisons": 131,
+  "abortControllerSites": 27,
+  "uiServerAccessSites": 34,
+  "layerViolations": 0,
+  "enforceLayers": false,
+  "enforceUiServerAccess": false,
+  "widestPropBag": 57,
+  "widestOptionBag": 25,
+  "abortControllersOutsideClientData": 27,
+  "enforceTestOnlyExportLayers": false,
+  "enforceDomSubscriptionAllowlist": false,
+  "domSubscriptionAllowlist": []
+}

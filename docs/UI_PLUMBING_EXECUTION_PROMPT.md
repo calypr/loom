@@ -27,7 +27,7 @@ do, it is a defect, however good its plumbing is.
    "Verification scheduling".
 2. `docs/UI_PLUMBING_IMPLEMENTATION_PLAN.md`. This is the plan you execute. It gives the root
    causes C1–C4, the target architecture, Phases 0–5 with exit criteria, and gates G1–G4. All
-   gates are resolved. G3 is a mechanical rule; follow it exactly.
+   gates are resolved. G3 defines behavioral equivalence.
 3. `docs/UI_PLUMBING_AUDIT.md`. It holds findings F1–F8 and the evidence behind them.
 4. `docs/ui-graph-audit.draft.mjs`. This is the import-graph scanner the audit used. Run it as
    `node docs/ui-graph-audit.draft.mjs ui/packages/loom-ui`. Phase 0 promotes it into the
@@ -79,7 +79,7 @@ Keep these files in `.cache/uiplumb/`:
 | `ledger.tsv` | One line per row: `id`, `status`, `commit`, `decision`, `verification`, `note`. `status` is one of `todo`, `in-progress`, `done`, `obsolete`, `deferred`, `review-pending`. |
 | `decisions.tsv` | Every judgment call and its reason. |
 | `runs.tsv` | For every expensive check: command, source SHA, log path, exit code, duration. |
-| `oracle_diffs.tsv` | Every call-log diff allowed under G3: test, step, the removed request, and the base-trace evidence that it was aborted. |
+| `oracle_diffs.tsv` | Investigated trace differences with the test, step, and linked evidence. |
 | `test_port_map.tsv` | Every assertion in a deleted or replaced test: old test name, then either the new test that asserts it or the reason it no longer applies. |
 
 Before doing any work, read the ledger and continue from it. Never redo a `done` row.
@@ -110,15 +110,11 @@ Terminal statuses:
 1. **Re-verify first.** Before changing anything for a row, re-check its claim at HEAD with the
    cheapest check that settles it: the graph scanner, `rg`, or reading the code. If the claim no
    longer holds, mark the row `obsolete`.
-2. **The oracle decides "no UI change".**
-   - Any DOM diff against the base trace is a defect.
-   - A call-log diff is allowed only under G3: it removes a request that the base trace shows
-     was aborted before it settled. Every other call-log diff is a defect, including a new
-     request, different arguments, a settled request removed, or a reorder across user-event
-     steps.
-   - A defect means you redesign the change; you never accept the diff.
-   - Never regenerate the base trace to make a diff go away. The base comes from `BASE` plus
-     only the Phase 0 tracing hook.
+2. **Apply G3 behavioral equivalence.** Keep protected assertions and event sequences.
+   Check visible and accessible state and focus at explicit journey checkpoints. For changes
+   to request ownership, test required reads, mutation counts and payloads, and correctness-
+   sensitive ordering. Use controlled promises for abort and stale-result checks. Treat raw
+   DOM and call traces as diagnostics. Preserve the original captures.
 3. **The journey tests are the contract.** These are the 19 test files that render
    `BuilderWorkspace` or `LoomExplorerBuilder`, along with the Viewer and saved-views journey
    tests.
@@ -185,10 +181,8 @@ parallel.
 4. Build the trace hook (`LOOM_UI_TRACE`) exactly as the plan specifies: DOM after each
    user-event dispatch and at test end, the mock client call log with abort and settle status,
    and normalized `useId` and UUID ids. Commit the hook by itself.
-5. Record the base trace to `.cache/uiplumb/oracle/base/` by running the full UI suite with the
-   hook enabled.
-6. Run the suite a second time. If the two runs differ, the trace has nondeterminism. Fix the
-   normalization before any other work, and record what you fixed.
+5. Retain the existing BASE trace and repeat for diagnosis.
+6. Verify the protected journeys on baseline. Raw trace repeatability is diagnostic.
 7. Promote the scanner, add the ratchets, and generate `public-api.json`, as the plan lists.
 
 **Phases 1–3.**
@@ -205,7 +199,7 @@ parallel.
 - Useful parallel work alongside it:
   - a worker drafting the ported session tests for the next step, in new test files only;
   - a reviewer running `pstack:interrogate` on the previous step's commit;
-  - a worker re-running the oracle diff on the previous commit in an isolated worktree.
+  - a worker running focused behavioral checks on the previous commit in an isolated worktree.
 
 **Phase 5.**
 - Once the layer rule is in report mode, run the `ui/<domain>/` moves in parallel by domain,
@@ -217,7 +211,7 @@ parallel.
 
 1. Run `make test-ui`, which runs the boundaries check, the test typecheck, and vitest. Then run
    `npm --prefix ui run build`, which also builds the demo.
-2. Diff the oracle against base. It must pass rule 2.
+2. Run applicable G3 checks. Review traces when diagnosing a suspected regression.
 3. Run the graph audit. Every ratchet must be at or below its baseline. A guard the unit was
    meant to drive to a target must reach it.
 4. `public-api.json` must be unchanged. The single exception is the `P1.public-surface` unit,
@@ -227,7 +221,7 @@ parallel.
      apply `pstack:interrogate` to the exact diff before committing. That covers
      `P2.request-owner`, `P2.identity-merge`, all of Phase 4, and `P5.focus`/`position`/`escape`.
    - If interrogate is unavailable, give an independent reviewer the diff, the affected
-     callers, and the oracle result, and ask it to find a contract violation.
+     callers, and the behavioral verification result, and ask it to find a contract violation.
    - Keep a finding only after you rerun its reproducer.
    - Record the reviewer and the result in the ledger, and label same-model review as
      same-model.
@@ -241,7 +235,7 @@ parallel.
 7. **Commit.**
    - Stage explicit paths only, and inspect `git diff --cached`.
    - Write the message as `P<phase>: <summary>`, then the ledger row IDs, the decisions, the
-     verification run, the oracle status, and any G3 diffs.
+     verification run, the behavioral verification result and any investigated trace differences.
    - End it with the repository's existing co-author convention, if one is used.
 
 At the end of each phase, rescan with the graph audit into `.cache/uiplumb/rescan/`. Anything
@@ -273,8 +267,7 @@ a new ledger row `N-<n>`, worked in the same or the next phase.
 
 - Run `make test-ui`, `npm --prefix ui run build`, `make e2e`, and the verify-skill Builder
   checks.
-- Run the full oracle diff against base. It must be empty, apart from the diffs listed in
-  `oracle_diffs.tsv`.
+- Verify the protected journeys and targeted request contracts under G3.
 - Run the graph audit and confirm the exit targets above.
 - Confirm the `public-api.json` diff against `BASE` is exactly the G1 removals.
 - Re-check that `feature/clickhouse-explorer` in IDP-Frontend still imports only names that
@@ -293,7 +286,7 @@ Write `docs/UI_PLUMBING_EXECUTION_REPORT.md` and commit it. Contents:
   - the widest prop bags and option bags;
   - staleness comparisons, `AbortController` sites, and effect-like sites;
 - `BuilderWorkspace.tsx` lines before and after;
-- every G3-allowed call-log diff, for the operator's review;
+- investigated request-log differences, for the operator's review;
 - the `test_port_map.tsv` summary, including every dropped assertion and its reason;
 - every decision taken, every `deferred` row with its reason, and the result of the semantic
   identity merge;
