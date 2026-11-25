@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { LoomClient } from '../../../client/api';
 import type { Construction, FrameSourceOption } from '../../../contracts/types';
@@ -465,6 +465,38 @@ describe('CodedPivotEditor', () => {
     await waitFor(() => expect(onCandidateChange.mock.calls.length).toBeGreaterThan(callsBeforeScopeChange));
     expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
     expect(onCandidateChange.mock.calls.slice(callsBeforeScopeChange).every(([intent]) => intent === undefined)).toBe(true);
+  });
+
+  it('only selects a source from the current search', async () => {
+    const obsolete = directSourceOption({ choiceId: 'obsolete', title: 'Obsolete source' });
+    const current = directSourceOption({ choiceId: 'current', title: 'Current source' });
+    let resolveObsolete!: (page: { sources: FrameSourceOption[] }) => void;
+    const oldPage = new Promise<{ sources: FrameSourceOption[] }>(resolve => { resolveObsolete = resolve; });
+    const browseFrameSourceOptions = vi.fn().mockReturnValueOnce(oldPage)
+      .mockResolvedValueOnce({ sources: [current] });
+    const browseSemanticInventory = vi.fn().mockResolvedValue({
+      entries: [], state: 'complete', sourceAvailability: 'verified',
+    });
+    render(<CodedPivotEditor
+      client={{ browseFrameSourceOptions, browseSemanticInventory }}
+      project="cda" explorerId="builder" snapshotToken="snapshot" outputId="observations"
+      rowRoot="Observation" construction={{ version: 1, steps: [] }}
+      disabled={false} onCandidateChange={vi.fn()}
+    />);
+
+    act(() => {
+      resolveObsolete({ sources: [obsolete] });
+      fireEvent.change(screen.getByRole('searchbox', { name: 'Find a coded source' }), {
+        target: { value: 'current' },
+      });
+    });
+
+    await waitFor(() => expect(browseSemanticInventory).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceChoiceId: 'current' }), expect.any(AbortSignal),
+    ));
+    expect(browseSemanticInventory).not.toHaveBeenCalledWith(
+      expect.objectContaining({ sourceChoiceId: 'obsolete' }), expect.any(AbortSignal),
+    );
   });
 
   it('keeps search optional and distinguishes an empty source from an empty search', async () => {
