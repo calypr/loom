@@ -4,7 +4,7 @@ import {
   pivotDiscoveryLoadIdentity, startConstructionProposalFor,
 } from './constructionActions';
 import { errorIsProposalInactive } from './constructionProposal';
-import { resourceFor } from '../../../data/resource';
+import { createQueryResource } from '../../../data/queryResource';
 import { constructionCapabilitiesResource } from './constructionCapabilities';
 import type { GetConstructionCapabilitiesArgs } from '../../../client/api';
 import {
@@ -48,7 +48,7 @@ export const useConstructionLifecycle = ({
   capabilitiesRequestRef.current = capabilitiesRequest;
 
   const idleProposalResource = useMemo(
-    () => resourceFor<ProposalOutcome>(async () => { throw new Error('No construction proposal is active.'); }, false),
+    () => createQueryResource<ProposalOutcome>(async () => { throw new Error('No construction proposal is active.'); }, false),
     [],
   );
   const activeProposalOwner = proposalOwner?.requestKey === requestKey ? proposalOwner : undefined;

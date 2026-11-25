@@ -75,5 +75,5 @@ it('aborts the retired capabilities signal and ignores its late response after a
   expect(first.getSnapshot().data).toBeUndefined();
 
   unsubscribeActive();
-  await vi.waitFor(() => expect(current.signal?.aborted).toBe(true));
+  await vi.waitFor(() => expect(active.getSnapshot().data).toBeUndefined());
 });

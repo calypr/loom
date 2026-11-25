@@ -1,7 +1,7 @@
 import type { ProposeConstructionArgs, PreviewExplorerBuilderArgs } from '../../../client/api';
 import { sameDraftRevision } from '../../../contracts/identity';
 import type { ConstructionProposalResponse, ExplorerBuilderPreviewResult } from '../../../contracts/types';
-import { resourceFor } from '../../../data/resource';
+import { createQueryResource } from '../../../data/queryResource';
 import type { RequestOwner } from '../../../data/requests';
 import type { ConstructionProposalViewState } from '../model/constructionProposal';
 
@@ -55,8 +55,8 @@ export function constructionProposalResource({
   readonly proposalRequest: NonNullable<ReturnType<RequestOwner['start']>>;
   readonly previewLimit: number;
   readonly onReady?: (response: ConstructionProposalResponse, preview: ExplorerBuilderPreviewResult) => boolean;
-}): ReturnType<typeof resourceFor<ProposalOutcome>> {
-  return resourceFor<ProposalOutcome>(async (resourceSignal) => {
+}): ReturnType<typeof createQueryResource<ProposalOutcome>> {
+  return createQueryResource<ProposalOutcome>(async (resourceSignal) => {
     const abortFromResource = () => proposalRequest.cancel();
     if (resourceSignal.aborted) proposalRequest.cancel();
     else resourceSignal.addEventListener('abort', abortFromResource, { once: true });

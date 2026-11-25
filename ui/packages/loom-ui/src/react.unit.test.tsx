@@ -2,7 +2,7 @@
 
 import React, { StrictMode } from 'react';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
-import { resourceFor } from './data/resource';
+import { createQueryResource } from './data/queryResource';
 import { createLoomClient } from './client/api';
 import type { ResolveConfiguredColumnContextsArgs } from './client/api';
 import {
@@ -408,20 +408,24 @@ describe('Loom React queries', () => {
       readonly signal: AbortSignal;
       readonly resolve: (value: string) => void;
     }> = [];
-    const resource = resourceFor(
+    const resource = createQueryResource(
       (signal) =>
         new Promise<string>((resolve) => pending.push({ signal, resolve })),
     );
     const unsubscribe = resource.subscribe(() => undefined);
 
     expect(pending).toHaveLength(1);
+    const retired = resource.refresh();
     const newer = resource.refresh();
-    expect(pending).toHaveLength(2);
+    expect(pending).toHaveLength(3);
     expect(pending[0].signal.aborted).toBe(true);
+    expect(pending[1].signal.aborted).toBe(true);
 
-    pending[1].resolve('newer');
-    await newer;
+    pending[2].resolve('newer');
+    expect(await newer).toEqual({ data: 'newer' });
     pending[0].resolve('obsolete');
+    pending[1].resolve('retired refresh');
+    expect(await retired).toMatchObject({ error: expect.any(Error) });
     await waitFor(() => expect(resource.getSnapshot().data).toBe('newer'));
 
     unsubscribe();
@@ -450,7 +454,7 @@ describe('Loom React queries', () => {
 
   it('evicts a resource after its last subscriber and starts a fresh epoch', async () => {
     const requests: Array<{ readonly signal: AbortSignal; readonly resolve: (value: string) => void }> = [];
-    const resource = resourceFor((signal) => new Promise<string>((resolve) => requests.push({ signal, resolve })));
+    const resource = createQueryResource((signal) => new Promise<string>((resolve) => requests.push({ signal, resolve })));
     const firstUnsubscribe = resource.subscribe(() => undefined);
     expect(requests).toHaveLength(1);
     firstUnsubscribe();

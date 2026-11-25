@@ -1,7 +1,7 @@
 import type { DraftIdentity } from '../../../contracts/identity';
 import type { ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult } from '../../../contracts/types';
 import type { QueryResult } from '../../../data/queries';
-import { resourceFor, type QueryRefetchOptions } from '../../../data/resource';
+import { createQueryResource, type QueryRefetchOptions } from '../../../data/queryResource';
 import type { PreviewLimit } from '../model/previewRecovery';
 
 export type AutomaticPreviewIdentity = DraftIdentity & {
@@ -37,7 +37,7 @@ type Refresh = (
   options?: QueryRefetchOptions,
 ) => Promise<AutomaticPreviewRun | undefined>;
 
-type PreviewResource = ReturnType<typeof resourceFor<AutomaticPreviewRun | undefined>>;
+type PreviewResource = ReturnType<typeof createQueryResource<AutomaticPreviewRun | undefined>>;
 
 export function createAutomaticPreview() {
   let current: { request: AutomaticPreviewIdentity | undefined; refresh: Refresh } | undefined;
@@ -51,7 +51,7 @@ export function createAutomaticPreview() {
       current = { request, refresh };
     },
     createResource(enabled: boolean): PreviewResource {
-      return resourceFor(async (signal, options) => {
+      return createQueryResource(async (signal, options) => {
         const { request, refresh } = current ?? {};
         if (!request || !refresh) throw new Error('Automatic preview started without a saved draft identity.');
         if (!options?.reload && settled?.key === request.key) {

@@ -1,7 +1,7 @@
 import type { GetConstructionCapabilitiesArgs } from '../../../client/api';
 import { sameChoiceRequestScope } from '../../../contracts/identity';
 import type { ConstructionCapabilitiesResponse } from '../../../contracts/types';
-import { resourceFor } from '../../../data/resource';
+import { createQueryResource } from '../../../data/queryResource';
 
 export type ConstructionCapabilitiesViewState =
   | { readonly status: 'idle' }
@@ -17,7 +17,7 @@ export const constructionCapabilitiesResource = (
   client: CapabilitiesClient,
   getRequest: () => GetConstructionCapabilitiesArgs | undefined,
   enabled: boolean,
-): ReturnType<typeof resourceFor<ConstructionCapabilitiesViewState>> => resourceFor(async (signal) => {
+): ReturnType<typeof createQueryResource<ConstructionCapabilitiesViewState>> => createQueryResource(async (signal) => {
   const args = getRequest();
   if (!args) return { status: 'idle' };
   try {

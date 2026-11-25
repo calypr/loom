@@ -1,6 +1,7 @@
 import { useConceptCatalogSession } from './ConceptCatalogSession';
 import { sameCatalogSnapshot } from '../../../contracts/identity';
-import { useRef, useState } from 'react';
+import { QueryClient } from '@tanstack/react-query';
+import { useMemo, useRef, useState } from 'react';
 import { useLoomClient, useQuery } from '../../../react';
 import { RequestOwner } from '../../../data/requests';
 import type {
@@ -143,21 +144,12 @@ export function useCatalogRequests({
     ? pageNavigation
     : { scopeKey: catalogRequestScopeKey, cursors: [undefined], index: 0 };
   const cursor = currentPageNavigation.cursors[currentPageNavigation.index];
-  const pageCache = useRef<{
-    readonly client: typeof client;
-    readonly scopeKey: string;
-    readonly pages: Map<string, SemanticInventoryBrowseResponse>;
-  }>({ client, scopeKey: catalogRequestScopeKey, pages: new Map() });
-  if (pageCache.current.client !== client || pageCache.current.scopeKey !== catalogRequestScopeKey) {
-    pageCache.current = { client, scopeKey: catalogRequestScopeKey, pages: new Map() };
-  }
-  const catalogPageCacheKey = JSON.stringify([catalogRequestScopeKey, cursor ?? null]);
+  const pageClient = useMemo(() => new QueryClient(), [client, catalogRequestScopeKey]);
   const currentCatalogRequestScopeKey = useRef(catalogRequestScopeKey);
   currentCatalogRequestScopeKey.current = catalogRequestScopeKey;
+  const pageKey = useMemo(() => ['catalog-page', cursor], [cursor]);
+  const enabled = Boolean(snapshotToken && rowRoot && (view !== 'fields' || presentationRequestToSend));
   const catalogQuery = useQuery(async (signal) => {
-    if (signal.aborted) return undefined;
-    const cached = pageCache.current.pages.get(catalogPageCacheKey);
-    if (cached) return cached;
     const browseCurrentPage = (fieldPresentation?: FieldPresentationRequest) =>
       client.browseSemanticInventory({
         project,
@@ -212,24 +204,9 @@ export function useCatalogRequests({
         onCatalogChanged();
       }
       selectionContext.current = response.contextToken;
-      pageCache.current.pages.set(catalogPageCacheKey, response);
     }
     return response;
-  }, [
-    authResourcePath,
-    catalogPageCacheKey,
-    client,
-    cursor,
-    explorerId,
-    outputId,
-    project,
-    query,
-    browseResourceType,
-    rowRoot,
-    presentationRequestKey,
-    searchGeneration,
-    snapshotToken,
-  ], Boolean(snapshotToken && rowRoot && (view !== 'fields' || presentationRequestToSend)));
+  }, [], enabled, { client: pageClient, key: pageKey });
   const loadState: CatalogLoadState = !snapshotToken || !rowRoot
     ? { status: 'idle' }
     : catalogQuery.error
@@ -241,7 +218,7 @@ export function useCatalogRequests({
         : catalogQuery.data
           ? { status: 'ready' }
           : { status: 'idle' };
-  const semanticResponse = catalogQuery.data ?? pageCache.current.pages.get(catalogPageCacheKey);
+  const semanticResponse = catalogQuery.data;
   if (semanticResponse) {
     semanticContextRef.current = {
       scopeKey: semanticContextScopeKey,

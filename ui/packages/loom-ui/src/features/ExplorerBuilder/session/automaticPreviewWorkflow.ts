@@ -8,7 +8,7 @@ import type { PreviewLimit } from '../model/previewRecovery';
 import { createAutomaticPreview, type AutomaticPreviewExecution, type AutomaticPreviewIdentity, type AutomaticPreviewRun, type PreviewRequest } from './automaticPreview';
 import { matchesAcceptedPreviewHandoff, type AppliedPreviewHandoff } from './appliedChoicePreview';
 import { createStore } from '../../../data/createStore';
-import type { QueryRefetchOptions } from '../../../data/resource';
+import type { QueryRefetchOptions } from '../../../data/queryResource';
 
 type AutomaticPreviewWorkflow = {
   readonly limit: ReturnType<typeof createStore<PreviewLimit>>;

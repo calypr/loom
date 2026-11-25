@@ -15,7 +15,7 @@ import {
   type ConstructionCandidateIntent,
 } from '../../session/useConstructionLifecycle';
 
-import { resourceFor } from '../../../../data/resource';
+import { createQueryResource } from '../../../../data/queryResource';
 import {
   reconcileReceiptMatchesRequest,
   reconcileRecoveryAction,
@@ -1067,7 +1067,7 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
   it('formal property Inv_LateResponseDoesNotReplaceOwner keeps the latest resource refresh', async () => {
     const a = deferred<string>(), b = deferred<string>();
     let calls = 0;
-    const resource = resourceFor(async () => (++calls === 1 ? a.promise : b.promise));
+    const resource = createQueryResource(async () => (++calls === 1 ? a.promise : b.promise));
     const first = resource.refresh(), second = resource.refresh();
     b.resolve('B'); await second;
     expect(resource.getSnapshot().data).toBe('B');

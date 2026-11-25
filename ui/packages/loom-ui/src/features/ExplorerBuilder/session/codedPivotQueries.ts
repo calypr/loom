@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { LoomClient } from '../../../client/api';
-import { resourceFor } from '../../../data/resource';
+import { createQueryResource } from '../../../data/queryResource';
 import { useQuery } from '../../../react';
 import type { FrameSourceOption, SemanticInventoryBrowseResponse, SemanticInventoryItem } from '../../../contracts/types';
 
@@ -39,7 +39,7 @@ export function useCodedPivotSources({
   onSourcesRef.current = onSources;
   const resource = useMemo(() => {
     let observing = false;
-    const query = resourceFor(async (signal) => {
+    const query = createQueryResource(async (signal) => {
       try {
         const response = await client.browseFrameSourceOptions({
           project, explorerId, authResourcePath, snapshotToken, outputId, resourceType: rowRoot,

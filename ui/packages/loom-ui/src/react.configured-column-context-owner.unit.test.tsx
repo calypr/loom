@@ -84,7 +84,11 @@ describe('configured column context request ownership', () => {
     await waitFor(() => expect(result.current.data?.draftDigest).toBe(args.expectedDraftDigest));
     expect(result.current.data?.snapshotToken).toBe(args.snapshotToken);
 
+    act(() => { void result.current.refetch(); });
+    await waitFor(() => expect(requests).toHaveLength(3));
+    const pendingRefresh = requests[2];
+
     unmount();
-    await waitFor(() => expect(current.signal?.aborted).toBe(true));
+    await waitFor(() => expect(pendingRefresh.signal?.aborted).toBe(true));
   });
 });
