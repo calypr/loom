@@ -1,5 +1,6 @@
 import { useMemo, useRef, useSyncExternalStore } from 'react';
 import { createStore } from './createStore';
+import { RequestOwner } from './requests';
 
 export interface QueryResult<T> {
   readonly data?: T;
@@ -30,24 +31,23 @@ export const resourceFor = <T,>(
   enabled = true,
 ): Resource<T> => {
   const store = createStore<ResourceSnapshot<T>>({ loading: enabled });
-  let controller: AbortController | undefined;
+  const requests = new RequestOwner();
+  const resourceIdentity = 'query';
+  requests.setIdentity(resourceIdentity);
   let started = false;
-  let epoch = 0;
   const refresh = async (options?: QueryRefetchOptions) => {
     if (!enabled) return {};
-    controller?.abort();
-    const requestController = new AbortController();
-    controller = requestController;
-    const requestEpoch = ++epoch;
+    const request = requests.start('refresh', resourceIdentity);
+    if (!request) return {};
     started = true;
     store.setSnapshot({ ...store.getSnapshot(), loading: true, error: undefined });
     try {
-      const data = await loader(requestController.signal, options);
-      if (controller !== requestController || epoch !== requestEpoch) return { data };
+      const data = await loader(request.signal, options);
+      if (!request.isCurrent()) return { data };
       store.setSnapshot({ data, loading: false });
       return { data };
     } catch (error) {
-      if (requestController.signal.aborted || controller !== requestController || epoch !== requestEpoch) {
+      if (request.signal.aborted || !request.isCurrent()) {
         return { error };
       }
       store.setSnapshot({ error, loading: false });
@@ -63,9 +63,7 @@ export const resourceFor = <T,>(
         unsubscribe();
         queueMicrotask(() => {
           if (store.hasSubscribers()) return;
-          controller?.abort();
-          controller = undefined;
-          epoch += 1;
+          requests.cancel('refresh');
           started = false;
           store.setSnapshot({ loading: enabled });
         });
