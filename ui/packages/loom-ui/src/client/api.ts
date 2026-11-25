@@ -1205,6 +1205,17 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
   const request = (path: string, init?: RequestInit): Promise<unknown> =>
     requestResponse(path, init).then(parseJSON);
   const openApi = createOpenApiClient<paths>({ baseUrl: openApiPathOrigin });
+  const openApiFetch = (signal?: AbortSignal, requestId?: string) => async (generatedRequest: Request) =>
+    requestResponse(generatedRequest.url.slice(openApiPathOrigin.length), {
+      method: generatedRequest.method,
+      body: generatedRequest.body === null ? undefined : await generatedRequest.text(),
+      signal,
+      headers: requestId ? { 'X-Request-ID': requestId } : undefined,
+    });
+  const openApiExplorerPath = (args: ExplorerAuthoringStateArgs) => ({
+    project: encodeURIComponent(canonicalProject(args.project)),
+    explorerId: args.explorerId,
+  });
   const evictCached = (key: string): void => {
     const entry = cache.get(key);
     if (!entry) return;
@@ -1354,13 +1365,14 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       queryOptions.signal,
       queryOptions.reload,
     );
-  const getCapability = (args: ExplorerAuthoringStateArgs, signal?: AbortSignal) =>
-    getCached(
-      `capability:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}:${args.explorerId}`,
-      (requestSignal) => request(authoringPath(args, '/capability'), { signal: requestSignal }),
-      (value) => explorerAuthoringCapabilitiesSchema.parse(value),
-      signal,
-    );
+  const getCapability = async (args: ExplorerAuthoringStateArgs, signal?: AbortSignal) => {
+    const { response } = await openApi.GET('/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability', {
+      params: { path: openApiExplorerPath(args) },
+      parseAs: 'stream',
+      fetch: openApiFetch(signal),
+    });
+    return explorerAuthoringCapabilitiesSchema.parse(await parseJSON(response));
+  };
   const getExplorer = (args: ExplorerAuthoringStateArgs, signal?: AbortSignal) =>
     getCached(
       `viewer:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}:${args.explorerId}`,
@@ -1515,12 +1527,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     }, signal, args.requestId)).then((value) => relatedExpandChoiceSearchResponseSchema.parse(value));
   const searchRelatedFieldChoices = async (args: SearchRelatedFieldChoicesArgs, signal?: AbortSignal) => {
     const { response } = await openApi.POST('/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-field-choices', {
-      params: {
-        path: {
-          project: encodeURIComponent(canonicalProject(args.project)),
-          explorerId: args.explorerId,
-        },
-      },
+      params: { path: openApiExplorerPath(args) },
       body: {
         snapshotToken: args.snapshotToken,
         expectedDraftVersion: args.expectedDraftVersion,
@@ -1532,12 +1539,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
         ...(args.cursor ? { cursor: args.cursor } : {}),
       },
       parseAs: 'stream',
-      fetch: async (generatedRequest) => requestResponse(generatedRequest.url.slice(openApiPathOrigin.length), {
-        method: generatedRequest.method,
-        body: await generatedRequest.text(),
-        signal,
-        headers: args.requestId ? { 'X-Request-ID': args.requestId } : undefined,
-      }),
+      fetch: openApiFetch(signal, args.requestId),
     });
     return relatedFieldChoiceSearchResponseSchema.parse(await parseJSON(response));
   };

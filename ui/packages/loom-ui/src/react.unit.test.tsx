@@ -4,6 +4,7 @@ import React, { StrictMode } from 'react';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { createQueryResource } from './data/queryResource';
 import { createLoomClient } from './client/api';
+import { EXPLORER_AUTHORING_API_VERSION } from './contracts/types';
 import type { ResolveConfiguredColumnContextsArgs } from './client/api';
 import {
   useBuilderMutation,
@@ -47,6 +48,46 @@ describe('Loom React queries', () => {
     expect(result.current.builder.isLoading).toBe(false);
     expect(result.current.capability.isLoading).toBe(false);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('shares capability results across mounts within the same client and authorization scope', async () => {
+    let requests = 0;
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(JSON.stringify({
+      apiVersion: EXPLORER_AUTHORING_API_VERSION,
+      kind: 'ExplorerAuthoringCapabilities',
+      operations: [`request-${++requests}`],
+      features: {
+        emissionFilters: true, emissionCharts: true, sharedFilters: true, fixedFilters: true,
+        fileActions: true, deleteExplorer: true,
+      },
+    })));
+    const client = createLoomClient({ fetch });
+    const wrapper = ({ children }: { readonly children: React.ReactNode }) => (
+      <LoomProvider client={client}>{children}</LoomProvider>
+    );
+    const args = { project: 'HTAN_INT/BForePC', explorerId: 'preview/a', authResourcePath: '/scope/a' };
+
+    await expect(client.getCapability(args)).resolves.toMatchObject({ operations: ['request-1'] });
+    await expect(client.getCapability(args)).resolves.toMatchObject({ operations: ['request-2'] });
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/HTAN_INT%252FBForePC/explorers/preview%2Fa/authoring/v2/capability',
+      expect.objectContaining({ method: 'GET', body: undefined }),
+    );
+
+    const first = renderHook(() => useGetExplorerAuthoringCapabilityV2Query(args), { wrapper });
+    await waitFor(() => expect(first.result.current.data?.operations).toEqual(['request-3']));
+    first.unmount();
+
+    const second = renderHook(
+      (authResourcePath) => useGetExplorerAuthoringCapabilityV2Query({ ...args, authResourcePath }),
+      { initialProps: args.authResourcePath, wrapper },
+    );
+    expect(second.result.current.data?.operations).toEqual(['request-3']);
+    expect(fetch).toHaveBeenCalledTimes(3);
+
+    second.rerender('/scope/b');
+    await waitFor(() => expect(second.result.current.data?.operations).toEqual(['request-4']));
+    expect(fetch).toHaveBeenCalledTimes(4);
   });
 
   it('keeps configured-context queries disabled until their saved draft identity is ready', async () => {

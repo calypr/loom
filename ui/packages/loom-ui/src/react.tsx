@@ -1,4 +1,6 @@
-import { createLoomClient, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './client/api';
+import { QueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import { canonicalProject, createLoomClient, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './client/api';
 import type {
   BrowseSemanticInventoryArgs,
   ExplorerAuthoringProjectArgs,
@@ -17,9 +19,23 @@ export const useGetExplorerAuthoringExplorersQuery = (args: ExplorerAuthoringPro
   return useQuery((signal) => client.listExplorers(args, signal), [client, args.project]);
 };
 
+const capabilityClients = new WeakMap<LoomClient, QueryClient>();
+
 export const useGetExplorerAuthoringCapabilityV2Query = (args: ExplorerAuthoringStateArgs): QueryResult<Awaited<ReturnType<LoomClient['getCapability']>>> => {
   const client = useLoomClient();
-  return useQuery((signal) => client.getCapability(args, signal), [client, args.project, args.explorerId, args.authResourcePath], Boolean(args.explorerId));
+  const project = canonicalProject(args.project);
+  const authResourcePath = args.authResourcePath?.trim() ?? '';
+  const { explorerId } = args;
+  const cache = useMemo(() => {
+    let queryClient = capabilityClients.get(client);
+    if (!queryClient) {
+      queryClient = new QueryClient();
+      capabilityClients.set(client, queryClient);
+    }
+    return { client: queryClient, key: ['capability', project, authResourcePath, explorerId] };
+  }, [client, project, authResourcePath, explorerId]);
+
+  return useQuery((signal) => client.getCapability(args, signal), [client], Boolean(explorerId), cache);
 };
 
 export const useLoomRuntime = (args: ExplorerAuthoringStateArgs): QueryResult<Awaited<ReturnType<LoomClient['getExplorer']>>> => {
