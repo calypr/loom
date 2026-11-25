@@ -1,12 +1,7 @@
+import type { ConstructionSelectableColumn } from '../model/constructionColumnSelection';
 import { fieldPickerList, fieldPickerMetadata, fieldPickerRow, fieldPickerSelected } from '../components/fieldPickerStyles';
 import React, { useState } from 'react';
 import { FieldPickerDropdown } from '../components/FieldPickerDropdown';
-export interface ConstructionSelectableColumn {
-  readonly id: string;
-  readonly label: string;
-  readonly type?: string;
-}
-
 export const ConstructionColumnSelection = ({
   columns,
   selectedColumnIds,

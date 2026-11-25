@@ -231,7 +231,7 @@ interface CreateInterpretationRevisionArgs extends ExplorerAuthoringProjectArgs 
   readonly requestId?: string;
 }
 
-export interface PreviewInterpretationCandidateArgs extends ExplorerAuthoringStateArgs {
+interface PreviewInterpretationCandidateArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly expectedDraftVersion: number;
   readonly expectedDraftDigest: string;

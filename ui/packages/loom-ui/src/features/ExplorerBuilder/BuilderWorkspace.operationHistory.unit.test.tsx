@@ -126,7 +126,6 @@ vi.mock('./components/RowDefinitionSettingsPanel', () => ({
     if (openActionRef) openActionRef.current = () => setOpened(true);
     return opened ? <section data-testid="row-definition-settings-opened" aria-label="Row definition settings" /> : null;
   },
-  rowScopeLabel: () => '',
 }));
 vi.mock('./components/InterpretationPanel', () => builderWorkspaceNullMocks.InterpretationPanel);
 vi.mock('./constructionWorkspace/FrameSourcePanel', () => ({ FrameSourcePanel: () => null }));
@@ -1084,3 +1083,5 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
   });
 
 });
+
+vi.mock('./model/rowScopeLabel', () => ({ rowScopeLabel: () => '' }));

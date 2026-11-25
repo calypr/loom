@@ -40,6 +40,10 @@ type SourceProposalOwnerCandidate = Pick<SourceRelationshipProposal,
   'draftVersion' | 'draftDigest'> &
   Partial<Pick<SourceRelationshipProposal, 'affectedColumns' | 'notices'>>;
 
+export const sourceRecipeOwnerKey = (builderDataKey: string, state: BuilderAuthoringState, outputId?: string) =>
+  JSON.stringify([builderDataKey, state.explorerId, outputId,
+    state.catalog.snapshotToken, state.draftVersion, state.draftDigest]);
+
 export const useSourceRecipeState = () => {
   const sourceRelationshipRequest = useRef<SourceProposalRequest | undefined>(undefined);
   const [sourceRecipeRequests] = useState(() => {
@@ -75,8 +79,7 @@ export function createSourceRecipeActions(
     setEditingRecipeColumn, constructionLifecycle, restoreRecipeFocus,
     recipeFocusGeneration, recipeInitiator, recipeInitiatorFact, pendingRecipeFocus, applyCommands
   }: SourceRecipeActionsOptions) {
-  const relationshipOwner = JSON.stringify([builderDataKey, state.explorerId, table?.outputId,
-    state.catalog.snapshotToken, state.draftVersion, state.draftDigest]);
+  const relationshipOwner = sourceRecipeOwnerKey(builderDataKey, state, table?.outputId);
   const loadRecipeNetwork = createRecipeNetworkLoader({
     firstTableProgress,
     table,

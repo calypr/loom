@@ -11,7 +11,7 @@ import type { ConstructionCapabilitiesResponse, ConstructionStep } from '../../.
 import { useCodedPivotContext } from '../session/codedPivotContext';
 import { sanitizeReasonText } from '../model/catalogItems';
 import type { ConstructionOperationFamily } from '../constructionWorkspace/ConstructionWorkspace';
-import type { ConstructionSelectableColumn } from '../constructionWorkspace/ConstructionColumnSelection';
+import type { ConstructionSelectableColumn } from '../model/constructionColumnSelection';
 import type { ConstructionCombineStep } from '../constructionOperations/combineEditorTypes';
 import type { ConstructionReshapeEditorEntry } from '../constructionOperations/ConstructionReshapeEditor';
 import { ConstructionColumnSelection } from '../constructionWorkspace/ConstructionColumnSelection';
