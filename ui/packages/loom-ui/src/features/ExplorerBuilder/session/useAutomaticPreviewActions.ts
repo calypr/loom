@@ -14,7 +14,7 @@ type AutomaticPreviewActions = Pick<ReturnType<typeof createAutomaticPreviewWork
 
 export function useAutomaticPreviewActions(
   ownerKey: string,
-  { compileGeneration, previewGeneration, setMessage }: Omit<
+  { compileRequests, previewRequests, setMessage }: Omit<
     Parameters<typeof bindAutomaticPreview>[1], 'projectId' | 'draftAccess' | 'dispatch'
   >,
 ): AutomaticPreviewActions {
@@ -25,7 +25,7 @@ export function useAutomaticPreviewActions(
   const previewLimit = useSyncExternalStore(limit.subscribe, limit.getSnapshot, limit.getSnapshot);
   automaticPreviewRequest.current = automaticPreviewIdentityFor(ownerKey, state, previewLimit);
   const queryOptionsFor = bindAutomaticPreview(workflow, {
-    projectId: builderQueryArgs.project, draftAccess, compileGeneration, previewGeneration, dispatch, setMessage,
+    projectId: builderQueryArgs.project, draftAccess, compileRequests, previewRequests, dispatch, setMessage,
   });
   return {
     previewLimit, setPreviewLimit: limit.setSnapshot, appliedChoicePreview, automaticPreviewGeneration,

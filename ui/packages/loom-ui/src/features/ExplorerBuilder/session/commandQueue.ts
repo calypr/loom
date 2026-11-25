@@ -71,15 +71,9 @@ export interface RelatedExpandQueryOwner {
 }
 
 type Cell<T> = { current: T };
-type Cancelable = { abort(): void };
 type DraftBinding = ReturnType<typeof useBuilderSessionDraft>;
 
-type RequestChannels = {
-  readonly compileGeneration: Cell<number>;
-  readonly previewGeneration: Cell<number>;
-  readonly activeCompile: Cell<Cancelable | undefined>;
-  readonly activePreview: Cell<Cancelable | undefined>;
-};
+type RequestChannels = { readonly invalidateCompileAndPreview: () => void };
 
 type AutomaticPreviewChannels = {
   readonly automaticPreviewGeneration: Cell<number>;
@@ -125,7 +119,6 @@ export function bindCommandQueue(
     serverDraft, serverDraftKey, setLocalState, setRestorableDraft, syncBuilderData,
   } = draft;
   const { project: projectId, authResourcePath } = builderQueryArgs;
-  const { compileGeneration, previewGeneration, activeCompile, activePreview } = reconcile;
   const { automaticPreviewGeneration, automaticPreviewRequest, appliedChoicePreview, cancelAutomaticPreview } = automaticPreview;
   return function applyCommandsWithResult(
     commands: ReadonlyArray<ExplorerBuilderCommand>,
@@ -144,10 +137,7 @@ export function bindCommandQueue(
     const applyPreviewEpoch = constructionApplyIdentity
       ? automaticPreviewGeneration.current
       : undefined;
-    compileGeneration.current += 1;
-    previewGeneration.current += 1;
-    activeCompile.current?.abort();
-    activePreview.current?.abort();
+    reconcile.invalidateCompileAndPreview();
     const run = commandQueue.current.then(async () => {
       const queryOwner = relatedExpandQueryOwnerRef.current;
       let commandSucceeded = false;

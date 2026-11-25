@@ -30,6 +30,9 @@ export class RequestOwner {
     return {
       signal: slot.controller.signal,
       isCurrent: () => this.slots.get(name) === slot,
+      cancel: () => {
+        if (this.slots.get(name) === slot) this.cancel(name);
+      },
       finish: () => { if (this.slots.get(name) === slot) this.slots.delete(name); },
     };
   }

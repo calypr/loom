@@ -25,7 +25,7 @@ type UsePublishOptions = {
   readonly state: BuilderAuthoringState;
   readonly draftAccess: { getState(): BuilderAuthoringState; setCurrentDraft(state: BuilderAuthoringState): void };
   readonly workspaceAttached: MutableRefObject<boolean>;
-  readonly compileGeneration: MutableRefObject<number>;
+  readonly compileGeneration: () => number;
   readonly dispatch: Dispatch<Parameters<typeof builderAuthoringReducer>[1]>;
   readonly reconcileCurrent: () => Promise<ExplorerBuilderCompileResult | undefined>;
   readonly refetchBuilder: ReturnType<typeof useGetExplorerBuilderStateV2Query>['refetch'];
@@ -84,11 +84,11 @@ export const usePublish = ({
       for (;;) {
         if (!publicationOwnerIsCurrent()) return;
         const submitted = draftAccess.getState();
-        const generation = compileGeneration.current;
+        const generation = compileGeneration();
         const submittedFingerprint = intentFingerprint(workspaceFromState(submitted));
         const publicationIsCurrent = () => publicationOwnerIsCurrent() && reconcileResultIsCurrent({
           generation,
-          currentGeneration: compileGeneration.current,
+          currentGeneration: compileGeneration(),
           submittedExplorerId: submitted.explorerId,
           currentExplorerId: draftAccess.getState().explorerId,
           submittedFingerprint,

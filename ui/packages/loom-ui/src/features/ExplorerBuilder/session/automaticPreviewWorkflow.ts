@@ -1,3 +1,4 @@
+import type { ReconcileRequestSlot } from './reconcileRequests';
 import { sameDraftRevision } from '../../../contracts/identity';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
 import type { ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult } from '../../../contracts/types';
@@ -78,15 +79,15 @@ type AutomaticPreviewQueryOptions = {
 type WorkflowPorts = {
   readonly projectId: string;
   readonly draftAccess: { getState(): BuilderAuthoringState };
-  readonly compileGeneration: { current: number };
-  readonly previewGeneration: { current: number };
+  readonly compileRequests: ReconcileRequestSlot;
+  readonly previewRequests: ReconcileRequestSlot;
   readonly dispatch: (action: Parameters<typeof builderAuthoringReducer>[1]) => void;
   readonly setMessage: (message: string | undefined) => void;
 };
 
 export function bindAutomaticPreview(
   { activeAutomaticPreview, automaticPreviewRequest, automaticPreviewGeneration, appliedChoicePreview, cache }: AutomaticPreviewWorkflow,
-  { projectId, draftAccess, compileGeneration, previewGeneration, dispatch, setMessage }: WorkflowPorts,
+  { projectId, draftAccess, compileRequests, previewRequests, dispatch, setMessage }: WorkflowPorts,
 ) {
   const request = automaticPreviewRequest.current;
   return function previewOptions({
@@ -111,11 +112,11 @@ export function bindAutomaticPreview(
           if (activeAutomaticPreview.current?.generation === generation) {
             activeAutomaticPreview.current = undefined;
           }
-          if (execution.compileRequest && execution.compileGeneration === compileGeneration.current) {
-            compileGeneration.current += 1;
+          if (execution.compileRequest && execution.compileGeneration === compileRequests.generation()) {
+            compileRequests.advance();
           }
-          if (execution.previewRequest && execution.previewGeneration === previewGeneration.current) {
-            previewGeneration.current += 1;
+          if (execution.previewRequest && execution.previewGeneration === previewRequests.generation()) {
+            previewRequests.advance();
           }
           execution.compileRequest?.abort();
           execution.previewRequest?.abort();

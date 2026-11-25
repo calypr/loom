@@ -8,9 +8,9 @@ import { reconcileAcceptance } from '../model/reconcileAcceptance';
 import { reconcileRecoveryAction, reconcileResultIsCurrent } from '../model/reconcileRecovery';
 import { isPreviewResponseSizeError, previewRecoveryAction } from '../model/previewRecovery';
 import type { AutomaticPreviewExecution, PreviewRequest } from './automaticPreview';
+import type { ReconcileRequestSlot } from './reconcileRequests';
 
 type Ref<Value> = { current: Value };
-type Request = { abort(): void };
 
 type DraftActions = {
   readonly draftAccess: { getState(): BuilderAuthoringState; setCurrentDraft(state: BuilderAuthoringState): void };
@@ -27,15 +27,14 @@ type ReconcileEnvironment = DraftActions & {
 
 type CompilePorts = ReconcileEnvironment & {
   readonly workspaceAttached: Ref<boolean>;
-  readonly compileGeneration: Ref<number>;
-  readonly activeCompile: Ref<Request | undefined>;
+  readonly compileRequests: ReconcileRequestSlot;
   readonly reconcileBuilder: ReturnType<typeof useReconcileExplorerBuilderV2Mutation>[0];
   readonly diagnosticsFromError: (error: unknown) => ReadonlyArray<ExplorerAuthoringDiagnostic>;
 };
 
 export function reconcileCurrentFor({
   projectId, authResourcePath, draftAccess, dispatch, refetchBuilder, syncBuilderData, setMessage,
-  workspaceAttached, compileGeneration, activeCompile, reconcileBuilder, diagnosticsFromError,
+  workspaceAttached, compileRequests, reconcileBuilder, diagnosticsFromError,
 }: CompilePorts) {
   return async function reconcileCurrent(
     owner?: AutomaticPreviewExecution,
@@ -49,13 +48,13 @@ export function reconcileCurrentFor({
       submitted.tables.some((candidate) => !candidate.document.rootResourceType)
     )
       return undefined;
-    const generation = ++compileGeneration.current;
+    const generation = compileRequests.advance();
     const submittedFingerprint = intentFingerprint(
       workspaceFromState(submitted),
     );
     const requestIsCurrent = () => workspaceAttached.current && reconcileResultIsCurrent({
       generation,
-      currentGeneration: compileGeneration.current,
+      currentGeneration: compileRequests.generation(),
       submittedExplorerId: submitted.explorerId,
       currentExplorerId: draftAccess.getState().explorerId,
       submittedFingerprint,
@@ -71,7 +70,7 @@ export function reconcileCurrentFor({
     if (!owner) dispatch({ type: 'compiling' });
     for (;;) {
       if (owner?.cancelled || !requestIsCurrent()) return undefined;
-      const request = reconcileBuilder({
+      const request = compileRequests.track(generation, () => reconcileBuilder({
         project: projectId,
         explorerId: submitted.explorerId,
         authResourcePath,
@@ -80,8 +79,8 @@ export function reconcileCurrentFor({
         draftDigest,
         ...(outputId ? { outputId } : {}),
         requestId: `builder-${generation}-${attempt}`,
-      });
-      activeCompile.current = request;
+      }));
+      if (!request) return undefined;
       if (owner) {
         owner.compileGeneration = generation;
         owner.compileRequest = request;
@@ -92,7 +91,7 @@ export function reconcileCurrentFor({
         const current = draftAccess.getState();
         const acceptance = reconcileAcceptance(value, {
           generation,
-          currentGeneration: compileGeneration.current,
+          currentGeneration: compileRequests.generation(),
           submittedExplorerId: submitted.explorerId,
           currentExplorerId: current.explorerId,
           submittedFingerprint,
@@ -162,7 +161,7 @@ export function reconcileCurrentFor({
         });
         return undefined;
       } finally {
-        if (activeCompile.current === request) activeCompile.current = undefined;
+        request.finish();
         if (owner?.compileRequest === request) owner.compileRequest = undefined;
       }
     }
@@ -170,37 +169,36 @@ export function reconcileCurrentFor({
 }
 
 type PreviewPorts = Omit<ReconcileEnvironment, 'dispatch'> & {
-  readonly previewGeneration: Ref<number>;
-  readonly activePreview: Ref<Request | undefined>;
+  readonly previewRequests: ReconcileRequestSlot;
   readonly previewBuilder: ReturnType<typeof usePreviewExplorerAuthoringV2Mutation>[0];
   readonly reconcileCurrent: ReturnType<typeof reconcileCurrentFor>;
 };
 
 export function executePreviewFor({
   projectId, authResourcePath, draftAccess, refetchBuilder, syncBuilderData, setMessage,
-  previewGeneration, activePreview, previewBuilder, reconcileCurrent,
+  previewRequests, previewBuilder, reconcileCurrent,
 }: PreviewPorts) {
   return async function executePreview(
     request: PreviewRequest,
     receipt: ExplorerBuilderCompileResult,
     owner?: AutomaticPreviewExecution,
   ): Promise<{ readonly receipt: ExplorerBuilderCompileResult; readonly preview: ExplorerBuilderPreviewResult } | undefined> {
-    const generation = ++previewGeneration.current;
+    const generation = previewRequests.advance();
     let activeRequest = request;
     let activeReceipt = receipt;
     const limit = request.limit;
     let transientRetries = 0;
     for (;;) {
-      if (owner?.cancelled || generation !== previewGeneration.current) return undefined;
-      const previewRequest = previewBuilder({
+      if (owner?.cancelled || generation !== previewRequests.generation()) return undefined;
+      const previewRequest = previewRequests.track(generation, () => previewBuilder({
         project: projectId,
         explorerId: draftAccess.getState().explorerId,
         authResourcePath,
         receiptId: activeReceipt.receiptId,
         outputId: activeRequest.outputId,
         limit,
-      });
-      activePreview.current = previewRequest;
+      }));
+      if (!previewRequest) return undefined;
       if (owner) {
         owner.previewGeneration = generation;
         owner.previewRequest = previewRequest;
@@ -209,7 +207,7 @@ export function executePreviewFor({
         const value = await previewRequest.unwrap();
         if (
           owner?.cancelled ||
-          generation !== previewGeneration.current ||
+          generation !== previewRequests.generation() ||
           value.receiptId !== activeReceipt.receiptId ||
           value.outputId !== activeRequest.outputId
         )
@@ -220,7 +218,7 @@ export function executePreviewFor({
         const apiError = error as ExplorerAuthoringApiError;
         if (
           owner?.cancelled ||
-          generation !== previewGeneration.current ||
+          generation !== previewRequests.generation() ||
           apiError.code === 'CLIENT_CANCELLED'
         )
           return undefined;
@@ -240,7 +238,7 @@ export function executePreviewFor({
             receiptRefreshes: activeRequest.receiptRefreshes + 1,
           };
           const refreshedReceipt = await reconcileCurrent(owner, activeRequest.outputId);
-          if (owner?.cancelled || generation !== previewGeneration.current) return undefined;
+          if (owner?.cancelled || generation !== previewRequests.generation()) return undefined;
           if (!refreshedReceipt) return undefined;
           activeReceipt = refreshedReceipt;
           setMessage(undefined);
@@ -253,7 +251,7 @@ export function executePreviewFor({
             receiptRefreshes: activeRequest.receiptRefreshes + 1,
           };
           const refreshed = await refetchBuilder({ reload: true });
-          if (owner?.cancelled || generation !== previewGeneration.current) return undefined;
+          if (owner?.cancelled || generation !== previewRequests.generation()) return undefined;
           if (!refreshed.data) return undefined;
           draftAccess.setCurrentDraft(builderAuthoringReducer(draftAccess.getState(), {
             type: 'catalogRefreshed',
@@ -261,7 +259,7 @@ export function executePreviewFor({
           }));
           syncBuilderData(refreshed.data, 'catalog');
           const refreshedReceipt = await reconcileCurrent(owner, activeRequest.outputId);
-          if (owner?.cancelled || generation !== previewGeneration.current) return undefined;
+          if (owner?.cancelled || generation !== previewRequests.generation()) return undefined;
           if (!refreshedReceipt) return undefined;
           activeReceipt = refreshedReceipt;
           setMessage(undefined);
@@ -285,7 +283,7 @@ export function executePreviewFor({
         }
         throw error;
       } finally {
-        if (activePreview.current === previewRequest) activePreview.current = undefined;
+        previewRequest.finish();
         if (owner?.previewRequest === previewRequest) owner.previewRequest = undefined;
       }
     }

@@ -24,8 +24,7 @@ type UseTableExplorerCrudOptions = {
   readonly explorers: Pick<ReturnType<typeof useGetExplorerAuthoringExplorersQuery>, 'data' | 'refetch'>;
   readonly capabilities: Pick<ReturnType<typeof useGetExplorerAuthoringCapabilityV2Query>, 'data'>;
   readonly effectiveExplorerId: string;
-  readonly compileGeneration: MutableRefObject<number>;
-  readonly activeCompile: MutableRefObject<{ abort: () => void } | undefined>;
+  readonly invalidateCompile: () => void;
   readonly setMessage: Dispatch<SetStateAction<string | undefined>>;
   readonly opaqueId: (prefix: 'output' | 'tab') => string;
 };
@@ -46,7 +45,7 @@ export const useTableExplorerCrud = ({
   state, table, draftAccess, dispatch, recipeMutationAllowed, firstTableActionPending,
   tableCreatorOpen, setFirstTableName, setTableCreatorOpen, rememberSelectedTable, applyCommands,
   projectId, authResourcePath, selectExplorer, onExplorerChange, explorers, capabilities,
-  effectiveExplorerId, compileGeneration, activeCompile, setMessage, opaqueId,
+  effectiveExplorerId, invalidateCompile, setMessage, opaqueId,
 }: UseTableExplorerCrudOptions): UseTableExplorerCrudResult => {
   const [createExplorer, createStatus] = useCreateExplorerAuthoringMutation();
   const [deleteExplorer, deleteStatus] = useDeleteExplorerAuthoringMutation();
@@ -168,8 +167,7 @@ export const useTableExplorerCrud = ({
         authResourcePath,
         requestId: `delete-explorer-${effectiveExplorerId}`,
       }).unwrap();
-      compileGeneration.current += 1;
-      activeCompile.current?.abort();
+      invalidateCompile();
       selectExplorer(fallback.explorerId);
       if (!onExplorerChange) await explorers.refetch();
       setMessage(undefined);

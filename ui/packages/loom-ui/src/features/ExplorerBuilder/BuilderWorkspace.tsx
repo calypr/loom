@@ -471,10 +471,7 @@ const BuilderWorkspaceContent = ({
     setActiveConstructionSelection(undefined);
     combineCatalog.invalidate();
     cancelAutomaticPreview();
-    compileGeneration.current += 1;
-    previewGeneration.current += 1;
-    activeCompile.current?.abort();
-    activePreview.current?.abort();
+    invalidateCompileAndPreview();
     if (onExplorerChange) {
       onExplorerChange(nextExplorerId);
     } else {
@@ -492,10 +489,10 @@ const BuilderWorkspaceContent = ({
     diagnosticsFromError,
   });
 
-  const { compileGeneration, previewGeneration, activeCompile, activePreview, reconcileStatus, previewStatus, reconcileCurrent, executePreview } = reconcile;
+  const { compileRequests, previewRequests, invalidateCompileAndPreview, reconcileStatus, previewStatus, reconcileCurrent, executePreview } = reconcile;
   const automaticPreview = useAutomaticPreviewActions(ownerKey, {
-    compileGeneration,
-    previewGeneration,
+    compileRequests,
+    previewRequests,
     setMessage,
   });
   const { previewLimit, setPreviewLimit, appliedChoicePreview, automaticPreviewGeneration, automaticPreviewRequest, cancelAutomaticPreview, queryOptionsFor } = automaticPreview;
@@ -805,7 +802,7 @@ const BuilderWorkspaceContent = ({
     state,
     draftAccess,
     workspaceAttached,
-    compileGeneration,
+    compileGeneration: compileRequests.generation,
     dispatch,
     reconcileCurrent,
     refetchBuilder,
@@ -1137,7 +1134,7 @@ const BuilderWorkspaceContent = ({
     state, table, draftAccess, dispatch, recipeMutationAllowed, firstTableActionPending,
     tableCreatorOpen, setFirstTableName, setTableCreatorOpen, rememberSelectedTable, applyCommands,
     projectId, authResourcePath, selectExplorer, onExplorerChange, explorers, capabilities,
-    effectiveExplorerId, compileGeneration, activeCompile, setMessage, opaqueId,
+    effectiveExplorerId, invalidateCompile: compileRequests.invalidate, setMessage, opaqueId,
   });
   const { createFirstTableFromRoot } = firstTableActionsFor({ applyCommandsWithResult });
 
