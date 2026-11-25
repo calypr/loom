@@ -1,5 +1,6 @@
+import type { useGetExplorerBuilderStateV2Query } from '../session/useBuilderLoad';
 import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import { usePublishExplorerAuthoringV2Mutation, type useGetExplorerBuilderStateV2Query } from '../../../react';
+import { usePublishExplorerAuthoringV2Mutation } from '../../../react';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
 import type { ExplorerBuilderCompileResult, ExplorerBuilderState } from '../../../contracts/types';
 import { intentFingerprint, workspaceFromState, type BuilderAuthoringState } from '../model/authoring';

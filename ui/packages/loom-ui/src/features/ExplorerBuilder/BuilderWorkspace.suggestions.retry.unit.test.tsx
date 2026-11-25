@@ -17,6 +17,10 @@ const hooks = vi.hoisted(() => {
   };
 });
 
+vi.mock('./session/useBuilderLoad', () => ({
+  useGetExplorerBuilderStateV2Query: () => ({ data: builderState, isLoading: false, refetch: vi.fn() }),
+}));
+
 vi.mock('../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../react')>();
   const mutation = () => [vi.fn(), { isLoading: false }];
@@ -33,7 +37,6 @@ vi.mock('../../react', async (importOriginal) => {
       isLoading: false,
       refetch: vi.fn(),
     }),
-    useGetExplorerBuilderStateV2Query: () => ({ data: builderState, isLoading: false, refetch: vi.fn() }),
     useGetExplorerCandidateSuggestionsV2Mutation: () => [hooks.getSuggestions, { isLoading: false }],
     usePreviewExplorerAuthoringV2Mutation: () => mutation(),
     usePublishExplorerAuthoringV2Mutation: () => mutation(),

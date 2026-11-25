@@ -9,13 +9,13 @@ import {
   useDeleteExplorerAuthoringMutation,
   useGetExplorerAuthoringCapabilityV2Query,
   useGetExplorerAuthoringExplorersQuery,
-  useGetExplorerBuilderStateV2Query,
   useGetExplorerCandidateSuggestionsV2Mutation,
   usePreviewExplorerAuthoringV2Mutation,
   usePopulationMappingMutation,
   usePublishExplorerAuthoringV2Mutation,
   LoomProvider,
 } from '../../react';
+import { useGetExplorerBuilderStateV2Query } from './session/useBuilderLoad';
 import BuilderWorkspace from './BuilderWorkspace';
 import { LoomExplorerBuilder } from './Builder';
 import { ordinaryNetworkFixture } from '../../../testSupport/ordinaryNetworkFixture';
@@ -79,6 +79,10 @@ const savedSemanticBindingId = (step: Construction['steps'][number] | undefined)
   return '';
 };
 
+vi.mock('./session/useBuilderLoad', () => ({
+  useGetExplorerBuilderStateV2Query: vi.fn(),
+}));
+
 vi.mock('../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../react')>();
   return {
@@ -91,7 +95,6 @@ vi.mock('../../react', async (importOriginal) => {
     useDeleteExplorerAuthoringMutation: vi.fn(),
     useGetExplorerAuthoringCapabilityV2Query: vi.fn(),
     useGetExplorerAuthoringExplorersQuery: vi.fn(),
-    useGetExplorerBuilderStateV2Query: vi.fn(),
     useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
     usePreviewExplorerAuthoringV2Mutation: vi.fn(),
     usePopulationMappingMutation: vi.fn(),
@@ -5642,7 +5645,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     })));
   });
   it('binds the next command to fresh Builder identity after actual query recovery', async () => {
-    const actual = await vi.importActual<typeof import('../../react')>('../../react');
+    const actual = await vi.importActual<typeof import('./session/useBuilderLoad')>('./session/useBuilderLoad');
     (useGetExplorerBuilderStateV2Query as Mock).mockImplementation(actual.useGetExplorerBuilderStateV2Query);
     const multiWorkspace = { ...workspace, documents: [...workspace.documents, { ...workspace.documents[0], output: { id: 'patients', title: 'Patients' } }], tabs: [...workspace.tabs, { id: 'patients-tab', outputId: 'patients', title: 'Patients', order: 1, visible: true }] };
     const workspaceFor = (version: number) => ({ ...multiWorkspace, documents: multiWorkspace.documents.map(document => ({ ...document, output: { ...document.output, title: `${document.output.id} accepted v${version}` } })), tabs: multiWorkspace.tabs.map(tab => ({ ...tab, title: `${tab.outputId} accepted v${version}` })) });
@@ -5689,7 +5692,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
   });
 
   const openPopulationExclusion = async (mode: 'normal' | 'refresh' | 'unrelated' | 'queued-refresh' = 'normal', deferRoutes = false) => {
-    const actualReact = await vi.importActual<typeof import('../../react')>('../../react');
+    const actualReact = await vi.importActual<typeof import('./session/useBuilderLoad')>('./session/useBuilderLoad');
     (useGetExplorerBuilderStateV2Query as Mock).mockImplementation(actualReact.useGetExplorerBuilderStateV2Query);
     mockLoomClient.createSelection.mockReset();
     mockLoomClient.searchPopulationRoutes.mockReset();

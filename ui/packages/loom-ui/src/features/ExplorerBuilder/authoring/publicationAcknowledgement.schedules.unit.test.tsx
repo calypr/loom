@@ -18,6 +18,10 @@ const harness = vi.hoisted(() => ({
   client: {} as Record<string, unknown>,
 }));
 
+vi.mock('../session/useBuilderLoad', () => ({
+  useGetExplorerBuilderStateV2Query: vi.fn(() => ({ data: harness.state, isLoading: false, refetch: harness.refetch })),
+}));
+
 vi.mock('../../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../react')>();
   return {
@@ -25,7 +29,6 @@ vi.mock('../../../react', async (importOriginal) => {
     useLoomClient: () => harness.client,
     useGetExplorerAuthoringExplorersQuery: () => ({ data: [{ explorerId: 'patients', title: 'Patients' }], isLoading: false, refetch: vi.fn() }),
     useResolvePopulationSelectionQuery: () => ({ data: undefined, isLoading: false, isFetching: false, refetch: vi.fn() }),
-    useGetExplorerBuilderStateV2Query: vi.fn(() => ({ data: harness.state, isLoading: false, refetch: harness.refetch })),
     useGetExplorerAuthoringCapabilityV2Query: () => ({ data: { features: { deleteExplorer: false } } }),
     useReconcileExplorerBuilderV2Mutation: () => [harness.reconcile, { isLoading: false }],
     usePreviewExplorerAuthoringV2Mutation: () => [harness.preview, { isLoading: false }],

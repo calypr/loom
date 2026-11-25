@@ -10,13 +10,13 @@ import {
   useDeleteExplorerAuthoringMutation,
   useGetExplorerAuthoringCapabilityV2Query,
   useGetExplorerAuthoringExplorersQuery,
-  useGetExplorerBuilderStateV2Query,
   useGetExplorerCandidateSuggestionsV2Mutation,
   usePreviewExplorerAuthoringV2Mutation,
   usePopulationMappingMutation,
   usePublishExplorerAuthoringV2Mutation,
   useReconcileExplorerBuilderV2Mutation,
 } from '../../react';
+import { useGetExplorerBuilderStateV2Query } from './session/useBuilderLoad';
 import type { LoomClient, ProposeConstructionArgs } from '../../client/api';
 import type {
   Construction,
@@ -44,6 +44,10 @@ const mockLoomClientReference = vi.hoisted(() => ({
   configuredColumnContextsQuery: vi.fn(),
 }));
 
+vi.mock('./session/useBuilderLoad', () => ({
+  useGetExplorerBuilderStateV2Query: vi.fn(),
+}));
+
 vi.mock('../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../react')>();
   return {
@@ -55,7 +59,6 @@ vi.mock('../../react', async (importOriginal) => {
     useDeleteExplorerAuthoringMutation: vi.fn(),
     useGetExplorerAuthoringCapabilityV2Query: vi.fn(),
     useGetExplorerAuthoringExplorersQuery: vi.fn(),
-    useGetExplorerBuilderStateV2Query: vi.fn(),
     useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
     usePreviewExplorerAuthoringV2Mutation: vi.fn(),
     usePopulationMappingMutation: vi.fn(),

@@ -7,12 +7,12 @@ import type { ResolveConfiguredColumnContextsArgs } from './client/api';
 import {
   LoomProvider,
   resourceFor,
-  useGetExplorerBuilderStateV2Query,
   useGetExplorerAuthoringExplorersQuery,
   useGetExplorerAuthoringCapabilityV2Query,
   usePreviewExplorerAuthoringV2Mutation,
   useResolveConfiguredColumnContextsQuery,
 } from './react';
+import { useGetExplorerBuilderStateV2Query } from './features/ExplorerBuilder/session/useBuilderLoad';
 
 const ExplorerStatus = () => {
   const query = useGetExplorerAuthoringExplorersQuery({ project: 'NCPI_ACCEPTANCE' });

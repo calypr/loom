@@ -29,11 +29,6 @@ export const useGetExplorerAuthoringExplorersQuery = (args: ExplorerAuthoringPro
   return useQuery((signal) => client.listExplorers(args, signal), [client, args.project]);
 };
 
-export const useGetExplorerBuilderStateV2Query = (args: ExplorerAuthoringStateArgs): QueryResult<Awaited<ReturnType<LoomClient['getBuilder']>>> => {
-  const client = useLoomClient();
-  return useQuery((signal, options) => client.getBuilder(args, { signal, reload: options?.reload }), [client, args.project, args.explorerId, args.authResourcePath], Boolean(args.explorerId));
-};
-
 export const useResolveConfiguredColumnContextsQuery = (
   args: ResolveConfiguredColumnContextsArgs | undefined,
   key: string,

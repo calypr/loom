@@ -52,6 +52,14 @@ const harness = vi.hoisted(() => ({
 
 let client!: LoomClient;
 
+vi.mock('./session/useBuilderLoad', () => ({
+  useGetExplorerBuilderStateV2Query: () => ({
+    data: harness.builderState,
+    isLoading: false,
+    refetch: vi.fn(),
+  }),
+}));
+
 vi.mock('../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../react')>();
   const mutation = () => [vi.fn(), { isLoading: false }];
@@ -65,11 +73,6 @@ vi.mock('../../react', async (importOriginal) => {
     useGetExplorerAuthoringCapabilityV2Query: () => ({ data: { features: {} } }),
     useGetExplorerAuthoringExplorersQuery: () => ({
       data: [{ explorerId: 'builder', title: 'UI contract capture' }],
-      isLoading: false,
-      refetch: vi.fn(),
-    }),
-    useGetExplorerBuilderStateV2Query: () => ({
-      data: harness.builderState,
       isLoading: false,
       refetch: vi.fn(),
     }),

@@ -1,3 +1,4 @@
+import type { useGetExplorerBuilderStateV2Query } from '../session/useBuilderLoad';
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import { isCompilerNavigationSelection } from '../model/workspaceGuards';
 import {
@@ -15,7 +16,6 @@ import type {
 } from '../../../contracts/types';
 import type {
   useAssessExplorerRowChangeMutation,
-  useGetExplorerBuilderStateV2Query,
   useLoomClient,
 } from '../../../react';
 import { isDraftRestoreError } from './draftRestore';

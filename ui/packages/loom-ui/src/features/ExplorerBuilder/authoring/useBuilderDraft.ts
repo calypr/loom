@@ -1,5 +1,5 @@
+import { useGetExplorerBuilderStateV2Query } from '../session/useBuilderLoad';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { useGetExplorerBuilderStateV2Query } from '../../../react';
 import type { ExplorerBuilderCatalog, ExplorerBuilderState } from '../../../contracts/types';
 import { stateFromBuilder, type BuilderAuthoringState } from '../model/authoring';
 import { builderAuthoringReducer } from '../model/reducer';

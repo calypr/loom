@@ -157,6 +157,19 @@ function mutationTrigger(calls: unknown[], gates: { resolve: (value: unknown) =>
   };
 }
 
+vi.mock('./session/useBuilderLoad', () => ({
+  useGetExplorerBuilderStateV2Query: () => ({
+    data: harness.builderState,
+    isLoading: false,
+    refetch: (args?: unknown) => {
+      harness.refetchCalls.push(args);
+      return harness.refetchImpl
+        ? harness.refetchImpl(args)
+        : Promise.resolve(undefined);
+    },
+  }),
+}));
+
 vi.mock('../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../react')>();
   const mutation = () => [vi.fn(() => ({ unwrap: () => Promise.resolve(undefined), abort: () => undefined })), { isLoading: false }];
@@ -172,16 +185,6 @@ vi.mock('../../react', async (importOriginal) => {
       data: [{ explorerId: 'builder', title: 'Core protocol' }],
       isLoading: false,
       refetch: vi.fn(),
-    }),
-    useGetExplorerBuilderStateV2Query: () => ({
-      data: harness.builderState,
-      isLoading: false,
-      refetch: (args?: unknown) => {
-        harness.refetchCalls.push(args);
-        return harness.refetchImpl
-          ? harness.refetchImpl(args)
-          : Promise.resolve(undefined);
-      },
     }),
     useGetExplorerCandidateSuggestionsV2Mutation: mutation,
     usePreviewExplorerAuthoringV2Mutation: () => [mutationTrigger(harness.previewCalls, harness.previewGates), { isLoading: false }],

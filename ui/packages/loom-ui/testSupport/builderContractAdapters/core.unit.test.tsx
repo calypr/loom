@@ -29,6 +29,10 @@ const fixture = vi.hoisted(() => ({
 
 let client: LoomClient;
 
+vi.mock('../../src/features/ExplorerBuilder/session/useBuilderLoad', () => ({
+  useGetExplorerBuilderStateV2Query: () => ({ data: fixture.state, isLoading: false, refetch: vi.fn() }),
+}));
+
 vi.mock('../../src/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/react')>();
   const mutation = () => [vi.fn(), { isLoading: false }];
@@ -41,7 +45,6 @@ vi.mock('../../src/react', async (importOriginal) => {
     useDeleteExplorerAuthoringMutation: mutation,
     useGetExplorerAuthoringCapabilityV2Query: () => ({ data: { features: {} } }),
     useGetExplorerAuthoringExplorersQuery: () => ({ data: [{ explorerId: 'builder', title: 'Core driver probe' }], isLoading: false, refetch: vi.fn() }),
-    useGetExplorerBuilderStateV2Query: () => ({ data: fixture.state, isLoading: false, refetch: vi.fn() }),
     useGetExplorerCandidateSuggestionsV2Mutation: () => [fixture.getSuggestions, { isLoading: false }],
     usePreviewExplorerAuthoringV2Mutation: mutation,
     usePublishExplorerAuthoringV2Mutation: mutation,

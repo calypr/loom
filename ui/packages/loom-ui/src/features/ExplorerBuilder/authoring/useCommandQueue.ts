@@ -1,5 +1,6 @@
+import type { useGetExplorerBuilderStateV2Query } from '../session/useBuilderLoad';
 import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import type { useApplyExplorerBuilderCommandsV2Mutation, useGetExplorerBuilderStateV2Query } from '../../../react';
+import type { useApplyExplorerBuilderCommandsV2Mutation } from '../../../react';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
 import { sameDraftRevision, type DraftIdentity } from '../../../contracts/identity';
 import { explorerBuilderAcceptedConstructionSchema } from '../../../contracts/types';
