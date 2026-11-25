@@ -7,7 +7,7 @@ import type { builderAuthoringReducer } from '../model/reducer';
 import type { PreviewLimit } from '../model/previewRecovery';
 import type { AutomaticPreviewExecution, AutomaticPreviewIdentity, AutomaticPreviewRun, PreviewRequest } from '../session/automaticPreview';
 import type { useAutomaticPreview } from '../session/useAutomaticPreviewResource';
-import { matchesAcceptedPreviewHandoff, type AppliedPreviewHandoff } from '../constructionWorkspace/appliedChoicePreview';
+import { matchesAcceptedPreviewHandoff, type AppliedPreviewHandoff } from '../session/appliedChoicePreview';
 
 type UseAutomaticPreviewOwnerOptions = {
   readonly ownerKey: string;

@@ -1,3 +1,4 @@
+import type { RelatedExpandQueryOwner } from '../session/commandQueue';
 import { sameChoiceRequestScope } from '../../../contracts/identity';
 import React, { useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useLoomClient, useQuery } from '../../../react';
@@ -21,13 +22,6 @@ type RelatedExpandStep = Omit<ConstructionStep, 'operation'> & { readonly operat
 type RouteChoice = RelatedExpandChoiceSearchResponse['choices'][number];
 type CandidateIntent = Pick<ConstructionProposalRequest, 'candidateConstruction' | 'changedStepId'>;
 type EmptyPolicy = NonNullable<RelatedExpandOperation['relatedExpand']['emptyPolicy']>;
-
-export interface RelatedExpandQueryOwner {
-  readonly draftVersion: number;
-  readonly draftDigest: string;
-  pauseAndDrain: () => Promise<void>;
-  resume: () => void;
-}
 
 interface RouteQueryCheckpoint {
   readonly queryKey: string;

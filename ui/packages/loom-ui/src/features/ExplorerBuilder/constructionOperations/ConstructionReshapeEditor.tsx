@@ -11,7 +11,8 @@ import type {
   ConstructionStep,
   ExplorerBuilderCatalog,
 } from '../../../contracts/types';
-import { RelatedExpandEditor, type RelatedExpandQueryOwner } from './RelatedExpandEditor';
+import { RelatedExpandEditor } from './RelatedExpandEditor';
+import type { RelatedExpandQueryOwner } from '../session/commandQueue';
 import { CodedPivotEditor } from './CodedPivotEditor';
 import { GroupEditor } from './GroupEditor';
 import { PivotEditor, type PivotListSelection } from './PivotEditor';

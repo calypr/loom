@@ -1,7 +1,7 @@
 import { useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { useGetExplorerCandidateSuggestionsV2Mutation } from '../../../react';
 import type { BuilderAuthoringState } from '../model/authoring';
-import type { useCommandQueue } from './useCommandQueue';
+import type { useCommandQueueActions } from '../session/useCommandQueueActions';
 import { planInitialTable, type InitialTableCandidateEvidence, type InitialTablePlan } from '../model/initialTablePlan';
 
 type FirstTableProgress =
@@ -21,7 +21,7 @@ type UseFirstTableOptions = {
 };
 
 type FirstTableActionsOptions = {
-  readonly applyCommandsWithResult: ReturnType<typeof useCommandQueue>['applyCommandsWithResult'];
+  readonly applyCommandsWithResult: ReturnType<typeof useCommandQueueActions>['applyCommandsWithResult'];
 };
 
 export const useFirstTable = ({

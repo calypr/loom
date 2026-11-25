@@ -6,7 +6,7 @@ import { createRecipeNetworkLoader } from '../session/recipeNetwork';
 import type { useRecipeEditingOwner, RecipeEditToken } from '../session/recipeEditingOwner';
 import type { useRecipeFocus } from './useRecipeFocus';
 import type { useConstructionLifecycle } from '../constructionWorkspace/useConstructionLifecycle';
-import type { useCommandQueue } from './useCommandQueue';
+import type { useCommandQueueActions } from '../session/useCommandQueueActions';
 
 type SourceRecipeActionsOptions = {
   readonly builderDataKey: string;
@@ -28,7 +28,7 @@ type SourceRecipeActionsOptions = {
   readonly recipeInitiator: ReturnType<typeof useRecipeFocus>['recipeInitiator'];
   readonly recipeInitiatorFact: ReturnType<typeof useRecipeFocus>['recipeInitiatorFact'];
   readonly pendingRecipeFocus: ReturnType<typeof useRecipeFocus>['pendingRecipeFocus'];
-  readonly applyCommands: ReturnType<typeof useCommandQueue>['applyCommands'];
+  readonly applyCommands: ReturnType<typeof useCommandQueueActions>['applyCommands'];
 };
 
 type SourceProposalOwnerCandidate = Pick<SourceRelationshipProposal,

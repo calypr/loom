@@ -3,7 +3,7 @@ import { useCreateExplorerAuthoringMutation, useDeleteExplorerAuthoringMutation,
 import type { ExplorerAuthoringApiError } from '../../../client/api';
 import type { BuilderAuthoringState, DraftTable } from '../model/authoring';
 import type { BuilderAction } from '../model/reducer';
-import type { useCommandQueue } from './useCommandQueue';
+import type { useCommandQueueActions } from '../session/useCommandQueueActions';
 
 type UseTableExplorerCrudOptions = {
   readonly state: BuilderAuthoringState;
@@ -16,7 +16,7 @@ type UseTableExplorerCrudOptions = {
   readonly setFirstTableName: Dispatch<SetStateAction<string>>;
   readonly setTableCreatorOpen: Dispatch<SetStateAction<boolean>>;
   readonly rememberSelectedTable: (outputId: string) => void;
-  readonly applyCommands: ReturnType<typeof useCommandQueue>['applyCommands'];
+  readonly applyCommands: ReturnType<typeof useCommandQueueActions>['applyCommands'];
   readonly projectId: string;
   readonly authResourcePath?: string;
   readonly selectExplorer: (explorerId: string) => void;

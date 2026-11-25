@@ -4,7 +4,7 @@ import type { ResourceRef, SelectionRevision } from '../../../contracts/selectio
 import type { ConstructionRouteStep } from '../../../contracts/types';
 import { sameConstructionRoute } from '../model/populationRoutes';
 import { selectedTable, type BuilderAuthoringState, type DraftTable } from '../model/authoring';
-import type { useCommandQueue } from './useCommandQueue';
+import type { useCommandQueueActions } from '../session/useCommandQueueActions';
 
 type UsePopulationExclusionOptions = {
   readonly table: DraftTable | undefined;
@@ -14,7 +14,7 @@ type UsePopulationExclusionOptions = {
   readonly loomClient: ReturnType<typeof useLoomClient>;
   readonly workspaceAttached: MutableRefObject<boolean>;
   readonly serverDraft: MutableRefObject<{ version: number; digest: string }>;
-  readonly applyCommands: ReturnType<typeof useCommandQueue>['applyCommands'];
+  readonly applyCommands: ReturnType<typeof useCommandQueueActions>['applyCommands'];
   readonly projectId: string;
   readonly authResourcePath?: string;
   readonly setPopulationSelectionOverride: Dispatch<SetStateAction<{

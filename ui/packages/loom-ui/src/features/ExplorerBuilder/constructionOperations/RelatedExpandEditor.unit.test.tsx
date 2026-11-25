@@ -4,7 +4,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest';
 import { relatedExpandContributorSearchResponseSchema, type ConstructionCapabilitiesResponse, type ExplorerBuilderCatalog, type RelatedExpandContributorSearchResponse } from '../../../contracts/types';
 import { ConstructionProposalPanel } from '../constructionWorkspace/ConstructionProposalPanel';
-import { RelatedExpandEditor, type RelatedExpandQueryOwner } from './RelatedExpandEditor';
+import { RelatedExpandEditor } from './RelatedExpandEditor';
+import type { RelatedExpandQueryOwner } from '../session/commandQueue';
 import { RelatedExpandContributorEditor } from './RelatedExpandContributorEditor';
 
 const searchRelatedExpandChoices = vi.fn();

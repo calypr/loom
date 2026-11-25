@@ -7,7 +7,7 @@ import { constructionAppendStageFor } from '../model/constructionStages';
 import { admitAuthoringRequest } from '../model/admission';
 import type { useConstructionLifecycle } from '../constructionWorkspace/useConstructionLifecycle';
 import type { useCombineCatalog } from './useCombineCatalog';
-import type { useCommandQueue } from './useCommandQueue';
+import type { useCommandQueueActions } from '../session/useCommandQueueActions';
 import type { useRecipeEditingOwner } from '../session/recipeEditingOwner';
 import type { AddColumnsView } from './useAddColumns';
 
@@ -27,7 +27,7 @@ type ConstructionNavigationActionsOptions = {
   readonly setRowIntentSession: Dispatch<SetStateAction<boolean>>;
   readonly setFeatureMode: Dispatch<SetStateAction<'catalog' | 'graph'>>;
   readonly setMessage: Dispatch<SetStateAction<string | undefined>>;
-  readonly applyCommandsWithResult: ReturnType<typeof useCommandQueue>['applyCommandsWithResult'];
+  readonly applyCommandsWithResult: ReturnType<typeof useCommandQueueActions>['applyCommandsWithResult'];
   readonly recipeMutationAllowed: () => boolean;
   readonly rememberOperationFocus: () => void;
   readonly selectAddColumnsView: (view: AddColumnsView) => void;
@@ -40,7 +40,7 @@ type ConstructionNavigationActionsOptions = {
   readonly editingConstructionStepId: string | undefined;
   readonly previousDraftRevisionId: string | undefined;
   readonly setColumnSelection: (next: { readonly kind: 'empty' }) => void;
-  readonly applyCommands: ReturnType<typeof useCommandQueue>['applyCommands'];
+  readonly applyCommands: ReturnType<typeof useCommandQueueActions>['applyCommands'];
   readonly editingConstructionStep: ConstructionStep | undefined;
 };
 

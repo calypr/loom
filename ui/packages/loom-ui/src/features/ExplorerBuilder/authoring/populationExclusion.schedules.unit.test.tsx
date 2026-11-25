@@ -32,7 +32,7 @@ import type {
   ExplorerBuilderWorkspace,
   RowChangeAssessment,
 } from '../../../contracts/types';
-import type { RelatedExpandQueryOwner } from '../constructionOperations/RelatedExpandEditor';
+import type { RelatedExpandQueryOwner } from '../session/commandQueue';
 import type { ConstructionCandidateIntent } from '../constructionWorkspace/useConstructionLifecycle';
 import { createLoomClient } from '../../../client/api';
 import type { LoomClient } from '../../../client/api';

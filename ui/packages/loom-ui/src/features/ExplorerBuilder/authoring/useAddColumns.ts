@@ -14,11 +14,11 @@ import { useBrowserSubscription } from '../hooks/useBrowserSubscription';
 import type { ConceptCatalogView } from '../components/ConceptCatalog';
 import type { ConstructionHistorySelection, ConstructionOperationFamily } from '../constructionWorkspace/ConstructionWorkspace';
 import type { useConstructionLifecycle } from '../constructionWorkspace/useConstructionLifecycle';
-import type { useCommandQueue } from './useCommandQueue';
+import type { useCommandQueueActions } from '../session/useCommandQueueActions';
 import type { useCombineCatalog } from './useCombineCatalog';
 import type { PreviewLimit } from '../model/previewRecovery';
 import type { AutomaticPreviewIdentity } from '../session/automaticPreview';
-import type { AppliedPreviewHandoff } from '../constructionWorkspace/appliedChoicePreview';
+import type { AppliedPreviewHandoff } from '../session/appliedChoicePreview';
 
 export type AddColumnsView = ConceptCatalogView | 'advanced';
 
@@ -49,7 +49,7 @@ type UseAddColumnsOptions = {
   readonly cancelingConstructionProposalRef: MutableRefObject<boolean>;
   readonly appliedChoicePreview: MutableRefObject<AppliedPreviewHandoff | undefined>;
   readonly automaticPreviewRequest: MutableRefObject<AutomaticPreviewIdentity | undefined>;
-  readonly applyCommandsWithResult: ReturnType<typeof useCommandQueue>['applyCommandsWithResult'];
+  readonly applyCommandsWithResult: ReturnType<typeof useCommandQueueActions>['applyCommandsWithResult'];
   readonly combineCatalog: Pick<ReturnType<typeof useCombineCatalog>, 'cancel'>;
   readonly setActiveConstructionFamily: (next: undefined) => void;
   readonly setConstructionHistorySelection: Dispatch<SetStateAction<ConstructionHistorySelection>>;

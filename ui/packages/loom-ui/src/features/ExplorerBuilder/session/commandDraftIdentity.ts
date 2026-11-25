@@ -1,4 +1,4 @@
-export interface ServerDraftIdentity {
+interface ServerDraftIdentity {
   readonly version: number;
   readonly digest: string;
 }

@@ -7,7 +7,6 @@ import { useReconcileActions } from './session/useReconcileActions';
 import { constructionAppendStageFor, constructionInputStageFor } from './model/constructionStages';
 import { effectiveOutputAvailability } from './model/outputEligibility';
 import {
-  useApplyExplorerBuilderCommandsV2Mutation,
   useAssessExplorerRowChangeMutation,
   useGetExplorerAuthoringCapabilityV2Query,
   useGetExplorerAuthoringExplorersQuery,
@@ -77,7 +76,7 @@ import {
   sameRootChangeRequestIdentity,
 } from './model/rootChangeSelection';
 import type { PreviewLimit } from './model/previewRecovery';
-import { useCommandQueue } from './authoring/useCommandQueue';
+import { useCommandQueueActions } from './session/useCommandQueueActions';
 import { usePublish } from './authoring/usePublish';
 import { shouldShowBuilderLoadError } from './authoring/builderLoadError';
 import { BuilderSessionProvider, useBuilderActions, useBuilderSession } from './session/BuilderSessionProvider';
@@ -351,15 +350,11 @@ const BuilderWorkspaceContent = ({
     builderDataKey,
     state,
     previousDraftRevisionId,
-    setLocalState,
-    setRestorableDraft,
     serverDraft,
-    serverDraftKey,
     draftAccess,
   } = useBuilderSession(draft => draft);
   const { refetchBuilder, dispatch, rememberSelectedTable, syncBuilderData } = useBuilderActions();
   const capabilities = useGetExplorerAuthoringCapabilityV2Query(builderQueryArgs);
-  const [applyBuilderCommands] = useApplyExplorerBuilderCommandsV2Mutation();
   const [assessRowChange, rowChangeStatus] = useAssessExplorerRowChangeMutation();
   const [getSuggestions, suggestionsStatus] =
     useGetExplorerCandidateSuggestionsV2Mutation();
@@ -491,13 +486,14 @@ const BuilderWorkspaceContent = ({
     (table) => !table.document.rootResourceType,
   );
 
-  const { compileGeneration, previewGeneration, activeCompile, activePreview, reconcileStatus, previewStatus, reconcileCurrent, executePreview } = useReconcileActions({
+  const reconcile = useReconcileActions({
     workspaceAttached,
     setMessage,
     diagnosticsFromError,
   });
 
-  const { previewLimit, setPreviewLimit, appliedChoicePreview, automaticPreviewGeneration, automaticPreviewRequest, cancelAutomaticPreview, queryOptionsFor } = useAutomaticPreviewOwner({
+  const { compileGeneration, previewGeneration, activeCompile, activePreview, reconcileStatus, previewStatus, reconcileCurrent, executePreview } = reconcile;
+  const automaticPreview = useAutomaticPreviewOwner({
     ownerKey,
     projectId,
     state,
@@ -507,31 +503,13 @@ const BuilderWorkspaceContent = ({
     dispatch,
     setMessage,
   });
-  const { pendingCommands, commandRecipeAdmission, relatedExpandQueryOwnerRef, applyCommandsWithResult, applyCommands } = useCommandQueue({
+  const { previewLimit, setPreviewLimit, appliedChoicePreview, automaticPreviewGeneration, automaticPreviewRequest, cancelAutomaticPreview, queryOptionsFor } = automaticPreview;
+  const { pendingCommands, commandRecipeAdmission, relatedExpandQueryOwnerRef, applyCommandsWithResult, applyCommands } = useCommandQueueActions({
+    reconcile,
+    automaticPreview,
     builderOwnerKeyFor,
     diagnosticsFromError,
-    applyBuilderCommands,
-    authResourcePath,
-    builderDataKey,
-    cancelAutomaticPreview,
-    dispatch,
-    projectId,
-    refetchBuilder,
-    rememberSelectedTable,
-    syncBuilderData,
-    draftAccess,
-    serverDraft,
-    serverDraftKey,
-    automaticPreviewGeneration,
-    compileGeneration,
-    previewGeneration,
-    activeCompile,
-    activePreview,
-    automaticPreviewRequest,
-    appliedChoicePreview,
-    setRestorableDraft,
     setActiveConstructionSelection,
-    setLocalState,
     setMessage,
   });
 
