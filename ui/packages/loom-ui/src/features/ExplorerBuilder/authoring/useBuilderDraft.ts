@@ -4,7 +4,7 @@ import type { ExplorerBuilderCatalog, ExplorerBuilderState } from '../../../cont
 import { stateFromBuilder, type BuilderAuthoringState } from '../model/authoring';
 import { builderAuthoringReducer } from '../model/reducer';
 import { shouldSyncServerDraft } from '../model/serverDraftSync';
-import { createBuilderDraftAccess } from '../session/draftAccess';
+import { createBuilderDraftAccess, createRememberedTable } from '../session/draftAccess';
 
 const emptyCatalog = (): ExplorerBuilderCatalog => ({
   snapshotToken: '',
@@ -55,14 +55,11 @@ export const useBuilderDraft = ({
   ownerKey,
   builderOwnerKeyFor,
 }: UseBuilderDraftOptions) => {
-  const selectedTableStorageKey = `loom.builder.selected-table:${ownerKey}`;
-  const rememberedOutputId = useMemo(() => {
-    try {
-      return window.sessionStorage.getItem(selectedTableStorageKey) ?? undefined;
-    } catch {
-      return undefined;
-    }
-  }, [selectedTableStorageKey]);
+  const rememberedTable = useMemo(
+    () => createRememberedTable(ownerKey, () => window.sessionStorage),
+    [ownerKey],
+  );
+  const rememberedOutputId = useMemo(rememberedTable.read, [rememberedTable]);
   const explorerQueryEnabled = Boolean(effectiveExplorerId);
   const builderQueryArgs = {
     project: projectId,
@@ -121,13 +118,6 @@ export const useBuilderDraft = ({
     },
     [authResourcePath, builderDataKey, effectiveExplorerId, ownerKey, projectId, rememberedOutputId],
   );
-  const rememberSelectedTable = useCallback((outputId: string) => {
-    try {
-      window.sessionStorage.setItem(selectedTableStorageKey, outputId);
-    } catch {
-      // Browser storage can be unavailable; table editing remains usable.
-    }
-  }, [selectedTableStorageKey]);
   const serverDraft = useRef({ version: 0, digest: '' });
   const [draftAccess] = useState(() => createBuilderDraftAccess(state));
   draftAccess.setCurrentDraft(state);
@@ -183,7 +173,7 @@ export const useBuilderDraft = ({
     builderDataKey,
     state,
     dispatch,
-    rememberSelectedTable,
+    rememberSelectedTable: rememberedTable.write,
     previousDraftRevisionId,
     setLocalState,
     setRestorableDraft,
