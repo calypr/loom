@@ -60,7 +60,7 @@ export type RootChangeResolution = {
 };
 
 export type RootChangeRequestIdentity = {
-  readonly epoch: number;
+  readonly attempt: symbol;
   readonly project: string;
   readonly authResourcePath?: string;
   readonly explorerId: string;
@@ -73,7 +73,7 @@ export type RootChangeRequestIdentity = {
 export const sameRootChangeRequestIdentity = (
   left: RootChangeRequestIdentity,
   right: RootChangeRequestIdentity,
-): boolean => left.epoch === right.epoch && left.project === right.project &&
+): boolean => left.attempt === right.attempt && left.project === right.project &&
   left.authResourcePath === right.authResourcePath && left.explorerId === right.explorerId &&
   left.outputId === right.outputId && left.snapshotToken === right.snapshotToken &&
   left.draftVersion === right.draftVersion && left.draftDigest === right.draftDigest;

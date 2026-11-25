@@ -130,10 +130,11 @@ const compilerRouteCatalog: ExplorerBuilderCatalog = {
 const specimenObservationPatientRoute = routeToken(['specimen-observation', 'observation-patient']);
 const specimenEncounterPatientRoute = routeToken(['specimen-encounter', 'encounter-patient']);
 
+const rootAttempt = Symbol();
 const rootIdentity = (
   overrides: Partial<RootChangeRequestIdentity> = {},
 ): RootChangeRequestIdentity => ({
-  epoch: 3,
+  attempt: rootAttempt,
   project: 'BForePC',
   explorerId: 'test-explorer',
   outputId: 'specimens',
@@ -354,7 +355,7 @@ describe('RowDefinitionPanel', () => {
     expect(onResolve).toHaveBeenCalledExactlyOnceWith('labs', 'patient-observation');
 
     const staleIdentities: ReadonlyArray<RootChangeRequestIdentity> = [
-      rootIdentity({ epoch: 4 }), rootIdentity({ project: 'NextProject' }),
+      rootIdentity({ attempt: Symbol() }), rootIdentity({ project: 'NextProject' }),
       rootIdentity({ authResourcePath: 'Patient/other' }), rootIdentity({ explorerId: 'next-explorer' }),
       rootIdentity({ outputId: 'other-table' }), rootIdentity({ snapshotToken: 'next-snapshot' }),
       rootIdentity({ draftVersion: 2 }), rootIdentity({ draftDigest: 'sha256:draft-2' }),

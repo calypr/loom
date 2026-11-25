@@ -74,11 +74,41 @@ export class RequestOwner {
     }
   }
 
-  dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
+  cancelAll(): void {
     const active = [...this.slots.values()];
     this.slots.clear();
     for (const slot of active) slot.controller.abort();
   }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.cancelAll();
+  }
+}
+
+export function bindRequestTransport<Result>(
+  slot: NonNullable<ReturnType<RequestOwner['start']>>,
+  open: () => { readonly unwrap: () => Promise<Result>; readonly abort: () => void },
+) {
+  let transport: ReturnType<typeof open>;
+  try {
+    transport = open();
+  } catch (error) {
+    slot.finish();
+    throw error;
+  }
+
+  const abort = () => transport.abort();
+  if (slot.signal.aborted) abort();
+  else slot.signal.addEventListener('abort', abort, { once: true });
+  return {
+    unwrap: () => transport.unwrap(),
+    abort: slot.cancel,
+    isCurrent: slot.isCurrent,
+    finish() {
+      slot.signal.removeEventListener('abort', abort);
+      slot.finish();
+    },
+  };
 }

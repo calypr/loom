@@ -1,7 +1,7 @@
 import type { PreviewExplorerBuilderArgs } from '../../../client/api';
 import { sameDraftRevision } from '../../../contracts/identity';
 import type { ExplorerBuilderPreviewResult, ExplorerBuilderState, RowChangeAssessment } from '../../../contracts/types';
-import type { RequestOwner } from '../../../data/requests';
+import { bindRequestTransport, type RequestOwner } from '../../../data/requests';
 import type { useAssessExplorerRowChangeMutation } from '../../../react';
 import { isDraftRestoreError } from '../model/draftRestore';
 import {
@@ -12,7 +12,7 @@ import {
   type RootChangeSelection,
 } from '../model/rootChangeSelection';
 import type { PreviewLimit } from '../model/previewRecovery';
-import type { createRootChangeStateStore, PendingRowChangePreview } from './rootChangeState';
+import type { PendingRowChangePreview } from './rootChangeState';
 import type { useGetExplorerBuilderStateV2Query } from './useBuilderLoad';
 
 export type ReadyRootChangeAssessment = Extract<RowChangeAssessment, { readonly status: 'READY' }>;
@@ -36,13 +36,11 @@ type RootChangePorts = {
   readonly rowSettingsOpenAction: Cell<(() => void) | undefined>;
   readonly rowSettingsCloseAction: Cell<(() => void) | undefined>;
   readonly abortRootChangeRequests: () => void;
-  readonly rowChangeRequestEpoch: Cell<number>;
+  readonly rowChangeAttempt: Cell<symbol>;
   readonly rowChangeRequests: RequestOwner;
-  readonly rootChangeStateStore: ReturnType<typeof createRootChangeStateStore>;
   readonly getCurrentRootChangeIdentity: () => RootChangeRequestIdentity | undefined;
   readonly workspaceAttached: Cell<boolean>;
   readonly assessRowChange: ReturnType<typeof useAssessExplorerRowChangeMutation>[0];
-  readonly rowChangeAssessmentRequest: Cell<{ readonly abort: () => void } | undefined>;
   readonly loadPreview: (args: PreviewExplorerBuilderArgs, signal: AbortSignal) => Promise<ExplorerBuilderPreviewResult>;
   readonly previewLimit: PreviewLimit;
   readonly refetchBuilder: ReturnType<typeof useGetExplorerBuilderStateV2Query>['refetch'];
@@ -53,9 +51,9 @@ type RootChangePorts = {
 };
 
 export function changeTableRootFor({
-  rootRecipeActions, rowSettingsOpenAction, rowSettingsCloseAction, abortRootChangeRequests, rowChangeRequestEpoch,
-  rowChangeRequests, rootChangeStateStore, getCurrentRootChangeIdentity, workspaceAttached,
-  assessRowChange, rowChangeAssessmentRequest, loadPreview, previewLimit, refetchBuilder, syncBuilderData,
+  rootRecipeActions, rowSettingsOpenAction, rowSettingsCloseAction, abortRootChangeRequests, rowChangeAttempt,
+  rowChangeRequests, getCurrentRootChangeIdentity, workspaceAttached,
+  assessRowChange, loadPreview, previewLimit, refetchBuilder, syncBuilderData,
   setMessage, setPendingRowChangePreview, setRootChangeState,
 }: RootChangePorts): (selection: RootChangeSelection, resolution?: RootChangeResolution) => Promise<void> {
   return async function changeTableRoot(selection: RootChangeSelection, resolution: RootChangeResolution = {}) {
@@ -63,11 +61,7 @@ export function changeTableRootFor({
     if (!rootOwnership) return;
     rowSettingsOpenAction.current?.();
     abortRootChangeRequests();
-    rowChangeRequestEpoch.current += 1;
-    const epoch = rowChangeRequestEpoch.current;
-    const requestIdentity = String(epoch);
-    rowChangeRequests.setIdentity(requestIdentity);
-    const storeLifecycleVersion = rootChangeStateStore.getLifecycleVersion();
+    rowChangeAttempt.current = Symbol();
     const identity = getCurrentRootChangeIdentity();
     if (!identity) {
       rootOwnership.failed('The selected table is unavailable.');
@@ -77,13 +71,9 @@ export function changeTableRootFor({
     setPendingRowChangePreview(undefined);
     setMessage(undefined);
     setRootChangeState({ kind: 'assessing', selection, resolution, identity });
-    const isCurrentAttempt = () => {
-      const currentIdentity = getCurrentRootChangeIdentity();
-      return rootChangeStateStore.getLifecycleVersion() === storeLifecycleVersion &&
-        workspaceAttached.current && rowChangeRequestEpoch.current === epoch && currentIdentity !== undefined &&
-        sameRootChangeRequestIdentity(identity, currentIdentity);
-    };
-    const request = assessRowChange({
+    const assessmentSlot = rowChangeRequests.start('assessment', 'root-change');
+    if (!assessmentSlot) return;
+    const request = bindRequestTransport(assessmentSlot, () => assessRowChange({
       project: identity.project,
       explorerId: identity.explorerId,
       authResourcePath: identity.authResourcePath,
@@ -94,8 +84,12 @@ export function changeTableRootFor({
       rootNodeId: selection.nodeId,
       ...resolution,
       requestId: `row-change-${globalThis.crypto.randomUUID()}`,
-    });
-    rowChangeAssessmentRequest.current = request;
+    }));
+    const isCurrentAttempt = () => {
+      const currentIdentity = getCurrentRootChangeIdentity();
+      return request.isCurrent() && workspaceAttached.current && currentIdentity !== undefined &&
+        sameRootChangeRequestIdentity(identity, currentIdentity);
+    };
     try {
       const assessment = await request.unwrap();
       if (!isCurrentAttempt()) return;
@@ -134,7 +128,7 @@ export function changeTableRootFor({
       const context = { assessment, identity };
       setRootChangeState({ kind: 'previewing', selection, resolution, identity });
       setPendingRowChangePreview({ ...context, status: 'loading' });
-      const preview = rowChangeRequests.start('preview', requestIdentity);
+      const preview = rowChangeRequests.start('preview', 'root-change');
       if (!preview) return;
       try {
         const candidatePreview = await loadPreview({
@@ -205,7 +199,7 @@ export function changeTableRootFor({
         message: apiError?.message ?? (error instanceof Error ? error.message : 'Loom could not assess the row change.'),
       });
     } finally {
-      if (rowChangeAssessmentRequest.current === request) rowChangeAssessmentRequest.current = undefined;
+      request.finish();
     }
   };
 }

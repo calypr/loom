@@ -1,4 +1,4 @@
-import { RequestOwner } from '../../../data/requests';
+import { bindRequestTransport, RequestOwner } from '../../../data/requests';
 
 type TransportRequest<Result> = {
   readonly unwrap: () => Promise<Result>;
@@ -16,8 +16,8 @@ export type ReconcileRequestSlot = {
 
 export function createReconcileRequests() {
   const owner = new RequestOwner();
-  let revision = 0;
-  owner.setIdentity(String(revision));
+  const identity = 'reconcile';
+  owner.setIdentity(identity);
   const createSlot = (name: 'compile' | 'preview'): ReconcileRequestSlot => {
     let current = 0;
     return {
@@ -29,30 +29,13 @@ export function createReconcileRequests() {
       },
       track(generation, open) {
         if (generation !== current) return undefined;
-        const slot = owner.start(name, String(revision));
+        const slot = owner.start(name, identity);
         if (!slot) return undefined;
         if (generation !== current) {
           slot.finish();
           return undefined;
         }
-        let transport: ReturnType<typeof open>;
-        try {
-          transport = open();
-        } catch (error) {
-          slot.finish();
-          throw error;
-        }
-        const abort = () => transport.abort();
-        if (slot.signal.aborted) abort();
-        else slot.signal.addEventListener('abort', abort, { once: true });
-        return {
-          unwrap: () => transport.unwrap(),
-          abort: slot.cancel,
-          finish() {
-            slot.signal.removeEventListener('abort', abort);
-            slot.finish();
-          },
-        };
+        return bindRequestTransport(slot, open);
       },
     };
   };
@@ -64,7 +47,7 @@ export function createReconcileRequests() {
     invalidateCompileAndPreview() {
       compileRequests.advance();
       previewRequests.advance();
-      owner.setIdentity(String(++revision));
+      owner.cancelAll();
     },
   };
 }

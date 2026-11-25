@@ -20,7 +20,6 @@ type RootChangeStateSnapshot = {
 
 type RootChangeStateStore = {
   readonly getSnapshot: () => RootChangeStateSnapshot;
-  readonly getLifecycleVersion: () => number;
   readonly subscribe: (subscriber: () => void) => () => void;
   readonly activate: (identity: RootChangeRequestIdentity | undefined) => void;
   readonly update: (update: (current: RootChangeStateSnapshot) => RootChangeStateSnapshot) => void;
@@ -34,17 +33,14 @@ export const createRootChangeStateStore = (
     rootChangeState: { kind: 'idle' },
     pendingRowChangePreview: undefined,
   });
-  let lifecycleVersion = 0;
   let activated = false;
   let activeIdentity: RootChangeRequestIdentity | undefined;
   return {
     getSnapshot: store.getSnapshot,
-    getLifecycleVersion: () => lifecycleVersion,
     subscribe: (subscriber) => {
       const unsubscribe = store.subscribe(subscriber);
       return () => {
         unsubscribe();
-        lifecycleVersion += 1;
         onDetach();
       };
     },
@@ -70,7 +66,6 @@ export const createRootChangeStateStore = (
         previous.explorerId === identity.explorerId &&
         previous.outputId === identity.outputId;
 
-      lifecycleVersion += 1;
       onDetach();
       activeIdentity = identity;
       if (!activeIsStale && !previewIsStale) return;

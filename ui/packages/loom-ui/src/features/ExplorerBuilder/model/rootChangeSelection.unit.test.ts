@@ -133,9 +133,9 @@ describe('catalog-root selection contract', () => {
   });
 });
 
-it('treats a different request epoch as a different root-change identity', () => {
+it('treats a different request attempt as a different root-change identity', () => {
   const identity = {
-    epoch: 1,
+    attempt: Symbol(),
     project: 'project',
     explorerId: 'explorer',
     outputId: 'patients',
@@ -144,6 +144,6 @@ it('treats a different request epoch as a different root-change identity', () =>
     draftDigest: 'digest',
   };
   expect(sameRootChangeRequestIdentity(identity, { ...identity })).toBe(true);
-  expect(sameRootChangeRequestIdentity(identity, { ...identity, epoch: 2 })).toBe(false);
+  expect(sameRootChangeRequestIdentity(identity, { ...identity, attempt: Symbol() })).toBe(false);
   expect(sameRootChangeRequestIdentity(identity, { ...identity, draftVersion: 4 })).toBe(false);
 });

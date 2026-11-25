@@ -56,20 +56,21 @@ export const useRootChange = ({
   rowSettingsCloseAction,
   setMessage,
 }: UseRootChangeOptions) => {
-  const rowChangeAssessmentRequest = useRef<{ readonly abort: () => void } | undefined>(undefined);
-  const rowChangeRequestEpoch = useRef(0);
-  const [rowChangeRequests] = useState(() => new RequestOwner());
+  const [rowChangeAttempt] = useState(() => ({ current: Symbol() }));
+  const [rowChangeRequests] = useState(() => {
+    const owner = new RequestOwner();
+    owner.setIdentity('root-change');
+    return owner;
+  });
   const rootRecipeAssessment = useRef<ReadyRootChangeAssessment | undefined>(undefined);
   const rootRecipeActions = useRef<RootRecipeActions | undefined>(undefined);
   const [rootReplacementInspectorHost, setRootReplacementInspectorHost] = useState<HTMLElement | null>(null);
   const abortRootChangeRequests = useCallback(() => {
-    rowChangeAssessmentRequest.current?.abort();
-    rowChangeAssessmentRequest.current = undefined;
-    rowChangeRequests.cancel('preview');
+    rowChangeRequests.cancelAll();
   }, [rowChangeRequests]);
 
   const rootChangeIdentityForTable = (outputId: string): RootChangeRequestIdentity => ({
-    epoch: rowChangeRequestEpoch.current,
+    attempt: rowChangeAttempt.current,
     project: projectId,
     ...(authResourcePath ? { authResourcePath } : {}),
     explorerId: state.explorerId,
@@ -144,7 +145,7 @@ export const useRootChange = ({
     const currentTable = selectedTable(current);
     if (!currentTable) return undefined;
     return {
-      epoch: rowChangeRequestEpoch.current,
+      attempt: rowChangeAttempt.current,
       project: projectId,
       ...(authResourcePath ? { authResourcePath } : {}),
       explorerId: current.explorerId,
@@ -158,20 +159,20 @@ export const useRootChange = ({
   const cancelRootChange = useCallback(() => {
     if (rootRecipeActions.current?.cancel() === false) return;
     abortRootChangeRequests();
-    rowChangeRequestEpoch.current += 1;
+    rowChangeAttempt.current = Symbol();
     setPendingRowChangePreview(undefined);
     setRootChangeState({ kind: 'idle' });
   }, [abortRootChangeRequests, setPendingRowChangePreview, setRootChangeState]);
 
   const changeTableRoot = useCallback(
     changeTableRootFor({
-      rootRecipeActions, rowSettingsOpenAction, rowSettingsCloseAction, abortRootChangeRequests, rowChangeRequestEpoch,
-      rowChangeRequests, rootChangeStateStore, getCurrentRootChangeIdentity, workspaceAttached,
-      assessRowChange, rowChangeAssessmentRequest, loadPreview: (args, signal) => loomClient.preview(args, signal),
+      rootRecipeActions, rowSettingsOpenAction, rowSettingsCloseAction, abortRootChangeRequests, rowChangeAttempt,
+      rowChangeRequests, getCurrentRootChangeIdentity, workspaceAttached,
+      assessRowChange, loadPreview: (args, signal) => loomClient.preview(args, signal),
       previewLimit, refetchBuilder, syncBuilderData, setMessage, setPendingRowChangePreview, setRootChangeState,
     }),
     [abortRootChangeRequests, assessRowChange, getCurrentRootChangeIdentity, loomClient,
-      previewLimit, projectId, refetchBuilder, rootChangeStateStore, setMessage,
+      previewLimit, projectId, refetchBuilder, setMessage,
       setPendingRowChangePreview, setRootChangeState, syncBuilderData],
   );
 

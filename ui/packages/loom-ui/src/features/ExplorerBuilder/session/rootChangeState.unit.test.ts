@@ -8,7 +8,7 @@ describe('root change identity changes', () => {
     'preserves the identity-change behavior for %s while assessment and preview are pending',
     (change) => {
       const identity: RootChangeRequestIdentity = {
-        epoch: 0, project: 'project', explorerId: 'explorer', outputId: 'table',
+        attempt: Symbol(), project: 'project', explorerId: 'explorer', outputId: 'table',
         snapshotToken: 'snapshot', draftVersion: 1, draftDigest: 'digest-1',
       };
       const setMessage = vi.fn();
