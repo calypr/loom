@@ -619,7 +619,6 @@ const BuilderWorkspaceContent = ({
     previewLimit,
     refetchBuilder,
     syncBuilderData,
-    applyCommands,
     rowSettingsOpenAction,
     rowSettingsCloseAction,
     setMessage,

@@ -1,3 +1,5 @@
+import { RequestOwner } from '../../../data/requests';
+import { changeTableRootFor, type ReadyRootChangeAssessment, type RootRecipeActions } from '../session/rootChangeActions';
 import { createRootChangeStateStore, type PendingRowChangePreview } from '../session/rootChangeState';
 import type { useGetExplorerBuilderStateV2Query } from '../session/useBuilderLoad';
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
@@ -10,32 +12,14 @@ import {
   type RootChangeSelection,
 } from '../model/rootChangeSelection';
 import type {
-  ExplorerBuilderCommand,
-  ExplorerBuilderPreviewResult,
   ExplorerBuilderState,
-  RowChangeAssessment,
 } from '../../../contracts/types';
 import type {
   useAssessExplorerRowChangeMutation,
   useLoomClient,
 } from '../../../react';
-import { isDraftRestoreError } from './draftRestore';
 import { type BuilderAuthoringState, type DraftTable, selectedTable } from '../model/authoring';
 import { type PreviewLimit } from '../model/previewRecovery';
-
-type ReadyRootChangeAssessment = Extract<RowChangeAssessment, { readonly status: 'READY' }>;
-
-type RootRecipeAttempt = {
-  ready: (assessment: ReadyRootChangeAssessment, preview: ExplorerBuilderPreviewResult) => boolean;
-  failed: (message: string, stale?: boolean) => void;
-  noChange: () => void;
-};
-
-type RootRecipeActions = {
-  begin: (nodeId: string, mode: 'PRESERVE' | 'REPLACE') => RootRecipeAttempt | undefined;
-  cancel: () => boolean;
-  apply: (assessment: ReadyRootChangeAssessment) => Promise<boolean>;
-};
 
 type UseRootChangeOptions = {
   readonly projectId: string;
@@ -50,7 +34,6 @@ type UseRootChangeOptions = {
   readonly previewLimit: PreviewLimit;
   readonly refetchBuilder: ReturnType<typeof useGetExplorerBuilderStateV2Query>['refetch'];
   readonly syncBuilderData: (value: ExplorerBuilderState, mode: 'hydrate' | 'catalog') => void;
-  readonly applyCommands: (commands: ReadonlyArray<ExplorerBuilderCommand>) => Promise<boolean>;
   readonly rowSettingsOpenAction: MutableRefObject<(() => void) | undefined>;
   readonly rowSettingsCloseAction: MutableRefObject<(() => void) | undefined>;
   readonly setMessage: Dispatch<SetStateAction<string | undefined>>;
@@ -69,23 +52,21 @@ export const useRootChange = ({
   previewLimit,
   refetchBuilder,
   syncBuilderData,
-  applyCommands,
   rowSettingsOpenAction,
   rowSettingsCloseAction,
   setMessage,
 }: UseRootChangeOptions) => {
   const rowChangeAssessmentRequest = useRef<{ readonly abort: () => void } | undefined>(undefined);
   const rowChangeRequestEpoch = useRef(0);
-  const rowChangePreviewRequest = useRef<AbortController | undefined>(undefined);
+  const [rowChangeRequests] = useState(() => new RequestOwner());
   const rootRecipeAssessment = useRef<ReadyRootChangeAssessment | undefined>(undefined);
   const rootRecipeActions = useRef<RootRecipeActions | undefined>(undefined);
   const [rootReplacementInspectorHost, setRootReplacementInspectorHost] = useState<HTMLElement | null>(null);
   const abortRootChangeRequests = useCallback(() => {
     rowChangeAssessmentRequest.current?.abort();
     rowChangeAssessmentRequest.current = undefined;
-    rowChangePreviewRequest.current?.abort();
-    rowChangePreviewRequest.current = undefined;
-  }, []);
+    rowChangeRequests.cancel('preview');
+  }, [rowChangeRequests]);
 
   const rootChangeIdentityForTable = (outputId: string): RootChangeRequestIdentity => ({
     epoch: rowChangeRequestEpoch.current,
@@ -183,156 +164,12 @@ export const useRootChange = ({
   }, [abortRootChangeRequests, setPendingRowChangePreview, setRootChangeState]);
 
   const changeTableRoot = useCallback(
-    async (selection: RootChangeSelection, resolution: RootChangeResolution = {}) => {
-      const rootOwnership = rootRecipeActions.current?.begin(selection.nodeId, 'PRESERVE');
-      if (!rootOwnership) return;
-      rowSettingsOpenAction.current?.();
-      abortRootChangeRequests();
-      rowChangeRequestEpoch.current += 1;
-      const epoch = rowChangeRequestEpoch.current;
-      const storeLifecycleVersion = rootChangeStateStore.getLifecycleVersion();
-      const identity = getCurrentRootChangeIdentity();
-      if (!identity) {
-        rootOwnership.failed('The selected table is unavailable.');
-        setRootChangeState({ kind: 'idle' });
-        return;
-      }
-      setPendingRowChangePreview(undefined);
-      setMessage(undefined);
-      setRootChangeState({ kind: 'assessing', selection, resolution, identity });
-      const isCurrentAttempt = () => {
-        const currentIdentity = getCurrentRootChangeIdentity();
-        return rootChangeStateStore.getLifecycleVersion() === storeLifecycleVersion &&
-          workspaceAttached.current && rowChangeRequestEpoch.current === epoch && currentIdentity !== undefined &&
-          sameRootChangeRequestIdentity(identity, currentIdentity);
-      };
-      const request = assessRowChange({
-        project: identity.project,
-        explorerId: identity.explorerId,
-        authResourcePath: identity.authResourcePath,
-        snapshotToken: identity.snapshotToken,
-        draftVersion: identity.draftVersion,
-        draftDigest: identity.draftDigest,
-        outputId: identity.outputId,
-        rootNodeId: selection.nodeId,
-        ...resolution,
-        requestId: `row-change-${window.crypto.randomUUID()}`,
-      });
-      rowChangeAssessmentRequest.current = request;
-      try {
-        const assessment = await request.unwrap();
-        if (!isCurrentAttempt()) return;
-        if (assessment.snapshotToken !== identity.snapshotToken ||
-            assessment.draftVersion !== identity.draftVersion ||
-            assessment.draftDigest !== identity.draftDigest) {
-          rootOwnership.failed('The draft changed while checking the starting record.', true);
-          setRootChangeState({
-            kind: 'failed', reason: 'stale', selection, resolution, identity,
-            message: 'The table changed while Loom checked this row choice. Refresh the choices or keep the current rows.',
-          });
-          return;
-        }
-        if (assessment.status === 'NO_CHANGE') {
-          rootOwnership.noChange();
-          setRootChangeState({ kind: 'idle' });
-          setMessage(undefined);
-          return;
-        }
-        if (assessment.status === 'BLOCKED') {
-          rootOwnership.failed(assessment.diagnostics.map((item) => item.message).join(' ') || 'This starting-record change needs a supported relationship or repair.');
-          setRootChangeState({ kind: 'blocked', selection, resolution, identity, assessment });
-          setMessage(undefined);
-          return;
-        }
-        const candidateReceiptId = assessment.candidateReceiptId;
-        if (!candidateReceiptId || assessment.proposal.outputId !== identity.outputId ||
-            assessment.proposal.rootNodeId !== selection.nodeId ||
-            (resolution.rootOccurrenceId !== undefined &&
-              assessment.proposal.rootOccurrenceId !== resolution.rootOccurrenceId)) {
-          rootOwnership.failed('The starting-record assessment has no matching preview receipt.');
-          setRootChangeState({
-            kind: 'failed', reason: 'unavailable', selection, resolution, identity,
-            message: 'Loom could not match this row choice to a preview receipt. The table has not changed.',
-          });
-          return;
-        }
-        const context = { assessment, identity };
-        setRootChangeState({ kind: 'previewing', selection, resolution, identity });
-        setPendingRowChangePreview({ ...context, status: 'loading' });
-        const controller = new AbortController();
-        rowChangePreviewRequest.current = controller;
-        try {
-          const candidatePreview = await loomClient.preview({
-            project: identity.project,
-            explorerId: identity.explorerId,
-            authResourcePath: identity.authResourcePath,
-            receiptId: candidateReceiptId,
-            outputId: identity.outputId,
-            limit: previewLimit,
-            requestId: `row-change-preview-${window.crypto.randomUUID()}`,
-          }, controller.signal);
-          if (controller.signal.aborted || !isCurrentAttempt()) return;
-          if (candidatePreview.receiptId !== candidateReceiptId ||
-              candidatePreview.outputId !== identity.outputId ||
-              candidatePreview.rows === null) {
-            rootOwnership.failed('The preview does not match the starting-record candidate.');
-            setPendingRowChangePreview(undefined);
-            setRootChangeState({
-              kind: 'failed', reason: 'unavailable', selection, resolution, identity,
-              message: 'Loom returned a preview that does not match the selected row change. The table has not changed.',
-            });
-            return;
-          }
-          if (!rootOwnership.ready(assessment, candidatePreview)) {
-            setPendingRowChangePreview(undefined);
-            setRootChangeState({kind:'failed', reason:'unavailable', selection, resolution, identity, message:'The starting-record candidate could not be described for both editors. The saved table has not changed.'});
-            return;
-          }
-          setPendingRowChangePreview({ ...context, status: 'ready', preview: candidatePreview });
-          rowSettingsCloseAction.current?.();
-          setRootChangeState({ kind: 'idle' });
-        } catch (error) {
-          if (controller.signal.aborted || !isCurrentAttempt()) return;
-          rootOwnership.failed(error instanceof Error ? error.message : 'The proposed starting-record rows could not be loaded.');
-          setPendingRowChangePreview(undefined);
-          setRootChangeState({
-            kind: 'failed', reason: 'request', selection, resolution, identity,
-            message: error instanceof Error ? error.message : 'Loom could not preview the proposed rows.',
-          });
-        } finally {
-          if (rowChangePreviewRequest.current === controller) rowChangePreviewRequest.current = undefined;
-        }
-      } catch (error) {
-        if (!isCurrentAttempt()) return;
-        rootOwnership.failed(error instanceof Error ? error.message : 'The starting-record change could not be assessed.');
-        const apiError = typeof error === 'object' && error !== null && 'code' in error &&
-          typeof error.code === 'string'
-          ? {
-              code: error.code,
-              ...( 'message' in error && typeof error.message === 'string'
-                ? { message: error.message }
-                : {}),
-            }
-          : undefined;
-        if (apiError && isDraftRestoreError(apiError.code)) {
-          const refreshed = await refetchBuilder({ reload: true });
-          if (!isCurrentAttempt()) return;
-          if (refreshed.data) syncBuilderData(refreshed.data, 'hydrate');
-          setRootChangeState({
-            kind: 'failed', reason: 'stale', selection, resolution, identity,
-            message: 'The table changed while Loom checked this row choice. Refresh the choices or keep the current rows.',
-          });
-          return;
-        }
-        if (apiError?.code === 'CLIENT_CANCELLED') return;
-        setRootChangeState({
-          kind: 'failed', reason: 'request', selection, resolution, identity,
-          message: apiError?.message ?? (error instanceof Error ? error.message : 'Loom could not assess the row change.'),
-        });
-      } finally {
-        if (rowChangeAssessmentRequest.current === request) rowChangeAssessmentRequest.current = undefined;
-      }
-    },
+    changeTableRootFor({
+      rootRecipeActions, rowSettingsOpenAction, rowSettingsCloseAction, abortRootChangeRequests, rowChangeRequestEpoch,
+      rowChangeRequests, rootChangeStateStore, getCurrentRootChangeIdentity, workspaceAttached,
+      assessRowChange, rowChangeAssessmentRequest, loadPreview: (args, signal) => loomClient.preview(args, signal),
+      previewLimit, refetchBuilder, syncBuilderData, setMessage, setPendingRowChangePreview, setRootChangeState,
+    }),
     [abortRootChangeRequests, assessRowChange, getCurrentRootChangeIdentity, loomClient,
       previewLimit, projectId, refetchBuilder, rootChangeStateStore, setMessage,
       setPendingRowChangePreview, setRootChangeState, syncBuilderData],
