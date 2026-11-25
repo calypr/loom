@@ -323,7 +323,7 @@ const BuilderWorkspaceContent = ({
   const traversalState = useTraversalState();
   const { occurrenceInspectorHost, setOccurrenceInspectorHost, editingRecipeColumn, setEditingRecipeColumn,
     sourceStepInspectorHost, setSourceStepInspectorHost, activeSourceStepId, setActiveSourceStepId,
-    columnPolicyRequest, sourceStepEditAction, sourceStepSwitchOccurrenceAction, sourceFieldEditAction, sourceOutputEditAction,
+    sourceStepEditAction, sourceStepSwitchOccurrenceAction, sourceFieldEditAction, sourceOutputEditAction,
     rowSettingsOpenAction, rowSettingsCloseAction } = traversalState;
   const [sourceChangeReviewHost, setSourceChangeReviewHost] = useState<HTMLDivElement | null>(null);
   const sourceStepEditDirty = useRef(false);
@@ -1168,10 +1168,10 @@ const BuilderWorkspaceContent = ({
     type: column.logicalType,
   }));
   const rowMeaning = constructionRowMeaning(sourceRowMeaning, table?.document.construction, sourceColumns);
-  const { relationshipOwner, loadRecipeNetwork, pendingRelationship, proposeRelationship, cancelRecipeRelationship, sourceReviewStatus, beginSourceReview, beginSourceRowsReview, applySourceRecipe } = createSourceRecipeActions(sourceRecipeState, {
+  const { relationshipOwner, loadRecipeNetwork, pendingRelationship, proposeRelationship, cancelRecipeRelationship, sourceReviewStatus, beginSourceReview, proposeColumnPolicy, beginSourceRowsReview, applySourceRecipe } = createSourceRecipeActions(sourceRecipeState, {
     builderDataKey, state, table, firstTableProgress, loomClient, projectId, authResourcePath,
     completePendingRecipeFocus, recipeMutationAllowed, rememberRecipeFocus, recipeOwner,
-    columnPolicyRequest, setEditingRecipeColumn, constructionLifecycle, restoreRecipeFocus,
+    setEditingRecipeColumn, constructionLifecycle, restoreRecipeFocus,
     recipeFocusGeneration, recipeInitiator, recipeInitiatorFact, pendingRecipeFocus, applyCommands
   });
   const attachedPopulationSelection = table?.document.population?.selectionRevisionId === activePopulationSelection?.id
@@ -1584,27 +1584,7 @@ const BuilderWorkspaceContent = ({
             if (recipeEditToken.current) recipeEditToken.current = recipeOwner.changed(recipeEditToken.current);
             setSourceProposal(undefined);
           }}
-          onPreview={(columnValue) => {
-            if (columnValue.source.kind !== 'field' || !columnValue.source.field.projectionMode) return;
-            const attempt = beginSourceReview();
-            if (!attempt) return;
-            columnPolicyRequest.current?.abort();
-            const controller = new AbortController();
-            columnPolicyRequest.current = controller;
-            void (async () => {
-              try {
-                const proposal = await loomClient.proposeColumnPolicy({ project: projectId, explorerId: state.explorerId,
-                  authResourcePath, snapshotToken: state.catalog.snapshotToken, expectedDraftVersion: state.draftVersion,
-                  expectedDraftDigest: state.draftDigest, outputId: table.outputId, columnId: column.columnId ?? column.column,
-                  projectionMode: columnValue.source.kind === 'field' ? columnValue.source.field.projectionMode! : 'VALUE' }, controller.signal);
-                if (controller.signal.aborted) return;
-                const preview = await loomClient.preview({ project: projectId, explorerId: state.explorerId, authResourcePath,
-                  receiptId: proposal.candidateReceiptId, outputId: table.outputId }, controller.signal);
-                if (controller.signal.aborted) return;
-                attempt.ready(proposal, preview);
-              } catch (error) { if (!controller.signal.aborted) attempt.failed(error instanceof Error ? error.message : 'The column policy could not be previewed.'); }
-            })();
-          }}
+          onPreview={(columnValue) => proposeColumnPolicy(column, columnValue)}
           onChange={() => { if (sourceCandidate) void applySourceRecipe([{ type: 'APPLY_COLUMN_POLICY_PROPOSAL', outputId: table.outputId,
             proposalId: sourceCandidate.preview.receiptId }]); }} /> : null;
       })() : null}

@@ -1,3 +1,4 @@
+import { sameDraftRevision } from '../../../contracts/identity';
 import type { MutableRefObject } from 'react';
 import type { LoomClient } from '../../../client/api';
 import type { AuthoringNetworkResponse } from '../../../contracts/types';
@@ -45,8 +46,9 @@ export const createRecipeNetworkLoader = <Response extends RecipeNetworkIdentity
       snapshotToken: state.catalog.snapshotToken, expectedDraftVersion: state.draftVersion,
       expectedDraftDigest: state.draftDigest, outputId: table.outputId }).then((result) => {
       if (networkRequestOwner.current !== relationshipOwner) return;
-      if (result.draftVersion !== state.draftVersion || result.draftDigest !== state.draftDigest ||
-        result.snapshotToken !== state.catalog.snapshotToken || result.network.outputId !== table.outputId) return;
+      if (!sameDraftRevision(result, {
+        snapshotToken: state.catalog.snapshotToken, draftVersion: state.draftVersion, draftDigest: state.draftDigest,
+      }) || result.network.outputId !== table.outputId) return;
       setSavedNetwork({ owner: relationshipOwner, result });
       completePendingRecipeFocus(result.network.outputId);
     }).catch(() => { if (networkRequestOwner.current === relationshipOwner) networkRequestOwner.current = ''; });

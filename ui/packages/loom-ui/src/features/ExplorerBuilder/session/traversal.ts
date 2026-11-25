@@ -40,7 +40,6 @@ export const useTraversalState = () => {
   const [editingRecipeColumn, setEditingRecipeColumn] = useState<{ owner: string; columnId: string }>();
   const [sourceStepInspectorHost, setSourceStepInspectorHost] = useState<HTMLDivElement | null>(null);
   const [activeSourceStepId, setActiveSourceStepId] = useState<string>();
-  const columnPolicyRequest = useRef<AbortController | undefined>(undefined);
   const sourceStepEditAction = useRef<((stepId: string) => void) | undefined>(undefined);
   const sourceStepSwitchOccurrenceAction = useRef<((occurrenceId: string) => boolean) | undefined>(undefined);
   const sourceFieldEditAction = useRef<((stepId: string, fieldId: string) => void) | undefined>(undefined);
@@ -51,7 +50,7 @@ export const useTraversalState = () => {
   return {
     occurrenceInspectorHost, setOccurrenceInspectorHost, editingRecipeColumn, setEditingRecipeColumn,
     sourceStepInspectorHost, setSourceStepInspectorHost, activeSourceStepId, setActiveSourceStepId,
-    columnPolicyRequest, sourceStepEditAction, sourceStepSwitchOccurrenceAction, sourceFieldEditAction,
+    sourceStepEditAction, sourceStepSwitchOccurrenceAction, sourceFieldEditAction,
     sourceOutputEditAction, rowSettingsOpenAction, rowSettingsCloseAction, defaultSourceStepEditDirty,
     defaultSourceStepEditCancelAction, candidateInspection, setCandidateInspection,
   };

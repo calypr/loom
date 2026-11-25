@@ -1,6 +1,9 @@
+import { sameDraftRevision } from '../../../contracts/identity';
+import { RequestOwner } from '../../../data/requests';
+import type { SourceProposalRequest } from './useSourceRelationshipReview';
 import { useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { useLoomClient } from '../../../react';
-import type { AuthoringNetworkResponse, ExplorerBuilderCommand, ExplorerBuilderPreviewResult, RowDefinitionProposal, SourceRelationshipChange, SourceRelationshipProposal } from '../../../contracts/types';
+import type { AuthoringNetworkResponse, ExplorerBuilderColumn, ExplorerBuilderCommand, ExplorerBuilderPreviewResult, RowDefinitionProposal, SourceRelationshipChange, SourceRelationshipProposal } from '../../../contracts/types';
 import type { BuilderAuthoringState, DraftTable } from '../model/authoring';
 import { createRecipeNetworkLoader } from './recipeNetwork';
 import type { useRecipeEditingOwner } from './useRecipeEditingOwner';
@@ -21,7 +24,6 @@ type SourceRecipeActionsOptions = {
   readonly recipeMutationAllowed: () => boolean;
   readonly rememberRecipeFocus: ReturnType<typeof useRecipeFocus>['rememberRecipeFocus'];
   readonly recipeOwner: ReturnType<typeof useRecipeEditingOwner>;
-  readonly columnPolicyRequest: MutableRefObject<AbortController | undefined>;
   readonly setEditingRecipeColumn: Dispatch<SetStateAction<{ owner: string; columnId: string } | undefined>>;
   readonly constructionLifecycle: Pick<ReturnType<typeof useConstructionLifecycle>, 'cancel'>;
   readonly restoreRecipeFocus: ReturnType<typeof useRecipeFocus>['restoreRecipeFocus'];
@@ -39,7 +41,12 @@ type SourceProposalOwnerCandidate = Pick<SourceRelationshipProposal,
   Partial<Pick<SourceRelationshipProposal, 'affectedColumns' | 'notices'>>;
 
 export const useSourceRecipeState = () => {
-  const sourceRelationshipRequest = useRef<AbortController | undefined>(undefined);
+  const sourceRelationshipRequest = useRef<SourceProposalRequest | undefined>(undefined);
+  const [sourceRecipeRequests] = useState(() => {
+    const owner = new RequestOwner();
+    owner.setIdentity('source-recipe');
+    return owner;
+  });
   const networkRequestOwner = useRef('');
   const recipeEditToken = useRef<RecipeEditToken | undefined>(undefined);
   const [sourceProposal, setSourceProposal] = useState<{ owner: string; proposal: SourceProposalOwnerCandidate; preview: ExplorerBuilderPreviewResult }>();
@@ -49,7 +56,7 @@ export const useSourceRecipeState = () => {
   const [recipeNotice, setRecipeNotice] = useState<string>();
   const [relationshipEdit, setRelationshipEdit] = useState<{ owner: string; change: SourceRelationshipChange }>();
   return {
-    sourceRelationshipRequest, recipeEditToken, sourceProposal, setSourceProposal,
+    sourceRelationshipRequest, sourceRecipeRequests, recipeEditToken, sourceProposal, setSourceProposal,
     lastAcceptedOutputPreview, connectingRelationship, setConnectingRelationship, savedNetwork,
     recipeNotice, setRecipeNotice, setRelationshipEdit, networkRequestOwner,
     setSavedNetwork, relationshipEdit,
@@ -58,14 +65,14 @@ export const useSourceRecipeState = () => {
 
 export function createSourceRecipeActions(
   {
-    sourceRelationshipRequest, networkRequestOwner, recipeEditToken, setSourceProposal,
+    sourceRelationshipRequest, sourceRecipeRequests, networkRequestOwner, recipeEditToken, setSourceProposal,
     lastAcceptedOutputPreview, setConnectingRelationship, setSavedNetwork, setRecipeNotice,
     relationshipEdit, setRelationshipEdit,
   }: ReturnType<typeof useSourceRecipeState>,
   {
     builderDataKey, state, table, firstTableProgress, loomClient, projectId, authResourcePath,
     completePendingRecipeFocus, recipeMutationAllowed, rememberRecipeFocus, recipeOwner,
-    columnPolicyRequest, setEditingRecipeColumn, constructionLifecycle, restoreRecipeFocus,
+    setEditingRecipeColumn, constructionLifecycle, restoreRecipeFocus,
     recipeFocusGeneration, recipeInitiator, recipeInitiatorFact, pendingRecipeFocus, applyCommands
   }: SourceRecipeActionsOptions) {
   const relationshipOwner = JSON.stringify([builderDataKey, state.explorerId, table?.outputId,
@@ -102,10 +109,10 @@ export function createSourceRecipeActions(
     const token = recipeEditToken.current;
     if (editing.status === 'stale') recipeOwner.discardStale();
     else if (token && !recipeOwner.cancel(token)) return false;
-    sourceRelationshipRequest.current?.abort();
+    sourceRelationshipRequest.current?.cancel();
     sourceRelationshipRequest.current = undefined;
     setConnectingRelationship(false);
-    columnPolicyRequest.current?.abort();
+    sourceRecipeRequests.cancel('column-policy');
     recipeEditToken.current = undefined;
     setSourceProposal(undefined);
     setRelationshipEdit(undefined);
@@ -136,8 +143,7 @@ export function createSourceRecipeActions(
     setSourceProposal(undefined);
     return {
       ready: (proposal: SourceProposalOwnerCandidate, preview: ExplorerBuilderPreviewResult) => {
-        if (proposal.outputId !== attempt.identity.outputId || proposal.snapshotToken !== attempt.identity.snapshotToken ||
-          proposal.draftVersion !== attempt.identity.draftVersion || proposal.draftDigest !== attempt.identity.draftDigest) {
+        if (proposal.outputId !== attempt.identity.outputId || !sameDraftRevision(proposal, attempt.identity)) {
           recipeOwner.fail(attempt, 'The draft changed while the proposal was loading. Cancel and review the current draft.', true);
           return false;
         }
@@ -163,8 +169,9 @@ export function createSourceRecipeActions(
       setConnectingRelationship(false);
       return;
     }
-    sourceRelationshipRequest.current?.abort();
-    const controller = new AbortController();
+    sourceRelationshipRequest.current?.cancel();
+    const controller = sourceRecipeRequests.start('relationship', 'source-recipe');
+    if (!controller) return;
     sourceRelationshipRequest.current = controller;
     setConnectingRelationship(true);
     void (async () => {
@@ -192,8 +199,31 @@ export function createSourceRecipeActions(
           ownership.failed(cause instanceof Error ? cause.message : 'The proposed relationship could not be previewed.');
         }
       } finally {
+        controller.finish();
         if (sourceRelationshipRequest.current === controller) sourceRelationshipRequest.current = undefined;
       }
+    })();
+  };
+  const proposeColumnPolicy = (column: ExplorerBuilderColumn, columnValue: ExplorerBuilderColumn) => {
+    if (!table) return;
+    if (columnValue.source.kind !== 'field' || !columnValue.source.field.projectionMode) return;
+    const attempt = beginSourceReview();
+    if (!attempt) return;
+    const controller = sourceRecipeRequests.start('column-policy', 'source-recipe');
+    if (!controller) return;
+    void (async () => {
+      try {
+        const proposal = await loomClient.proposeColumnPolicy({ project: projectId, explorerId: state.explorerId,
+          authResourcePath, snapshotToken: state.catalog.snapshotToken, expectedDraftVersion: state.draftVersion,
+          expectedDraftDigest: state.draftDigest, outputId: table.outputId, columnId: column.columnId ?? column.column,
+          projectionMode: columnValue.source.kind === 'field' ? columnValue.source.field.projectionMode! : 'VALUE' }, controller.signal);
+        if (controller.signal.aborted) return;
+        const preview = await loomClient.preview({ project: projectId, explorerId: state.explorerId, authResourcePath,
+          receiptId: proposal.candidateReceiptId, outputId: table.outputId }, controller.signal);
+        if (controller.signal.aborted) return;
+        attempt.ready(proposal, preview);
+      } catch (error) { if (!controller.signal.aborted) attempt.failed(error instanceof Error ? error.message : 'The column policy could not be previewed.'); }
+      finally { controller.finish(); }
     })();
   };
   const beginSourceRowsReview = () => {
@@ -228,5 +258,5 @@ export function createSourceRecipeActions(
     return applied;
   };
 
-  return { relationshipOwner, loadRecipeNetwork, pendingRelationship, proposeRelationship, cancelRecipeRelationship, sourceReviewStatus, beginSourceReview, beginSourceRowsReview, applySourceRecipe };
+  return { relationshipOwner, loadRecipeNetwork, pendingRelationship, proposeRelationship, cancelRecipeRelationship, sourceReviewStatus, beginSourceReview, proposeColumnPolicy, beginSourceRowsReview, applySourceRecipe };
 }

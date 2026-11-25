@@ -1,5 +1,5 @@
 import React, { useId, useState } from 'react';
-import { useColumnRuleInventory, type ColumnRuleInventoryScope } from '../columnRuleInventory';
+import { useColumnRuleInventory, type ColumnRuleInventoryScope } from '../session/columnRuleInventory';
 import { observedCategorySystems, observedExtensionPaths, observedIdentifierSystems } from '../model/columnRuleInventory';
 import { columnRulePresets, type ColumnRulePreset } from '../model/sourceColumnRule';
 import type { AddColumnsGraphSource, AddColumnsView } from '../session/useAddColumns';
