@@ -1,3 +1,4 @@
+import { sameCatalogSnapshot, sameDraftVersion, sameDraftDigest } from '../../../contracts/identity';
 import { rowScopeLabel } from '../model/rowScopeLabel';
 import { replacementConsumerPresentations } from '../model/replacementConsumers';
 import { createPortal } from 'react-dom';
@@ -104,8 +105,8 @@ const isReadyReplacementAssessment = (
   if (assessment.status !== 'READY' || assessment.mode !== 'REPLACE' ||
       assessment.proposal.mode !== 'REPLACE' || !assessment.candidateReceiptId ||
       assessment.proposal.outputId !== table.outputId ||
-      assessment.snapshotToken !== snapshotToken || assessment.draftVersion !== draftVersion ||
-      assessment.draftDigest !== draftDigest || assessment.proposal.rootOccurrenceId !== 'base') {
+      !sameCatalogSnapshot(assessment.snapshotToken, snapshotToken) || !sameDraftVersion(assessment.draftVersion, draftVersion) ||
+      !sameDraftDigest(assessment.draftDigest, draftDigest) || assessment.proposal.rootOccurrenceId !== 'base') {
     return false;
   }
   return replacementEffectKeys.every((key) => {
@@ -123,8 +124,8 @@ const isCurrentReplacement = (
   draftVersion: number,
   draftDigest: string,
 ): boolean => assessment.mode === 'REPLACE' && assessment.proposal.mode === 'REPLACE' &&
-  assessment.proposal.outputId === table.outputId && assessment.snapshotToken === snapshotToken &&
-  assessment.draftVersion === draftVersion && assessment.draftDigest === draftDigest;
+  assessment.proposal.outputId === table.outputId && sameCatalogSnapshot(assessment.snapshotToken, snapshotToken) &&
+  sameDraftVersion(assessment.draftVersion, draftVersion) && sameDraftDigest(assessment.draftDigest, draftDigest);
 
 const sharedFilterPresentation = (
   workspaceTables: ReadonlyArray<DraftTable>,
@@ -284,8 +285,8 @@ const isCurrentProposal = (
   snapshotToken: string,
   draftVersion: number,
   draftDigest: string,
-) => proposal.outputId === table.outputId && proposal.snapshotToken === snapshotToken &&
-  proposal.draftVersion === draftVersion && proposal.draftDigest === draftDigest;
+) => proposal.outputId === table.outputId && sameCatalogSnapshot(proposal.snapshotToken, snapshotToken) &&
+  sameDraftVersion(proposal.draftVersion, draftVersion) && sameDraftDigest(proposal.draftDigest, draftDigest);
 
 const requestFailureMessage = (error: unknown, fallback: string): string => {
   if (typeof error === 'object' && error !== null && 'status' in error && 'message' in error && typeof error.message === 'string') {
@@ -429,9 +430,9 @@ export const RowDefinitionSettingsPanel = ({
 
   const [staleCheck, setStaleCheck] = useState({ table, snapshotToken, draftVersion, draftDigest });
   if (staleCheck.table !== table ||
-      staleCheck.snapshotToken !== snapshotToken ||
-      staleCheck.draftVersion !== draftVersion ||
-      staleCheck.draftDigest !== draftDigest) {
+      !sameCatalogSnapshot(staleCheck.snapshotToken, snapshotToken) ||
+      !sameDraftVersion(staleCheck.draftVersion, draftVersion) ||
+      !sameDraftDigest(staleCheck.draftDigest, draftDigest)) {
     setStaleCheck({ table, snapshotToken, draftVersion, draftDigest });
     setReplacementState((current) => {
       if (current.kind === 'assessing') return { kind: 'stale', rootNodeId: current.rootNodeId };
@@ -446,8 +447,8 @@ export const RowDefinitionSettingsPanel = ({
         current.proposal, table, snapshotToken, draftVersion, draftDigest,
       )) return { kind: 'stale', selection: current.selection };
       if (current.kind === 'proposing' && (
-        current.outputId !== table.outputId || current.snapshotToken !== snapshotToken ||
-        current.draftVersion !== draftVersion || current.draftDigest !== draftDigest
+        current.outputId !== table.outputId || !sameCatalogSnapshot(current.snapshotToken, snapshotToken) ||
+        !sameDraftVersion(current.draftVersion, draftVersion) || !sameDraftDigest(current.draftDigest, draftDigest)
       )) return { kind: 'stale', selection: current.selection };
       return current;
     });
@@ -473,7 +474,7 @@ export const RowDefinitionSettingsPanel = ({
         project, explorerId, authResourcePath, snapshotToken, outputId: table.outputId,
       });
       if (!settingsCurrent()) return;
-      if (choices.outputId !== table.outputId || choices.snapshotToken !== snapshotToken) {
+      if (choices.outputId !== table.outputId || !sameCatalogSnapshot(choices.snapshotToken, snapshotToken)) {
         setSettings({ kind: 'error', message: 'The server returned row choices for a different table or catalog snapshot.' });
         return;
       }
@@ -575,8 +576,8 @@ export const RowDefinitionSettingsPanel = ({
         draftVersion, draftDigest, outputId: table.outputId, rootNodeId,
       }, request.signal);
       if (!request.isCurrent()) return;
-      if (assessment.snapshotToken !== snapshotToken || assessment.draftVersion !== draftVersion ||
-          assessment.draftDigest !== draftDigest) {
+      if (!sameCatalogSnapshot(assessment.snapshotToken, snapshotToken) || !sameDraftVersion(assessment.draftVersion, draftVersion) ||
+          !sameDraftDigest(assessment.draftDigest, draftDigest)) {
         fail('The draft changed while checking this replacement. Cancel and review the current table.', true);
         return;
       }
@@ -793,7 +794,7 @@ export const RowDefinitionSettingsPanel = ({
       throw error;
     }
     if (!isCurrent()) return;
-    if (choices.outputId !== table.outputId || choices.snapshotToken !== snapshotToken ||
+    if (choices.outputId !== table.outputId || !sameCatalogSnapshot(choices.snapshotToken, snapshotToken) ||
         !choices.explicitGroups.some((group) => group.revisionId === revision.revisionId)) {
       throw new Error('The new group revision is not available for this table. Check that its selected resource type matches the table row type.');
     }

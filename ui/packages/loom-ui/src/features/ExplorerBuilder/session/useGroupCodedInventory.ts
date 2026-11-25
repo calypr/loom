@@ -1,3 +1,4 @@
+import { sameCatalogSnapshot } from '../../../contracts/identity';
 import { useMemo, useRef, useState } from 'react';
 import { useQuery } from '../../../react';
 import { semanticConceptLabel } from '../model/catalogItems';
@@ -135,7 +136,7 @@ export function useGroupCodedInventory(props: {
         project, explorerId, authResourcePath, snapshotToken, outputId, resourceType: rowRoot, limit: 50,
         ...(cursor ? { cursor } : {}),
       }, signal);
-      if (response.snapshotToken !== snapshotToken || response.outputId !== outputId) {
+      if (!sameCatalogSnapshot(response.snapshotToken, snapshotToken) || response.outputId !== outputId) {
         throw new Error('Coded source fields were returned for a different table snapshot. Reload the table and retry.');
       }
       for (const source of response.sources) {

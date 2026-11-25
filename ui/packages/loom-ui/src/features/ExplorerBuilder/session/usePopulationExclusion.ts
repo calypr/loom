@@ -1,3 +1,4 @@
+import { sameDraftVersion, sameDraftDigest } from '../../../contracts/identity';
 import { useBuilderSession } from './BuilderSessionProvider';
 import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { useLoomClient } from '../../../react';
@@ -71,8 +72,8 @@ export const usePopulationExclusion = ({
         latestTable?.outputId === currentTable.outputId &&
         latestTable.document.rootResourceType === currentTable.document.rootResourceType &&
         populationBindingKey(latestTable) === exclusionContext.bindingKey &&
-        latest.draftVersion === serverDraft.current.version &&
-        latest.draftDigest === serverDraft.current.digest;
+        sameDraftVersion(latest.draftVersion, serverDraft.current.version) &&
+        sameDraftDigest(latest.draftDigest, serverDraft.current.digest);
     };
     if (!requestIsCurrent()) return;
     setPopulationVariantPending(true);

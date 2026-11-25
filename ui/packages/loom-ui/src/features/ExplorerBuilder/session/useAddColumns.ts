@@ -1,3 +1,4 @@
+import { sameCatalogSnapshot, sameDraftVersion, sameDraftDigest } from '../../../contracts/identity';
 import { createAddColumnsState, type AddColumnsView } from './addColumnsState';
 import { useMemo, useState, useSyncExternalStore, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type React from 'react';
@@ -254,12 +255,12 @@ export const useAddColumns = ({
       const latest = draftAccess.getState();
       if (
         signal.aborted ||
-        response.snapshotToken !== current.catalog.snapshotToken ||
-        response.draftVersion !== current.draftVersion ||
-        response.draftDigest !== current.draftDigest ||
+        !sameCatalogSnapshot(response.snapshotToken, current.catalog.snapshotToken) ||
+        !sameDraftVersion(response.draftVersion, current.draftVersion) ||
+        !sameDraftDigest(response.draftDigest, current.draftDigest) ||
         response.outputId !== table.outputId ||
-        latest.draftVersion !== current.draftVersion ||
-        latest.draftDigest !== current.draftDigest ||
+        !sameDraftVersion(latest.draftVersion, current.draftVersion) ||
+        !sameDraftDigest(latest.draftDigest, current.draftDigest) ||
         selectedTable(latest)?.outputId !== table.outputId
       ) throw new Error('The table changed while Loom checked paired values.');
       const columnId = response.candidateColumnIds[0];
@@ -308,12 +309,12 @@ export const useAddColumns = ({
     const latest = draftAccess.getState();
     if (
       signal.aborted ||
-      response.snapshotToken !== current.catalog.snapshotToken ||
-      response.draftVersion !== current.draftVersion ||
-      response.draftDigest !== current.draftDigest ||
+      !sameCatalogSnapshot(response.snapshotToken, current.catalog.snapshotToken) ||
+      !sameDraftVersion(response.draftVersion, current.draftVersion) ||
+      !sameDraftDigest(response.draftDigest, current.draftDigest) ||
       response.outputId !== table.outputId ||
-      latest.draftVersion !== current.draftVersion ||
-      latest.draftDigest !== current.draftDigest ||
+      !sameDraftVersion(latest.draftVersion, current.draftVersion) ||
+      !sameDraftDigest(latest.draftDigest, current.draftDigest) ||
       selectedTable(latest)?.outputId !== table.outputId
     ) throw new Error('The table changed while Loom checked matching records.');
     const preview = response.preview;
@@ -474,9 +475,9 @@ export const useAddColumns = ({
         ownerKey !== proposalOwnerKey ||
         previewLimit !== proposalLimit ||
         latest.explorerId !== current.explorerId ||
-        latest.catalog.snapshotToken !== response.snapshotToken ||
-        latest.draftVersion !== response.draftVersion ||
-        latest.draftDigest !== response.draftDigest ||
+        !sameCatalogSnapshot(latest.catalog.snapshotToken, response.snapshotToken) ||
+        !sameDraftVersion(latest.draftVersion, response.draftVersion) ||
+        !sameDraftDigest(latest.draftDigest, response.draftDigest) ||
         selectedTable(latest)?.outputId !== response.outputId
       ) throw new Error('The table changed while its column preview was loading. Choose the columns again.');
       if (response.preview.rows === null || response.preview.outputId !== table.outputId) {

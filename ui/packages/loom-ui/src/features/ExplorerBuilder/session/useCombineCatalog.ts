@@ -1,3 +1,4 @@
+import { sameCatalogSnapshot, sameDraftVersion, sameDraftDigest } from '../../../contracts/identity';
 import { RequestOwner } from '../../../data/requests';
 import { useRef, useState } from 'react';
 import type { useLoomClient } from '../../../react';
@@ -111,13 +112,13 @@ export const useCombineCatalog = ({
         identity !== combineCatalogIdentityFor(latest)
       ) return;
       if (
-        response.snapshotToken !== requestState.catalog.snapshotToken ||
-        response.draftVersion !== requestState.draftVersion ||
-        response.draftDigest !== requestState.draftDigest ||
+        !sameCatalogSnapshot(response.snapshotToken, requestState.catalog.snapshotToken) ||
+        !sameDraftVersion(response.draftVersion, requestState.draftVersion) ||
+        !sameDraftDigest(response.draftDigest, requestState.draftDigest) ||
         response.datasetGeneration !== requestState.catalog.generation ||
-        response.snapshotToken !== latest.catalog.snapshotToken ||
-        response.draftVersion !== latest.draftVersion ||
-        response.draftDigest !== latest.draftDigest ||
+        !sameCatalogSnapshot(response.snapshotToken, latest.catalog.snapshotToken) ||
+        !sameDraftVersion(response.draftVersion, latest.draftVersion) ||
+        !sameDraftDigest(response.draftDigest, latest.draftDigest) ||
         response.datasetGeneration !== latest.catalog.generation
       ) {
         setCombineCatalogLoad({

@@ -1,3 +1,4 @@
+import { sameCatalogSnapshot } from '../../../contracts/identity';
 import { useBuilderActions, useBuilderSession } from './BuilderSessionProvider';
 import { useCallback, useRef, useState, type Dispatch } from 'react';
 import type { BuilderMutationResult } from '../../../react';
@@ -50,7 +51,7 @@ export const useSuggestions = ({
         const latest = draftAccess.getState();
         if (
           latest.explorerId === current.explorerId &&
-          value.snapshotToken === latest.catalog.snapshotToken &&
+          sameCatalogSnapshot(value.snapshotToken, latest.catalog.snapshotToken) &&
           latest.selectedOccurrenceId === currentOccurrence.id
         ) {
           dispatch({ type: 'candidatesLoaded', candidates: value.candidates });
@@ -65,7 +66,7 @@ export const useSuggestions = ({
           const suffix = error.code ? ` (${error.code})` : '';
           const latest = draftAccess.getState();
           if (latest.explorerId === current.explorerId &&
-            latest.catalog.snapshotToken === current.catalog.snapshotToken &&
+            sameCatalogSnapshot(latest.catalog.snapshotToken, current.catalog.snapshotToken) &&
             latest.selectedOccurrenceId === currentOccurrence.id) {
             setSuggestionsFailure({
               key,

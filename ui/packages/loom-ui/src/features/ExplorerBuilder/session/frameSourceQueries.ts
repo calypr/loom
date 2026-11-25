@@ -1,3 +1,4 @@
+import { sameCatalogSnapshot } from '../../../contracts/identity';
 import { useLoomClient, useQuery } from '../../../react';
 
 interface FrameQueryScope {
@@ -49,7 +50,7 @@ export function useFrameSourceOptions({
       project, explorerId, authResourcePath, snapshotToken, outputId, resourceType: sourceResourceType, query, cursor, limit: 20,
       requestId: `frame-source-options-${window.crypto.randomUUID()}`,
     }, signal);
-    if (response.outputId !== outputId || response.snapshotToken !== snapshotToken) {
+    if (response.outputId !== outputId || !sameCatalogSnapshot(response.snapshotToken, snapshotToken)) {
       throw new Error('Loom returned framing choices for another table or dataset.');
     }
     return { sources: response.sources, nextCursor: response.nextCursor };

@@ -1,3 +1,4 @@
+import { sameCatalogSnapshot } from '../../../contracts/identity';
 import type { BuilderMutationResult } from '../../../react';
 import { createStore } from '../../../data/createStore';
 import type { BuilderAuthoringState } from '../model/authoring';
@@ -74,7 +75,7 @@ export function createFirstTableFromRootFor(
           requestId: `first-table-suggestions-${globalThis.crypto.randomUUID()}`,
         }).unwrap();
         if (
-          value.snapshotToken === current.catalog.snapshotToken &&
+          sameCatalogSnapshot(value.snapshotToken, current.catalog.snapshotToken) &&
           value.nodeId === root.nodeId
         ) {
           evidence = { kind: 'available', candidates: value.candidates };

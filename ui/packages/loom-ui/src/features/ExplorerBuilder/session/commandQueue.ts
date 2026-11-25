@@ -1,6 +1,6 @@
 import type { BuilderMutationResult } from '../../../react';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
-import { sameDraftRevision, type DraftIdentity } from '../../../contracts/identity';
+import { sameDraftRevision, type DraftIdentity, sameDraftDigest, sameCatalogSnapshot, sameDraftVersion } from '../../../contracts/identity';
 import { explorerBuilderAcceptedConstructionSchema } from '../../../contracts/types';
 import type { ExplorerAuthoringDiagnostic, ExplorerBuilderCommand, ExplorerBuilderCommandsResult, ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult } from '../../../contracts/types';
 import { admitAuthoringRequest } from '../model/admission';
@@ -53,8 +53,8 @@ const acceptedConstructionForApply = (
   if (
     parsed.data.previewLimit !== request.limit ||
     receipt.receiptId !== request.proposalId ||
-    receipt.intentDigest !== value.draftDigest ||
-    receipt.snapshotToken !== request.snapshotToken ||
+    !sameDraftDigest(receipt.intentDigest, value.draftDigest) ||
+    !sameCatalogSnapshot(receipt.snapshotToken, request.snapshotToken) ||
     !receipt.outputs.some((output) => output.outputId === request.outputId) ||
     preview.receiptId !== receipt.receiptId ||
     preview.outputId !== request.outputId ||
@@ -243,8 +243,8 @@ export function bindCommandQueue(
         if (!commandSucceeded &&
             relatedExpandQueryOwnerRef.current === queryOwner &&
             queryOwner &&
-            serverDraft.current.version === queryOwner.draftVersion &&
-            serverDraft.current.digest === queryOwner.draftDigest) {
+            sameDraftVersion(serverDraft.current.version, queryOwner.draftVersion) &&
+            sameDraftDigest(serverDraft.current.digest, queryOwner.draftDigest)) {
           queryOwner.resume();
         }
         updatePending((value) => Math.max(0, value - 1));

@@ -1,3 +1,4 @@
+import { sameCatalogSnapshot } from '../../../contracts/identity';
 import { useMemo, useRef, useState } from 'react';
 import { useBuilderMutation, useLoomClient, useQuery } from '../../../react';
 import type { PopulationMappingResponse } from '../../../client/api';
@@ -58,7 +59,7 @@ export function usePopulationWorkflow({
     });
     if (signal.aborted) return undefined;
     if (
-      response.snapshotToken !== snapshotToken ||
+      !sameCatalogSnapshot(response.snapshotToken, snapshotToken) ||
       response.outputId !== table.outputId ||
       response.selectionRevisionId !== selectionRevisionId
     ) {

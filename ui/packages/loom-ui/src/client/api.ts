@@ -1,5 +1,5 @@
 import type { ExplorerAuthoringApiError } from '../contracts/errors';
-import { sameConstructionRoute, sameSemanticItemIdentity, semanticIdentityForItem, semanticItemMatchesIdentity } from '../contracts/identity';
+import { sameConstructionRoute, sameSemanticItemIdentity, semanticIdentityForItem, semanticItemMatchesIdentity, sameCatalogSnapshot, sameDraftVersion, sameDraftDigest } from '../contracts/identity';
 import { isRecord } from '../contracts/guards';
 import { viewBuilderStateSchema, type ProjectViewBuilderState, type SaveProjectViewConfigRequest, type SaveProjectViewDefaultsRequest } from '../contracts/projectViewBuilder';
 
@@ -1094,11 +1094,11 @@ const bindPresentationResponseToRequest = (
   const currentContext =
     canonicalProject(context.project) === canonicalProject(args.project) &&
     context.explorerId === args.explorerId &&
-    context.snapshotToken === args.snapshotToken &&
+    sameCatalogSnapshot(context.snapshotToken, args.snapshotToken) &&
     context.inventoryBuildId === response.buildId &&
     context.outputId === args.outputId &&
-    context.draftVersion === request.expectedDraftVersion &&
-    context.draftDigest === request.expectedDraftDigest &&
+    sameDraftVersion(context.draftVersion, request.expectedDraftVersion) &&
+    sameDraftDigest(context.draftDigest, request.expectedDraftDigest) &&
     context.sourceNodeId === request.sourceNodeId &&
     context.occurrenceId === request.occurrenceId &&
     (context.stageId ?? undefined) === request.stageId &&
@@ -1699,9 +1699,9 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     }, signal, args.requestId)).then((value) => {
       const response = configuredColumnContextResponseSchema.parse(value);
       if (
-        response.snapshotToken !== args.snapshotToken ||
-        response.draftVersion !== args.expectedDraftVersion ||
-        response.draftDigest !== args.expectedDraftDigest
+        !sameCatalogSnapshot(response.snapshotToken, args.snapshotToken) ||
+        !sameDraftVersion(response.draftVersion, args.expectedDraftVersion) ||
+        !sameDraftDigest(response.draftDigest, args.expectedDraftDigest)
       ) {
         throw new Error('Loom returned interpretation context for a different saved draft.');
       }

@@ -1,3 +1,4 @@
+import { sameCatalogSnapshot, sameDraftVersion, sameDraftDigest } from '../../../contracts/identity';
 import { useRef, useState, type Dispatch } from 'react';
 import type { ExplorerBuilderColumn, ExplorerBuilderCommand, ProjectedField, SourceRelationshipChange } from '../../../contracts/types';
 import { routeNode, type BuilderAuthoringState, type DraftTable } from '../model/authoring';
@@ -86,8 +87,8 @@ export function createTraversalActions(
     : undefined);
   const lastOutputPreview = lastAcceptedOutputPreview.current;
   const retainedOutputPreviewReceipt = lastOutputPreview?.owner === relationshipOwner && lastOutputPreview.outputId === table?.outputId &&
-    lastOutputPreview.snapshotToken === state.catalog.snapshotToken && lastOutputPreview.draftVersion === state.draftVersion &&
-    lastOutputPreview.draftDigest === state.draftDigest ? lastOutputPreview.receiptId : undefined;
+    sameCatalogSnapshot(lastOutputPreview.snapshotToken, state.catalog.snapshotToken) && sameDraftVersion(lastOutputPreview.draftVersion, state.draftVersion) &&
+    sameDraftDigest(lastOutputPreview.draftDigest, state.draftDigest) ? lastOutputPreview.receiptId : undefined;
   const generatedOutputRevision = candidatePreview?.receiptId ?? retainedOutputPreviewReceipt ??
     `saved:${state.catalog.snapshotToken}:${state.draftVersion}:${state.draftDigest}`;
   const proposalResponse = 'response' in constructionLifecycle.proposal

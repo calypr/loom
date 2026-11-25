@@ -1,3 +1,4 @@
+import { sameCatalogSnapshot, sameDraftVersion, sameDraftDigest } from '../../../contracts/identity';
 import { useState } from 'react';
 import { canonicalProject, type LoomClient, type PopulationMemberRemovalProposalResponse } from '../../../client/api';
 import { useQuery } from '../../../react';
@@ -96,8 +97,8 @@ const validateProposal = (
     value.project === args.selection.project && value.generation === args.selection.generation &&
     value.resourceType === args.selection.resourceType && value.scopeDigest === args.selection.scopeDigest;
   if (
-    response.snapshotToken !== args.snapshotToken || response.draftVersion !== args.draftVersion ||
-    response.draftDigest !== args.draftDigest || response.outputId !== args.outputId ||
+    !sameCatalogSnapshot(response.snapshotToken, args.snapshotToken) || !sameDraftVersion(response.draftVersion, args.draftVersion) ||
+    !sameDraftDigest(response.draftDigest, args.draftDigest) || response.outputId !== args.outputId ||
     base.complete !== true || candidate.complete !== true ||
     base.id !== args.selection.id || base.membershipDigest !== args.selection.membershipDigest ||
     base.memberCount !== args.selection.memberCount || !selectionMatches(base) ||

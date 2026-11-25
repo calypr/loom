@@ -1,5 +1,5 @@
 import type { ReconcileRequestSlot } from './reconcileRequests';
-import { sameDraftRevision } from '../../../contracts/identity';
+import { sameDraftRevision, sameCatalogSnapshot } from '../../../contracts/identity';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
 import type { ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult } from '../../../contracts/types';
 import { selectedTable, type BuilderAuthoringState } from '../model/authoring';
@@ -133,7 +133,7 @@ export function bindAutomaticPreview(
         };
         const accept = (receipt: ExplorerBuilderCompileResult, preview: ExplorerBuilderPreviewResult) => {
           if (!identityIsCurrent() ||
-            receipt.snapshotToken !== identity.snapshotToken ||
+            !sameCatalogSnapshot(receipt.snapshotToken, identity.snapshotToken) ||
             !receipt.outputs.some((output) => output.outputId === identity.outputId) ||
             preview.receiptId !== receipt.receiptId ||
             preview.outputId !== identity.outputId) return undefined;
@@ -158,7 +158,7 @@ export function bindAutomaticPreview(
           if (!identityIsCurrent()) return undefined;
           const current = draftAccess.getState();
           const receipt = !options?.reload && current.receipt && current.reconciliation === 'resolved' &&
-            current.receipt.snapshotToken === identity.snapshotToken &&
+            sameCatalogSnapshot(current.receipt.snapshotToken, identity.snapshotToken) &&
             current.receipt.outputs.some((output) => output.outputId === identity.outputId)
             ? current.receipt
             : await reconcileCurrent(execution, identity.outputId);

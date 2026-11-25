@@ -1,3 +1,4 @@
+import { sameCatalogSnapshot, sameDraftVersion, sameDraftDigest } from '../../contracts/identity';
 import { OperationEditorSessionProvider } from './session/OperationEditorSession';
 import { columnRuleDefaults } from './model/sourceColumnRule';
 import { WorkspaceUiProvider } from './session/useWorkspaceUi';
@@ -865,7 +866,7 @@ const BuilderWorkspaceContent = ({
                   <TraversalScopeNavigator table={traversalTable} network={traversalNetwork} rowIdentity={traversalRowIdentity}
                     showScopeNavigation={false}
                     constructionStages={constructionLifecycle.proposal.status === 'ready' ? constructionLifecycle.proposal.response.stages
-                      : constructionCapabilitiesResponse?.outputId === table.outputId && constructionCapabilitiesResponse.snapshotToken === state.catalog.snapshotToken && constructionCapabilitiesResponse.draftVersion === state.draftVersion && constructionCapabilitiesResponse.draftDigest === state.draftDigest ? constructionCapabilitiesResponse.stages : undefined}
+                      : constructionCapabilitiesResponse?.outputId === table.outputId && sameCatalogSnapshot(constructionCapabilitiesResponse.snapshotToken, state.catalog.snapshotToken) && sameDraftVersion(constructionCapabilitiesResponse.draftVersion, state.draftVersion) && sameDraftDigest(constructionCapabilitiesResponse.draftDigest, state.draftDigest) ? constructionCapabilitiesResponse.stages : undefined}
                     selectedOccurrenceId={inspectedOccurrenceId} sourceOperationLabels={traversalOperationLabels}
                     selectedOperation={recipeOwner.state.target?.kind === 'sourceStep' ? { kind: 'source', stepId: activeSourceStepId ?? recipeOwner.state.target.sourceStepId }
                       : editingConstructionStepId ? { kind: 'construction', stepId: editingConstructionStepId } : undefined}

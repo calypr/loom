@@ -1,3 +1,4 @@
+import { hasDraftVersion } from '../../../contracts/identity';
 import React from 'react';
 import { usePopulationWorkflow } from '../session/usePopulationWorkflow';
 import type { SelectionRevision } from '../../../contracts/selection';
@@ -182,7 +183,7 @@ export const PopulationPanel = ({
         <p role="status" className="mt-2 text-amber-800">Coverage check incomplete; exact counts are unavailable.</p>
       ) : null}
       {attached && selection && attached.selectionRevisionId === selection.id &&
-       draftVersion !== undefined && draftDigest && onApplyMemberRemoval ? (
+       hasDraftVersion(draftVersion) && draftDigest && onApplyMemberRemoval ? (
         <PopulationMemberRemoval
           client={memberTransport}
           project={project}

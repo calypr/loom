@@ -1,3 +1,4 @@
+import { sameDraftDigest, sameCatalogSnapshot } from '../../../contracts/identity';
 import { useBuilderActions, useBuilderSession } from './BuilderSessionProvider';
 import type { useGetExplorerBuilderStateV2Query } from './useBuilderLoad';
 import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
@@ -56,7 +57,7 @@ export const usePublish = ({
 
   const publishDisabled =
     (lastPublished?.ownerKey === ownerKey &&
-      lastPublished.draftDigest === state.draftDigest) ||
+      sameDraftDigest(lastPublished.draftDigest, state.draftDigest)) ||
     incomplete ||
     blockingDiagnostics ||
     recipeOwner.state.status !== 'saved' ||
@@ -95,8 +96,8 @@ export const usePublish = ({
           publicationOwnerIsCurrent() &&
           publicationOwnerKeyRef.current === acknowledgementIdentity.ownerKey &&
           draftAccess.getState().explorerId === acknowledgementIdentity.explorerId &&
-          draftAccess.getState().draftDigest === acknowledgementIdentity.draftDigest &&
-          draftAccess.getState().catalog.snapshotToken === acknowledgementIdentity.snapshotToken &&
+          sameDraftDigest(draftAccess.getState().draftDigest, acknowledgementIdentity.draftDigest) &&
+          sameCatalogSnapshot(draftAccess.getState().catalog.snapshotToken, acknowledgementIdentity.snapshotToken) &&
           intentFingerprint(workspaceFromState(draftAccess.getState())) === acknowledgementIdentity.intentFingerprint;
         try {
           await publishBuilder({

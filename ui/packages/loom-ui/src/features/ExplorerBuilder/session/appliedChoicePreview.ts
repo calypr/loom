@@ -1,3 +1,4 @@
+import { sameDraftVersion, sameCatalogSnapshot } from '../../../contracts/identity';
 import type {
   ExplorerBuilderCompileResult,
   ExplorerBuilderPreviewResult,
@@ -35,18 +36,18 @@ export const matchesAcceptedPreviewHandoff = (
 ): candidate is AppliedPreviewHandoff => Boolean(
   candidate &&
   candidate.ownerKey === accepted.ownerKey &&
-  candidate.draftVersion === accepted.draftVersion &&
+  sameDraftVersion(candidate.draftVersion, accepted.draftVersion) &&
   candidate.previewRequestVersion === accepted.previewRequestVersion &&
   candidate.outputId === accepted.outputId &&
   candidate.preview.outputId === accepted.outputId &&
   candidate.limit === accepted.limit &&
-  candidate.snapshotToken === accepted.snapshotToken &&
-  candidate.snapshotToken === accepted.receipt.snapshotToken &&
+  sameCatalogSnapshot(candidate.snapshotToken, accepted.snapshotToken) &&
+  sameCatalogSnapshot(candidate.snapshotToken, accepted.receipt.snapshotToken) &&
   candidate.preview.receiptId === accepted.receipt.receiptId &&
   candidate.candidateWorkspaceDigest === accepted.receipt.intentDigest &&
   (!candidate.receipt || (
     candidate.receipt.receiptId === accepted.receipt.receiptId &&
-    candidate.receipt.snapshotToken === accepted.receipt.snapshotToken &&
+    sameCatalogSnapshot(candidate.receipt.snapshotToken, accepted.receipt.snapshotToken) &&
     candidate.receipt.intentDigest === accepted.receipt.intentDigest &&
     candidate.receipt.outputs.some((output) => output.outputId === accepted.outputId)
   )) &&

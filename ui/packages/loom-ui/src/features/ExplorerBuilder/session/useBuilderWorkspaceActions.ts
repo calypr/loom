@@ -1,3 +1,4 @@
+import { sameCatalogSnapshot, sameDraftVersion, sameDraftDigest } from '../../../contracts/identity';
 import { createConstructionNavigationActions, useConstructionNavigationState } from './constructionNavigation';
 import { reshapeAvailabilityFor } from './reshapeAvailabilityFor';
 import type { ColumnRuleOccurrence } from '../model/sourceColumnRule';
@@ -340,8 +341,8 @@ export function useBuilderWorkspaceActions({
         failed: (message, stale = false) => { recipeOwner.fail(attempt, message, stale); },
         noChange: () => { recipeOwner.cancel(attempt); recipeEditToken.current = undefined; restoreRecipeFocus(); },
         ready: (assessment, preview) => {
-          if (assessment.snapshotToken !== attempt.identity.snapshotToken ||
-            assessment.draftVersion !== attempt.identity.draftVersion || assessment.draftDigest !== attempt.identity.draftDigest ||
+          if (!sameCatalogSnapshot(assessment.snapshotToken, attempt.identity.snapshotToken) ||
+            !sameDraftVersion(assessment.draftVersion, attempt.identity.draftVersion) || !sameDraftDigest(assessment.draftDigest, attempt.identity.draftDigest) ||
             assessment.proposal.outputId !== attempt.identity.outputId || assessment.proposal.rootNodeId !== nodeId ||
             (assessment.mode ?? 'PRESERVE') !== mode || (assessment.proposal.mode ?? 'PRESERVE') !== mode || !assessment.candidateReceiptId ||
             !assessment.candidateDocument || !assessment.candidateNetwork || !assessment.candidateRowIdentity) {
@@ -398,9 +399,9 @@ export function useBuilderWorkspaceActions({
     if (
       !table ||
       !context ||
-      context.snapshotToken !== state.catalog.snapshotToken ||
-      context.draftVersion !== state.draftVersion ||
-      context.draftDigest !== state.draftDigest
+      !sameCatalogSnapshot(context.snapshotToken, state.catalog.snapshotToken) ||
+      !sameDraftVersion(context.draftVersion, state.draftVersion) ||
+      !sameDraftDigest(context.draftDigest, state.draftDigest)
     ) return undefined;
     const configuredColumn = context.columns.find((candidate) =>
       candidate.outputId === table.outputId &&

@@ -101,3 +101,15 @@ export const sameDraftRevision = (left: DraftRevision, right: DraftRevision): bo
   left.snapshotToken === right.snapshotToken
   && left.draftVersion === right.draftVersion
   && left.draftDigest === right.draftDigest;
+
+export const sameCatalogSnapshot = (actual: string | undefined, expected: string | undefined): boolean =>
+  actual === expected;
+
+export const sameDraftVersion = (actual: number | undefined, expected: number | undefined): boolean =>
+  actual === expected;
+
+export const sameDraftDigest = (actual: string | undefined, expected: string | undefined): boolean =>
+  actual === expected;
+
+export const hasDraftVersion = (version: number | undefined): version is number =>
+  version !== undefined;

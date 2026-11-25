@@ -1,3 +1,4 @@
+import { sameCatalogSnapshot } from '../../../contracts/identity';
 import { useRef, useState } from 'react';
 import { useLoomClient, useQuery } from '../../../react';
 import { RequestOwner } from '../../../data/requests';
@@ -335,7 +336,7 @@ export function useCatalogRequests({
         requestId: `construction-choices-${window.crypto.randomUUID()}`,
       }, signal);
       if (
-        resolved.snapshotToken !== snapshotToken ||
+        !sameCatalogSnapshot(resolved.snapshotToken, snapshotToken) ||
         resolved.outputId !== outputId
       ) {
         throw new Error('Loom returned construction choices for another table or catalog snapshot.');
