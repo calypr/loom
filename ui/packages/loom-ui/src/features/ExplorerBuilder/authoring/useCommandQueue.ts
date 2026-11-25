@@ -12,7 +12,7 @@ import { builderAuthoringReducer } from '../model/reducer';
 import { hasCommandSelectedTable } from '../model/workspaceGuards';
 import { isDraftDesynchronized, isStaleSnapshot } from '../model/reconcileRecovery';
 import type { PreviewLimit } from '../model/previewRecovery';
-import type { AutomaticPreviewIdentity } from '../useAutomaticPreview';
+import type { AutomaticPreviewIdentity } from '../session/automaticPreview';
 import type { AppliedPreviewHandoff } from '../constructionWorkspace/appliedChoicePreview';
 import type { RelatedExpandQueryOwner } from '../constructionOperations/RelatedExpandEditor';
 

@@ -54,7 +54,7 @@ vi.mock('../../src/react', async (importOriginal) => {
   };
 });
 
-vi.mock('../../src/features/ExplorerBuilder/useAutomaticPreview', () => ({ useAutomaticPreview: () => ({ error: undefined, isLoading: false }) }));
+vi.mock('../../src/features/ExplorerBuilder/session/useAutomaticPreviewResource', () => ({ useAutomaticPreview: () => ({ error: undefined, isLoading: false }) }));
 vi.mock('../../src/features/ExplorerBuilder/hooks/useDirtyBeforeUnload', () => ({ useDirtyBeforeUnload: () => undefined }));
 vi.mock('../../src/features/ExplorerBuilder/hooks/usePortalHost', () => ({ usePortalHost: () => null }));
 vi.mock('../../src/features/ExplorerBuilder/components/DatasetReviewPanel', () => ({ DatasetReviewPanel: () => null }));

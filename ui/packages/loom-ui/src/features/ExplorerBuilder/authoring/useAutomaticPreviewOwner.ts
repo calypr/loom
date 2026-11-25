@@ -5,7 +5,8 @@ import type { ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult } from 
 import { selectedTable, type BuilderAuthoringState } from '../model/authoring';
 import type { builderAuthoringReducer } from '../model/reducer';
 import type { PreviewLimit } from '../model/previewRecovery';
-import type { useAutomaticPreview, AutomaticPreviewIdentity, AutomaticPreviewRun } from '../useAutomaticPreview';
+import type { AutomaticPreviewIdentity, AutomaticPreviewRun } from '../session/automaticPreview';
+import type { useAutomaticPreview } from '../session/useAutomaticPreviewResource';
 import { matchesAcceptedPreviewHandoff, type AppliedPreviewHandoff } from '../constructionWorkspace/appliedChoicePreview';
 
 export type PreviewRequest = {

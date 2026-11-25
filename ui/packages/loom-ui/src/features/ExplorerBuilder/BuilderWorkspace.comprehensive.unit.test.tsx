@@ -85,7 +85,7 @@ vi.mock('../../react', async (importOriginal) => {
   };
 });
 
-vi.mock('./useAutomaticPreview', () => ({ useAutomaticPreview: () => ({ error: undefined, isLoading: false }) }));
+vi.mock('./session/useAutomaticPreviewResource', () => ({ useAutomaticPreview: () => ({ error: undefined, isLoading: false }) }));
 vi.mock('./hooks/useDirtyBeforeUnload', () => ({ useDirtyBeforeUnload: () => undefined }));
 vi.mock('./hooks/usePortalHost', () => ({ usePortalHost: () => null }));
 vi.mock('./components/DatasetReviewPanel', () => ({ DatasetReviewPanel: () => null }));

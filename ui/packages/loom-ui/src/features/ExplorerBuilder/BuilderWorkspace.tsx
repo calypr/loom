@@ -1,7 +1,7 @@
 import { admitAuthoringRequest } from './model/admission';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useAutomaticPreview } from './useAutomaticPreview';
+import { useAutomaticPreview } from './session/useAutomaticPreviewResource';
 import { useAutomaticPreviewOwner } from './authoring/useAutomaticPreviewOwner';
 import { useReconcile } from './authoring/useReconcile';
 import { constructionAppendStageFor, constructionInputStageFor } from './model/constructionStages';

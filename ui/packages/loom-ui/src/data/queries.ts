@@ -2,7 +2,6 @@ import { useMemo, useRef, useSyncExternalStore } from 'react';
 import { resourceFor, type QueryRefetchOptions } from './resource';
 
 export { resourceFor } from './resource';
-export type { QueryRefetchOptions } from './resource';
 
 export interface QueryResult<T> {
   readonly data?: T;
@@ -31,9 +30,3 @@ export const useQuery = <T,>(
     refetch: resource.refresh,
   };
 };
-
-export const useKeyedQuery = <T,>(
-  key: string | undefined,
-  loader: (signal: AbortSignal, options?: QueryRefetchOptions) => Promise<T>,
-  enabled = true,
-): QueryResult<T> => useQuery(loader, [key], Boolean(key) && enabled);

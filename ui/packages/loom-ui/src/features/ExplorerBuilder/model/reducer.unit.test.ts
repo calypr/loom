@@ -1,8 +1,5 @@
-// @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
-import { act, renderHook, waitFor } from '@testing-library/react';
-import { useReducer } from 'react';
-import { useAutomaticPreview, type AutomaticPreviewIdentity } from '../useAutomaticPreview';
+import { createAutomaticPreview, type AutomaticPreviewIdentity } from '../session/automaticPreview';
 import type { ExplorerBuilderCompileResult, ExplorerBuilderState } from '../../../contracts/types';
 import {
   type BuilderAuthoringState,
@@ -914,32 +911,40 @@ describe('table selection automatic preview ownership', () => {
   it.each(['successful', 'failed'] as const)('restores exact saved rows after %s preview and proposal A → B → A Cancel, retaining limit and recipe', async (firstResult) => {
     const initial = initialState();
     const refresh = vi.fn();
-    const hook = renderHook(({ enabled, limit }: { enabled: boolean; limit: 25 | 100 }) => {
-      const [state, dispatch] = useReducer(builderAuthoringReducer, initial);
+    const owner = createAutomaticPreview();
+    let state: BuilderAuthoringState = initial;
+    let unsubscribe = () => {};
+    const openPreview = (enabled: boolean, limit: 25 | 100) => {
       const identity = identityFor(state, limit);
-      const query = useAutomaticPreview({ request: identity, enabled, refresh: async (request) => {
+      owner.update(identity, async (request) => {
         refresh(request);
         if (firstResult === 'failed' && refresh.mock.calls.length === 1) throw new Error('Old A request failed');
         const run = response(request);
-        dispatch({ type: 'previewAccepted', ...run, identity: { ...request, project: state.project, explorerId: state.explorerId } });
+        state = builderAuthoringReducer(state, { type: 'previewAccepted', ...run,
+          identity: { ...request, project: state.project, explorerId: state.explorerId } });
         return run;
-      } });
-      return { state, dispatch, query };
-    }, { initialProps: { enabled: true, limit: 100 as 25 | 100 } });
-    if (firstResult === 'failed') await waitFor(() => expect(hook.result.current.query.error).toHaveProperty('message', 'Old A request failed'));
-    else await waitFor(() => expect(hook.result.current.state.preview?.rows).toEqual([{ table: 'Specimen', value: 17 }]));
-    hook.rerender({ enabled: false, limit: 100 });
-    act(() => hook.result.current.dispatch({ type: 'selectTable', outputId: 'Observation' }));
-    expect(hook.result.current.state.preview).toBeUndefined();
-    act(() => hook.result.current.dispatch({ type: 'selectTable', outputId: 'Specimen' }));
-    hook.rerender({ enabled: true, limit: 100 });
-    await waitFor(() => expect(hook.result.current.state.preview?.rows).toEqual([{ table: 'Specimen', value: 17 }]));
+      });
+      unsubscribe();
+      const resource = owner.createResource(enabled);
+      unsubscribe = resource.subscribe(() => {});
+      return resource;
+    };
+    const first = openPreview(true, 100);
+    if (firstResult === 'failed') await vi.waitFor(() => expect(owner.read(first).error).toHaveProperty('message', 'Old A request failed'));
+    else await vi.waitFor(() => expect(state.preview?.rows).toEqual([{ table: 'Specimen', value: 17 }]));
+    openPreview(false, 100);
+    state = builderAuthoringReducer(state, { type: 'selectTable', outputId: 'Observation' });
+    expect(state.preview).toBeUndefined();
+    state = builderAuthoringReducer(state, { type: 'selectTable', outputId: 'Specimen' });
+    openPreview(true, 100);
+    await vi.waitFor(() => expect(state.preview?.rows).toEqual([{ table: 'Specimen', value: 17 }]));
     expect(refresh).toHaveBeenCalledTimes(2);
     expect(refresh.mock.calls.map(([request]) => request.limit)).toEqual([100, 100]);
-    expect(workspaceFromState(hook.result.current.state)).toEqual(workspaceFromState(initial));
-    hook.rerender({ enabled: true, limit: 25 });
-    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(3));
+    expect(workspaceFromState(state)).toEqual(workspaceFromState(initial));
+    openPreview(true, 25);
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(3));
     expect(refresh.mock.calls[2][0].limit).toBe(25);
+    unsubscribe();
   });
   it('invalidates old A and B responses while same and unknown table selections remain no-ops', () => {
     const initial = initialState();

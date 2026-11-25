@@ -17,7 +17,7 @@ import type { useConstructionLifecycle } from '../constructionWorkspace/useConst
 import type { useCommandQueue } from './useCommandQueue';
 import type { useCombineCatalog } from './useCombineCatalog';
 import type { PreviewLimit } from '../model/previewRecovery';
-import type { AutomaticPreviewIdentity } from '../useAutomaticPreview';
+import type { AutomaticPreviewIdentity } from '../session/automaticPreview';
 import type { AppliedPreviewHandoff } from '../constructionWorkspace/appliedChoicePreview';
 
 export type AddColumnsView = ConceptCatalogView | 'advanced';
