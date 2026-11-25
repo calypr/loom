@@ -59,12 +59,25 @@ export const sameSemanticItemIdentity = (
     ? right.kind === 'EXACT_CONCEPT' && left.conceptId === right.conceptId
     : right.kind === 'SYSTEM_VERSION_CATEGORY' && left.familyId === right.familyId);
 
-export const semanticItemMatchesIdentity = (
+export const semanticItemMatchesClientIdentity = (
+  item: SemanticIdentityFields,
+  identity: SemanticInventoryItemIdentity,
+): boolean => {
+  if (identity.kind === 'EXACT_CONCEPT') {
+    return item.selectionMode === undefined && item.familyId === undefined &&
+      item.conceptId === identity.conceptId && item.bindingId === identity.bindingId;
+  }
+  return item.selectionMode === 'SYSTEM_VERSION_CATEGORY' &&
+    item.familyId === identity.familyId && item.bindingId === identity.bindingId;
+};
+
+export const semanticItemMatchesCatalogIdentity = (
   item: SemanticIdentityFields,
   identity: SemanticInventoryItemIdentity,
 ): boolean => {
   const candidate = semanticIdentityForItem(item);
-  return candidate !== undefined && sameSemanticItemIdentity(candidate, identity);
+  return candidate !== undefined &&
+    semanticInventoryIdentityKey(candidate) === semanticInventoryIdentityKey(identity);
 };
 
 type ChoiceRequestScope = {

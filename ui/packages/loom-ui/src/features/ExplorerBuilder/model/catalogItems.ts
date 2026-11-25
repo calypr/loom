@@ -60,7 +60,7 @@ export type SemanticSourceFieldLink = {
   readonly requestKey: string;
 };
 
-export { semanticInventoryIdentityKey, semanticIdentityForItem, semanticItemMatchesIdentity } from '../../../contracts/identity';
+export { semanticInventoryIdentityKey, semanticIdentityForItem, semanticItemMatchesCatalogIdentity as semanticItemMatchesIdentity } from '../../../contracts/identity';
 
 export const fieldPresentationMatchesRequest = ({
   presentation,

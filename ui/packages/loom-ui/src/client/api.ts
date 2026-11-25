@@ -1,7 +1,7 @@
 import type { ExplorerSummary } from '../contracts/explorerSummary';
 export type { ExplorerSummary } from '../contracts/explorerSummary';
 import type { ExplorerAuthoringApiError } from '../contracts/errors';
-import { sameConstructionRoute, sameSemanticItemIdentity, semanticIdentityForItem, semanticItemMatchesIdentity, sameCatalogSnapshot, sameDraftVersion, sameDraftDigest } from '../contracts/identity';
+import { sameConstructionRoute, sameSemanticItemIdentity, semanticIdentityForItem, semanticItemMatchesClientIdentity, sameCatalogSnapshot, sameDraftVersion, sameDraftDigest } from '../contracts/identity';
 import { isRecord } from '../contracts/guards';
 import { viewBuilderStateSchema, type ProjectViewBuilderState, type SaveProjectViewConfigRequest, type SaveProjectViewDefaultsRequest } from '../contracts/projectViewBuilder';
 
@@ -1068,7 +1068,7 @@ const replacementIsAddableInContext = (
     (source.version ?? '') === item.codingVersion &&
     (source.code ?? '') === item.code &&
     source.valueSelector === item.valueSelector &&
-    semanticItemMatchesIdentity(item, identity);
+    semanticItemMatchesClientIdentity(item, identity);
 };
 
 const bindPresentationResponseToRequest = (
@@ -1113,7 +1113,7 @@ const bindPresentationResponseToRequest = (
   for (const decision of presentation.decisions) {
     if (decision.kind === 'KEEP_RAW') continue;
     for (const identity of decision.replacementIds) {
-      const matches = presentation.replacements.filter((item) => semanticItemMatchesIdentity(item, identity));
+      const matches = presentation.replacements.filter((item) => semanticItemMatchesClientIdentity(item, identity));
       const [replacement] = matches;
       if (matches.length !== 1 || !replacement ||
         !replacementIsAddableInContext(replacement, identity, context)) {

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { sameDraftRevision, semanticIdentityForItem, semanticItemMatchesIdentity } from './identity';
+import {
+  sameDraftRevision,
+  sameSemanticItemIdentity,
+  semanticIdentityForItem,
+  semanticItemMatchesCatalogIdentity,
+  semanticItemMatchesClientIdentity,
+} from './identity';
 import type { SemanticInventoryItemIdentity } from './types';
 
 const concept = { conceptId: 'concept', bindingId: 'binding' };
@@ -33,8 +39,80 @@ describe('semantic inventory identity', () => {
     { name: 'category mode without a family', item: { ...category, familyId: undefined }, identity: categoryIdentity, expected: false },
     { name: 'family without category mode', item: { ...concept, familyId: 'family' }, identity: exactIdentity, expected: false },
   ])('checks $name', ({ item, identity, expected }) => {
-    expect(semanticItemMatchesIdentity(item, identity)).toBe(expected);
+    expect(semanticItemMatchesCatalogIdentity(item, identity)).toBe(expected);
+    expect(semanticItemMatchesClientIdentity(item, identity)).toBe(expected);
   });
+
+  const divergentCases = [
+    {
+      name: 'empty family on both category sides',
+      item: { ...category, familyId: '' },
+      identity: { ...categoryIdentity, familyId: '' },
+      clientMatches: true,
+    },
+    {
+      name: 'missing family on both category sides',
+      item: { ...category, familyId: undefined },
+      identity: { ...categoryIdentity, familyId: undefined },
+      clientMatches: true,
+    },
+    {
+      name: 'null family on both category sides',
+      item: { ...category, familyId: null },
+      identity: { ...categoryIdentity, familyId: null },
+      clientMatches: true,
+    },
+    {
+      name: 'missing concept versus null',
+      item: { ...concept, conceptId: undefined },
+      identity: { ...exactIdentity, conceptId: null },
+      clientMatches: false,
+    },
+    {
+      name: 'missing binding versus null',
+      item: { ...concept, bindingId: undefined },
+      identity: { ...exactIdentity, bindingId: null },
+      clientMatches: false,
+    },
+    {
+      name: 'unknown category identity kind',
+      item: category,
+      identity: { ...categoryIdentity, kind: 'UNKNOWN' },
+      clientMatches: true,
+    },
+    {
+      name: 'distinct concept objects with the same JSON',
+      item: { ...concept, conceptId: { id: 'same' } },
+      identity: { ...exactIdentity, conceptId: { id: 'same' } },
+      clientMatches: false,
+    },
+    {
+      name: 'NaN on both concept sides',
+      item: { ...concept, conceptId: Number.NaN },
+      identity: { ...exactIdentity, conceptId: Number.NaN },
+      clientMatches: false,
+    },
+  ].map(({ item, identity, ...testCase }) => ({
+    ...testCase,
+    item: item as unknown as Parameters<typeof semanticIdentityForItem>[0],
+    identity: identity as unknown as SemanticInventoryItemIdentity,
+  }));
+
+  it.each(divergentCases)('retains each original matcher for $name', ({ item, identity, clientMatches }) => {
+    expect(semanticItemMatchesClientIdentity(item, identity)).toBe(clientMatches);
+    expect(semanticItemMatchesCatalogIdentity(item, identity)).toBe(!clientMatches);
+  });
+
+  for (const { name, item, identity } of divergentCases) {
+    it.fails(`cannot use one derived matcher for ${name}`, () => {
+      const derived = semanticIdentityForItem(item);
+      const merged = derived !== undefined && sameSemanticItemIdentity(derived, identity);
+      expect([merged, merged]).toEqual([
+        semanticItemMatchesClientIdentity(item, identity),
+        semanticItemMatchesCatalogIdentity(item, identity),
+      ]);
+    });
+  }
 });
 
 describe('draft revision identity', () => {
