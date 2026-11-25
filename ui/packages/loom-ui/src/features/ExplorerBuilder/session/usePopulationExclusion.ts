@@ -1,22 +1,18 @@
+import { useBuilderSession } from './BuilderSessionProvider';
 import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { useLoomClient } from '../../../react';
 import type { ResourceRef, SelectionRevision } from '../../../contracts/selection';
 import type { ConstructionRouteStep } from '../../../contracts/types';
 import { sameConstructionRoute } from '../model/populationRoutes';
 import { selectedTable, type BuilderAuthoringState, type DraftTable } from '../model/authoring';
-import type { useCommandQueueActions } from '../session/useCommandQueueActions';
+import type { useCommandQueueActions } from './useCommandQueueActions';
 
 type UsePopulationExclusionOptions = {
-  readonly table: DraftTable | undefined;
-  readonly draftAccess: { getState(): BuilderAuthoringState };
   readonly activePopulationSelection: SelectionRevision | undefined;
   readonly populationSelectionContextKey: string;
   readonly loomClient: ReturnType<typeof useLoomClient>;
   readonly workspaceAttached: MutableRefObject<boolean>;
-  readonly serverDraft: MutableRefObject<{ version: number; digest: string }>;
   readonly applyCommands: ReturnType<typeof useCommandQueueActions>['applyCommands'];
-  readonly projectId: string;
-  readonly authResourcePath?: string;
   readonly setPopulationSelectionOverride: Dispatch<SetStateAction<{
     readonly contextKey: string;
     readonly baseSelectionID: string;
@@ -35,10 +31,12 @@ const populationBindingKey = (
 ]);
 
 export const usePopulationExclusion = ({
-  table, draftAccess, activePopulationSelection, populationSelectionContextKey, loomClient,
-  workspaceAttached, serverDraft, applyCommands, projectId, authResourcePath,
-  setPopulationSelectionOverride,
+  activePopulationSelection, populationSelectionContextKey, loomClient,
+  workspaceAttached, applyCommands, setPopulationSelectionOverride,
 }: UsePopulationExclusionOptions) => {
+  const { draftAccess, serverDraft, state, builderQueryArgs } = useBuilderSession(draft => draft);
+  const { project: projectId, authResourcePath } = builderQueryArgs;
+  const table = selectedTable(state);
   const [populationVariantError, setPopulationVariantError] = useState<{
     readonly contextKey: string;
     readonly message: string;

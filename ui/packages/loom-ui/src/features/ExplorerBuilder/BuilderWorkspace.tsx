@@ -81,17 +81,17 @@ import {
 } from './model/rootChangeSelection';
 import type { PreviewLimit } from './model/previewRecovery';
 import { useCommandQueueActions } from './session/useCommandQueueActions';
-import { usePublish } from './authoring/usePublish';
+import { usePublish } from './session/usePublish';
 import { shouldShowBuilderLoadError } from './authoring/builderLoadError';
 import { BuilderSessionProvider, useBuilderActions, useBuilderSession } from './session/BuilderSessionProvider';
 import { useBuilderSessionDraft } from './session/useBuilderSessionDraft';
 import { useRecipeFocus } from './session/useRecipeFocus';
-import { useReshapeAvailability } from './authoring/useReshapeAvailability';
+import { reshapeAvailabilityFor } from './session/reshapeAvailabilityFor';
 import { createConstructionNavigationActions, useConstructionNavigationState } from './session/constructionNavigation';
 import { useFirstTableActions } from './session/useFirstTableActions';
-import { useTableExplorerCrud } from './authoring/useTableExplorerCrud';
-import { useSuggestions } from './authoring/useSuggestions';
-import { usePopulationExclusion } from './authoring/usePopulationExclusion';
+import { useTableExplorerCrud } from './session/useTableExplorerCrud';
+import { useSuggestions } from './session/useSuggestions';
+import { usePopulationExclusion } from './session/usePopulationExclusion';
 import { useAddColumns } from './session/useAddColumns';
 import { createTraversalActions, useTraversalState } from './session/traversal';
 import { createSourceRecipeActions, useSourceRecipeState } from './session/sourceRecipe';
@@ -672,16 +672,9 @@ const BuilderWorkspaceContent = ({
   );
   const { publishing, publishDisabled, publish } = usePublish({
     ownerKey,
-    projectId,
-    authResourcePath,
-    state,
-    draftAccess,
     workspaceAttached,
     compileGeneration: compileRequests.generation,
-    dispatch,
     reconcileCurrent,
-    refetchBuilder,
-    syncBuilderData,
     setMessage,
     incomplete,
     blockingDiagnostics,
@@ -882,9 +875,8 @@ const BuilderWorkspaceContent = ({
     ? populationSelectionOverride.selection
     : populationSelection ?? populationSelectionQuery.data;
   const { excludePopulationMember, populationVariantError, populationVariantPending } = usePopulationExclusion({
-    table, draftAccess, activePopulationSelection, populationSelectionContextKey, loomClient,
-    workspaceAttached, serverDraft, applyCommands, projectId, authResourcePath,
-    setPopulationSelectionOverride,
+    activePopulationSelection, populationSelectionContextKey, loomClient,
+    workspaceAttached, applyCommands, setPopulationSelectionOverride,
   });
   const activePopulationSelectionLoading = populationSelectionLoading || (
     !populationSelection && populationSelectionQuery.isLoading
@@ -991,7 +983,7 @@ const BuilderWorkspaceContent = ({
   const {
     suggestionsFailure, setSuggestionsFailure, suggestionRequestKey,
     ensureSuggestions, suggestionHostRef, suggestionIdentity,
-  } = useSuggestions({ state, draftAccess, dispatch, getSuggestions, projectId, authResourcePath });
+  } = useSuggestions({ getSuggestions,  });
   const unsupportedSourceProjectionDiagnostic = state.diagnostics.find(
     isUnsupportedUnknownSourceProjectionDiagnostic,
   );
@@ -1006,9 +998,9 @@ const BuilderWorkspaceContent = ({
     constructionLifecycle.proposal.status !== 'idle';
   const { addTable, duplicateTable, renameTable, renameTableById, deleteSelectedTable,
     createCustomExplorer, deleteCurrentExplorer, createStatus, deleteStatus } = useTableExplorerCrud({
-    state, table, draftAccess, dispatch, recipeMutationAllowed, isFirstTableActionPending,
-    tableCreatorOpen, setFirstTableName, setTableCreatorOpen, rememberSelectedTable, applyCommands,
-    projectId, authResourcePath, selectExplorer, onExplorerChange, explorers, capabilities,
+    recipeMutationAllowed, isFirstTableActionPending,
+    tableCreatorOpen, setFirstTableName, setTableCreatorOpen, applyCommands,
+    selectExplorer, onExplorerChange, explorers, capabilities,
     effectiveExplorerId, invalidateCompile: compileRequests.invalidate, setMessage, opaqueId,
   });
 
@@ -1163,7 +1155,7 @@ const BuilderWorkspaceContent = ({
   const editingRelatedFieldStep = editingConstructionStep && isRelatedFieldStep(editingConstructionStep)
     ? editingConstructionStep
     : undefined;
-  const { capabilityNodeOccurrences, existingSourceKeys, rowValuesSupported, groupedRowValuePolicy, sourceAvailability, capabilityStage, constructionCapabilitiesResponse, capabilityIsForAppendStage, calculateUnavailableReason, reshapeRowsAvailability, relatedRowsAvailability, relatedSourceAvailability, sourceSelectionDisabledReason } = useReshapeAvailability({
+  const { capabilityNodeOccurrences, existingSourceKeys, rowValuesSupported, groupedRowValuePolicy, sourceAvailability, capabilityStage, constructionCapabilitiesResponse, capabilityIsForAppendStage, calculateUnavailableReason, reshapeRowsAvailability, relatedRowsAvailability, relatedSourceAvailability, sourceSelectionDisabledReason } = reshapeAvailabilityFor({
     constructionLifecycle, sourceStageDescriptors, rowValuePolicy, setRowValuePolicy,
     hasUnsupportedSavedSourceColumns, table, previewIsCurrent, capabilitiesRequest,
     editingConstructionStep, pendingCommands, state

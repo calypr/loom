@@ -1,4 +1,5 @@
-import type { useGetExplorerBuilderStateV2Query } from '../session/useBuilderLoad';
+import { useBuilderActions, useBuilderSession } from './BuilderSessionProvider';
+import type { useGetExplorerBuilderStateV2Query } from './useBuilderLoad';
 import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import { usePublishExplorerAuthoringV2Mutation } from '../../../react';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
@@ -7,8 +8,8 @@ import { intentFingerprint, workspaceFromState, type BuilderAuthoringState } fro
 import { builderAuthoringReducer } from '../model/reducer';
 import { isStaleSnapshot, reconcileResultIsCurrent } from '../model/reconcileRecovery';
 import { effectiveOutputAvailability } from '../model/outputEligibility';
-import type { useConstructionLifecycle } from '../session/useConstructionLifecycle';
-import type { useRecipeEditingOwner } from '../session/useRecipeEditingOwner';
+import type { useConstructionLifecycle } from './useConstructionLifecycle';
+import type { useRecipeEditingOwner } from './useRecipeEditingOwner';
 
 type PublicationAcknowledgementIdentity = {
   readonly ownerKey: string;
@@ -20,16 +21,9 @@ type PublicationAcknowledgementIdentity = {
 
 type UsePublishOptions = {
   readonly ownerKey: string;
-  readonly projectId: string;
-  readonly authResourcePath?: string;
-  readonly state: BuilderAuthoringState;
-  readonly draftAccess: { getState(): BuilderAuthoringState; setCurrentDraft(state: BuilderAuthoringState): void };
   readonly workspaceAttached: MutableRefObject<boolean>;
   readonly compileGeneration: () => number;
-  readonly dispatch: Dispatch<Parameters<typeof builderAuthoringReducer>[1]>;
   readonly reconcileCurrent: () => Promise<ExplorerBuilderCompileResult | undefined>;
-  readonly refetchBuilder: ReturnType<typeof useGetExplorerBuilderStateV2Query>['refetch'];
-  readonly syncBuilderData: (value: ExplorerBuilderState, mode: 'hydrate' | 'catalog') => void;
   readonly setMessage: Dispatch<SetStateAction<string | undefined>>;
   readonly incomplete: boolean;
   readonly blockingDiagnostics: boolean;
@@ -39,22 +33,18 @@ type UsePublishOptions = {
 
 export const usePublish = ({
   ownerKey,
-  projectId,
-  authResourcePath,
-  state,
-  draftAccess,
   workspaceAttached,
   compileGeneration,
-  dispatch,
   reconcileCurrent,
-  refetchBuilder,
-  syncBuilderData,
   setMessage,
   incomplete,
   blockingDiagnostics,
   recipeOwner,
   constructionLifecycle,
 }: UsePublishOptions) => {
+  const { state, draftAccess, builderQueryArgs } = useBuilderSession(draft => draft);
+  const { dispatch, refetchBuilder, syncBuilderData } = useBuilderActions();
+  const { project: projectId, authResourcePath } = builderQueryArgs;
   const publicationOwnerKeyRef = useRef(ownerKey);
   publicationOwnerKeyRef.current = ownerKey;
   const [lastPublished, setLastPublished] = useState<{

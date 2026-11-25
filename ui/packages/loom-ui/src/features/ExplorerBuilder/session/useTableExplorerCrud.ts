@@ -1,24 +1,19 @@
+import { useBuilderActions, useBuilderSession } from './BuilderSessionProvider';
+import { selectedTable } from '../model/authoring';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import { useCreateExplorerAuthoringMutation, useDeleteExplorerAuthoringMutation, type useGetExplorerAuthoringExplorersQuery, type useGetExplorerAuthoringCapabilityV2Query } from '../../../react';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
 import type { BuilderAuthoringState, DraftTable } from '../model/authoring';
 import type { BuilderAction } from '../model/reducer';
-import type { useCommandQueueActions } from '../session/useCommandQueueActions';
+import type { useCommandQueueActions } from './useCommandQueueActions';
 
 type UseTableExplorerCrudOptions = {
-  readonly state: BuilderAuthoringState;
-  readonly table: DraftTable | undefined;
-  readonly draftAccess: { getState(): BuilderAuthoringState };
-  readonly dispatch: Dispatch<BuilderAction>;
   readonly recipeMutationAllowed: () => boolean;
   readonly isFirstTableActionPending: () => boolean;
   readonly tableCreatorOpen: boolean;
   readonly setFirstTableName: (name: string) => void;
   readonly setTableCreatorOpen: Dispatch<SetStateAction<boolean>>;
-  readonly rememberSelectedTable: (outputId: string) => void;
   readonly applyCommands: ReturnType<typeof useCommandQueueActions>['applyCommands'];
-  readonly projectId: string;
-  readonly authResourcePath?: string;
   readonly selectExplorer: (explorerId: string) => void;
   readonly onExplorerChange?: (explorerId: string) => void;
   readonly explorers: Pick<ReturnType<typeof useGetExplorerAuthoringExplorersQuery>, 'data' | 'refetch'>;
@@ -42,11 +37,15 @@ type UseTableExplorerCrudResult = {
 };
 
 export const useTableExplorerCrud = ({
-  state, table, draftAccess, dispatch, recipeMutationAllowed, isFirstTableActionPending,
-  tableCreatorOpen, setFirstTableName, setTableCreatorOpen, rememberSelectedTable, applyCommands,
-  projectId, authResourcePath, selectExplorer, onExplorerChange, explorers, capabilities,
+  recipeMutationAllowed, isFirstTableActionPending,
+  tableCreatorOpen, setFirstTableName, setTableCreatorOpen, applyCommands,
+  selectExplorer, onExplorerChange, explorers, capabilities,
   effectiveExplorerId, invalidateCompile, setMessage, opaqueId,
 }: UseTableExplorerCrudOptions): UseTableExplorerCrudResult => {
+  const { state, draftAccess, builderQueryArgs } = useBuilderSession(draft => draft);
+  const { dispatch, rememberSelectedTable } = useBuilderActions();
+  const { project: projectId, authResourcePath } = builderQueryArgs;
+  const table = selectedTable(state);
   const [createExplorer, createStatus] = useCreateExplorerAuthoringMutation();
   const [deleteExplorer, deleteStatus] = useDeleteExplorerAuthoringMutation();
   const addTable = () => {

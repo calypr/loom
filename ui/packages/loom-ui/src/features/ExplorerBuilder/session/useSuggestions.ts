@@ -1,3 +1,4 @@
+import { useBuilderActions, useBuilderSession } from './BuilderSessionProvider';
 import { useCallback, useRef, useState, type Dispatch } from 'react';
 import type { useGetExplorerCandidateSuggestionsV2Mutation } from '../../../react';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
@@ -5,17 +6,14 @@ import { derivedOccurrences, selectedTable, type BuilderAuthoringState } from '.
 import type { BuilderAction } from '../model/reducer';
 
 type UseSuggestionsOptions = {
-  readonly state: BuilderAuthoringState;
-  readonly draftAccess: { getState(): BuilderAuthoringState };
-  readonly dispatch: Dispatch<BuilderAction>;
   readonly getSuggestions: ReturnType<typeof useGetExplorerCandidateSuggestionsV2Mutation>[0];
-  readonly projectId: string;
-  readonly authResourcePath?: string;
 };
 
 export const useSuggestions = ({
-  state, draftAccess, dispatch, getSuggestions, projectId, authResourcePath,
-}: UseSuggestionsOptions) => {
+  getSuggestions, }: UseSuggestionsOptions) => {
+  const { state, draftAccess, builderQueryArgs } = useBuilderSession(draft => draft);
+  const { dispatch } = useBuilderActions();
+  const { project: projectId, authResourcePath } = builderQueryArgs;
   const [suggestionsFailure, setSuggestionsFailure] = useState<{
     readonly key: string;
     readonly message: string;

@@ -2,12 +2,12 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { GetConstructionCapabilitiesArgs } from '../../../client/api';
 import type { ConstructionCapabilitiesResponse, ConstructionChoiceSelection, ConstructionStep } from '../../../contracts/types';
 import type { BuilderAuthoringState, DraftTable } from '../model/authoring';
-import type { useConstructionLifecycle } from '../session/useConstructionLifecycle';
+import type { useConstructionLifecycle } from './useConstructionLifecycle';
 import { sanitizeReasonText, unavailableOperationReason } from '../model/catalogItems';
 import { sourceProjectionAvailability } from '../model/sourceProjectionAvailability';
 import { constructionAppendStageFor } from '../model/constructionStages';
 
-type UseReshapeAvailabilityOptions = {
+type ReshapeAvailabilityOptions = {
   readonly constructionLifecycle: Pick<ReturnType<typeof useConstructionLifecycle>, 'capabilities'>;
   readonly sourceStageDescriptors: ConstructionCapabilitiesResponse['stages'] | undefined;
   readonly rowValuePolicy: NonNullable<ConstructionChoiceSelection['rowValuePolicy']>;
@@ -21,11 +21,11 @@ type UseReshapeAvailabilityOptions = {
   readonly state: BuilderAuthoringState;
 };
 
-export const useReshapeAvailability = ({
+export const reshapeAvailabilityFor = ({
   constructionLifecycle, sourceStageDescriptors, rowValuePolicy, setRowValuePolicy,
     hasUnsupportedSavedSourceColumns, table, previewIsCurrent, capabilitiesRequest,
     editingConstructionStep, pendingCommands, state
-}: UseReshapeAvailabilityOptions) => {
+}: ReshapeAvailabilityOptions) => {
   const sourceProjectionSummary = constructionLifecycle.capabilities.status === 'ready'
     ? constructionLifecycle.capabilities.response.sourceProjectionAvailability
     : undefined;
