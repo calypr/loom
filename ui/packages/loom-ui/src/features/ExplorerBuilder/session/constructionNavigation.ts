@@ -8,7 +8,7 @@ import { admitAuthoringRequest } from '../model/admission';
 import type { useConstructionLifecycle } from './useConstructionLifecycle';
 import type { useCombineCatalog } from '../authoring/useCombineCatalog';
 import type { useCommandQueueActions } from './useCommandQueueActions';
-import type { useRecipeEditingOwner } from './recipeEditingOwner';
+import type { useRecipeEditingOwner } from './useRecipeEditingOwner';
 import type { AddColumnsView } from '../authoring/useAddColumns';
 
 type UseConstructionNavigationOptions = {

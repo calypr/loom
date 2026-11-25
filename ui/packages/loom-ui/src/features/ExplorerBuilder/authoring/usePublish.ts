@@ -8,7 +8,7 @@ import { builderAuthoringReducer } from '../model/reducer';
 import { isStaleSnapshot, reconcileResultIsCurrent } from '../model/reconcileRecovery';
 import { effectiveOutputAvailability } from '../model/outputEligibility';
 import type { useConstructionLifecycle } from '../session/useConstructionLifecycle';
-import type { useRecipeEditingOwner } from '../session/recipeEditingOwner';
+import type { useRecipeEditingOwner } from '../session/useRecipeEditingOwner';
 
 type PublicationAcknowledgementIdentity = {
   readonly ownerKey: string;

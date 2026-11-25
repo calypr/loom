@@ -1,7 +1,5 @@
-// @vitest-environment jsdom
-import { act, renderHook } from '@testing-library/react';
 import type { ExplorerBuilderDocument } from '../../../contracts/types';
-import { createRecipeEditingState, projectRecipeCandidate, recipeEditingReducer, useRecipeEditingOwner,
+import { createRecipeEditingState, projectRecipeCandidate, recipeEditingReducer, createRecipeEditingOwner,
   type RecipeEditingIdentity, type RecipeEditingState, type RecipeEditToken, type RecipeValidatedCandidate } from './recipeEditingOwner';
 const identity: RecipeEditingIdentity = { project: 'p', explorerId: 'e', outputId: 'subjects', snapshotToken: 'snapshot', draftVersion: 2, draftDigest: 'draft' };
 const token: RecipeEditToken = { identity, requestId: 1 };
@@ -81,20 +79,22 @@ describe('shared recipe editing ownership', () => {
     expect(saved.construction).toBeUndefined(); expect(projectRecipeCandidate(saved, candidate)).toBeUndefined();
   });
   it('synchronously prevents two starts in one event and preserves inspection renders', () => {
-    const { result, rerender } = renderHook(() => useRecipeEditingOwner(identity));
-    let first: RecipeEditToken | undefined; let second: RecipeEditToken | undefined;
-    act(() => { first = result.current.begin({ kind: 'relationship', occurrenceId: 'patient_a' }); second = result.current.begin({ kind: 'sourceRows' }); });
-    expect(first).toBeDefined(); expect(second).toBeUndefined(); rerender();
-    expect(result.current.state.target).toEqual({ kind: 'relationship', occurrenceId: 'patient_a' });
+    const bind = createRecipeEditingOwner(identity, () => {});
+    const owner = bind(identity);
+    const first = owner.begin({ kind: 'relationship', occurrenceId: 'patient_a' });
+    const second = owner.begin({ kind: 'sourceRows' });
+    expect(first).toBeDefined();
+    expect(second).toBeUndefined();
+    expect(bind(identity).state.target).toEqual({ kind: 'relationship', occurrenceId: 'patient_a' });
   });
   it('guards callbacks retained before a table switch', () => {
-    const { result, rerender } = renderHook(({ owner }) => useRecipeEditingOwner(owner), { initialProps: { owner: identity } });
-    let active: RecipeEditToken | undefined;
-    act(() => { active = result.current.begin({ kind: 'sourceRows' }); });
-    const oldOwner = result.current; rerender({ owner: { ...identity, outputId: 'other' } });
-    expect(result.current.state.status).toBe('stale');
-    act(() => { expect(oldOwner.previewing(active!)).toBeUndefined(); });
-    expect(result.current.state.identity.outputId).toBe('other');
+    const bind = createRecipeEditingOwner(identity, () => {});
+    const oldOwner = bind(identity);
+    const active = oldOwner.begin({ kind: 'sourceRows' });
+    const current = bind({ ...identity, outputId: 'other' });
+    expect(current.state.status).toBe('stale');
+    expect(oldOwner.previewing(active!)).toBeUndefined();
+    expect(current.getState().identity.outputId).toBe('other');
   });
 });
 

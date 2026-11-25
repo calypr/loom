@@ -44,7 +44,8 @@ import { BuilderToolbar, NewExplorerControl } from './components/BuilderToolbar'
 import {
   DatasetReviewPanel,
 } from './components/DatasetReviewPanel';
-import { sameRecipeEditingIdentity, useRecipeEditingOwner, projectRecipeCandidate, type RecipeEditToken } from './session/recipeEditingOwner';
+import { sameRecipeEditingIdentity, projectRecipeCandidate, type RecipeEditToken } from './session/recipeEditingOwner';
+import { useRecipeEditingOwner } from './session/useRecipeEditingOwner';
 import { CreateColumnRule } from './CreateColumnRule';
 import { columnRuleDefaults, type ColumnRuleOccurrence } from './model/sourceColumnRule';
 import { SourceRelationshipReview } from './components/SourceRelationshipReview';

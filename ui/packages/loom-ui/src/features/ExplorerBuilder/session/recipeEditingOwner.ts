@@ -1,4 +1,3 @@
-import { useRef, useState } from 'react';
 import type { AuthoringNetworkResponse, Construction, ExplorerBuilderDocument, ExplorerBuilderPreviewResult, SourceRuleCreate } from '../../../contracts/types';
 
 export interface RecipeEditingIdentity {
@@ -109,39 +108,40 @@ export function projectRecipeCandidate(saved: ExplorerBuilderDocument, candidate
   return undefined;
 }
 
-export function useRecipeEditingOwner(identity: RecipeEditingIdentity) {
-  const stateRef = useRef<RecipeEditingState>(createRecipeEditingState(identity));
-  const sequence = useRef(0);
-  const [, rerender] = useState(0);
-  stateRef.current = recipeEditingReducer(stateRef.current, { type: 'identity', identity });
+export function createRecipeEditingOwner(initialIdentity: RecipeEditingIdentity, onChange: () => void) {
+  let state = createRecipeEditingState(initialIdentity);
+  let sequence = 0;
   const dispatch = (action: RecipeEditingAction): boolean => {
-    const previous = stateRef.current;
+    const previous = state;
     const next = recipeEditingReducer(previous, action);
     if (next === previous) return false;
-    stateRef.current = next;
-    rerender((value) => value + 1);
+    state = next;
+    onChange();
     return true;
   };
-  return {
-    state: stateRef.current,
-    getState: () => stateRef.current,
-    begin(target: RecipeEditTarget): RecipeEditToken | undefined {
-      const token: RecipeEditToken = { identity, requestId: ++sequence.current };
-      return dispatch({ type: 'begin', target, token }) ? token : undefined;
-    },
-    previewing(token: RecipeEditToken): RecipeEditToken | undefined {
-      const nextToken = { identity: token.identity, requestId: ++sequence.current };
-      return dispatch({ type: 'previewing', token, nextToken }) ? nextToken : undefined;
-    },
-    changed(token: RecipeEditToken): RecipeEditToken | undefined {
-      const nextToken = { identity: token.identity, requestId: ++sequence.current };
-      return dispatch({ type: 'changed', token, nextToken }) ? nextToken : undefined;
-    },
-    ready: (token: RecipeEditToken, candidate: RecipeValidatedCandidate) => dispatch({ type: 'ready', token, candidate }),
-    applying: (token: RecipeEditToken) => dispatch({ type: 'applying', token }),
-    fail: (token: RecipeEditToken, error: string, stale = false) => dispatch({ type: 'failed', token, error, stale }),
-    cancel: (token: RecipeEditToken) => dispatch({ type: 'cancel', token }),
-    discardStale: () => dispatch({ type: 'discardStale' }),
-    applied: (token: RecipeEditToken) => dispatch({ type: 'applied', token }),
+  return function bindIdentity(identity: RecipeEditingIdentity) {
+    state = recipeEditingReducer(state, { type: 'identity', identity });
+    return {
+      state,
+      getState: () => state,
+      begin(target: RecipeEditTarget): RecipeEditToken | undefined {
+        const token: RecipeEditToken = { identity, requestId: ++sequence };
+        return dispatch({ type: 'begin', target, token }) ? token : undefined;
+      },
+      previewing(token: RecipeEditToken): RecipeEditToken | undefined {
+        const nextToken = { identity: token.identity, requestId: ++sequence };
+        return dispatch({ type: 'previewing', token, nextToken }) ? nextToken : undefined;
+      },
+      changed(token: RecipeEditToken): RecipeEditToken | undefined {
+        const nextToken = { identity: token.identity, requestId: ++sequence };
+        return dispatch({ type: 'changed', token, nextToken }) ? nextToken : undefined;
+      },
+      ready: (token: RecipeEditToken, candidate: RecipeValidatedCandidate) => dispatch({ type: 'ready', token, candidate }),
+      applying: (token: RecipeEditToken) => dispatch({ type: 'applying', token }),
+      fail: (token: RecipeEditToken, error: string, stale = false) => dispatch({ type: 'failed', token, error, stale }),
+      cancel: (token: RecipeEditToken) => dispatch({ type: 'cancel', token }),
+      discardStale: () => dispatch({ type: 'discardStale' }),
+      applied: (token: RecipeEditToken) => dispatch({ type: 'applied', token }),
+    };
   };
 }

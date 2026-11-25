@@ -4,7 +4,7 @@ import { routeNode, type BuilderAuthoringState, type DraftTable } from '../model
 import { fieldCatalogItems } from '../model/catalogItems';
 import type { BuilderAction } from '../model/reducer';
 import type { useSourceRecipeState } from './sourceRecipe';
-import type { useRecipeEditingOwner } from './recipeEditingOwner';
+import type { useRecipeEditingOwner } from './useRecipeEditingOwner';
 import type { useConstructionLifecycle } from './useConstructionLifecycle';
 import type { useRecipeFocus } from './useRecipeFocus';
 
