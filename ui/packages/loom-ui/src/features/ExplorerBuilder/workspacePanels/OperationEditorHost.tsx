@@ -1,3 +1,4 @@
+import { useOperationEditorSession } from '../session/OperationEditorSession';
 import { useBuilderSession } from '../session/BuilderSessionProvider';
 import { useWorkspaceUi, useWorkspaceUiActions } from '../session/useWorkspaceUi';
 import { selectedTable } from '../model/authoring';
@@ -5,30 +6,19 @@ import React, { useId, useState } from 'react';
 import { useColumnRuleInventory, type ColumnRuleInventoryScope } from '../session/columnRuleInventory';
 import { observedCategorySystems, observedExtensionPaths, observedIdentifierSystems } from '../model/columnRuleInventory';
 import { columnRulePresets, type ColumnRulePreset } from '../model/sourceColumnRule';
-import type { AddColumnsGraphSource, AddColumnsView } from '../session/useAddColumns';
+import type { AddColumnsView } from '../session/useAddColumns';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
-import type { ConstructionCapabilitiesResponse, ConstructionStep } from '../../../contracts/types';
 import { useCodedPivotContext } from '../session/codedPivotContext';
 import { sanitizeReasonText } from '../model/catalogItems';
-import type { ConstructionOperationFamily } from '../constructionWorkspace/ConstructionWorkspace';
-import type { ConstructionSelectableColumn } from '../model/constructionColumnSelection';
 import type { ConstructionCombineStep } from '../constructionOperations/combineEditorTypes';
-import type { ConstructionReshapeEditorEntry } from '../constructionOperations/ConstructionReshapeEditor';
 import { ConstructionColumnSelection } from '../constructionWorkspace/ConstructionColumnSelection';
 import { ConceptCatalog } from '../components/ConceptCatalog';
-import { useConstructionLifecycle } from '../session/useConstructionLifecycle';
-import { useCombineCatalog } from '../session/useCombineCatalog';
 import { ConstructionOperationEditor } from '../constructionOperations/ConstructionOperationEditor';
 import { ConstructionReshapeEditor } from '../constructionOperations/ConstructionReshapeEditor';
 import { FilterRowsEditor } from '../constructionOperations/FilterRowsEditor';
 import { RelatedFieldEditor } from '../constructionOperations/RelatedFieldEditor';
 import { ConstructionCombineEditor } from '../constructionOperations/ConstructionCombineEditor';
 
-type Lifecycle = ReturnType<typeof useConstructionLifecycle>;
-type CombineCatalog = ReturnType<typeof useCombineCatalog>;
-type CatalogProps = React.ComponentProps<typeof ConceptCatalog>;
-type ReshapeProps = React.ComponentProps<typeof ConstructionReshapeEditor>;
-type FamilyOperation = { readonly family: ConstructionOperationFamily; readonly label: string };
 
 type InlineSystemRule = { readonly active: boolean; readonly disabled: boolean; readonly onActivate: () => void };
 
@@ -162,102 +152,57 @@ function ColumnRulePicker({ inventoryScope, fieldPaths, disabled, reviewing, sel
 }
 
 interface OperationEditorHostProps {
-  readonly activeOperation: FamilyOperation;
-  readonly rowIntentSession: boolean;
-  readonly editingConstructionStep?: ConstructionStep;
-  readonly lifecycle: Lifecycle;
-  readonly pendingCommands: number;
-  readonly publishing: boolean;
-  readonly showReshapeColumnSelection: boolean;
-  readonly selectedColumnIds: ReadonlyArray<string>;
-  readonly selectableColumns: ReadonlyArray<ConstructionSelectableColumn>;
-  readonly currentStage?: ConstructionCapabilitiesResponse['stages'][number];
-  readonly activeConstructionFamily?: ConstructionOperationFamily;
-  readonly onToggleSelectedColumn: (columnId: string) => void;
-  readonly setColumnSelection: (selection: { readonly kind: 'empty' }) => void;
-  readonly rowValuesSupported: boolean;
-  readonly graphSource?: AddColumnsGraphSource;
-  readonly addSourceRouteContext: CatalogProps['routeContext'];
-  readonly addColumnsViewRevision: number;
-  readonly fieldPresentationContext: CatalogProps['presentationContext'];
-  readonly addColumnsView: AddColumnsView;
-  readonly columnRulesUnavailableReason?: string;
-  readonly columnRuleInventoryScope: ColumnRuleInventoryScope;
-  readonly columnRuleFieldPaths: ReadonlyArray<string>;
   readonly configuredAdvancedColumns?: React.ReactNode;
   readonly renderColumnRule?: (preset: ColumnRulePreset, inventory: RuleInventory, path?: string, onClear?: () => void, inline?: InlineSystemRule) => React.ReactNode;
-  readonly reviewingAdvancedColumns?: boolean;
-  readonly onBackFromColumnRuleReview: () => boolean;
-  readonly onSwitchAddColumnsView: (view: AddColumnsView) => void;
-  readonly existingSourceKeys: CatalogProps['existingSourceKeys'];
-  readonly capabilityNodeOccurrences: CatalogProps['nodeOccurrences'];
-  readonly sourceAvailability: CatalogProps['sourceProjectionAvailability'];
-  readonly relatedSourceAvailability: CatalogProps['relatedSourceAvailability'];
-  readonly hasUnsupportedSavedSourceColumns: boolean;
-  readonly sourceSelectionDisabledReason?: string;
-  readonly groupedRowValuePolicy: CatalogProps['groupedRowValuePolicy'];
-  readonly onAddSelected: NonNullable<CatalogProps['onAddSelected']>;
-  readonly onPreviewSelected: NonNullable<CatalogProps['onPreviewSelected']>;
-  readonly onInspectRouteCoverage: NonNullable<CatalogProps['onInspectRouteCoverage']>;
-  readonly activeReshapeEditorKey: string | undefined;
-  readonly activeReshapeInitialKind: ReshapeProps['initialKind'];
-  readonly activeReshapeInitialEntry: ConstructionReshapeEditorEntry | undefined;
-  readonly onReshapeFormKindChange: NonNullable<ReshapeProps['onFormKindChange']>;
-  readonly relatedExpandQueryOwnerRef: ReshapeProps['relatedExpandQueryOwnerRef'];
-  readonly combineCatalog: CombineCatalog;
-  readonly onEditConstructionStep: NonNullable<ReshapeProps['onEditStep']>;
-  readonly onCancelConstructionEditor: NonNullable<ReshapeProps['onCancel']>;
-  readonly onClose: () => void;
 }
 
-export const OperationEditorHost = ({
-  activeOperation,
-  rowIntentSession,
-  editingConstructionStep,
-  lifecycle: constructionLifecycle,
-  pendingCommands,
-  publishing,
-  showReshapeColumnSelection,
-  selectedColumnIds,
-  selectableColumns,
-  currentStage,
-  activeConstructionFamily,
-  onToggleSelectedColumn: toggleSelectedColumn,
-  setColumnSelection,
-  rowValuesSupported,
-  graphSource,
-  addSourceRouteContext,
-  addColumnsViewRevision,
-  fieldPresentationContext,
-  addColumnsView: columnKind,
-  columnRulesUnavailableReason,
-  columnRuleInventoryScope,
-  columnRuleFieldPaths,
-  configuredAdvancedColumns,
-  renderColumnRule,
-  reviewingAdvancedColumns,
-  onBackFromColumnRuleReview,
-  onSwitchAddColumnsView: selectColumnKind,
-  existingSourceKeys,
-  capabilityNodeOccurrences,
-  sourceAvailability,
-  relatedSourceAvailability,
-  hasUnsupportedSavedSourceColumns,
-  sourceSelectionDisabledReason,
-  groupedRowValuePolicy,
-  onAddSelected: addSelectedFeatures,
-  onPreviewSelected: previewRelatedSourceColumns,
-  onInspectRouteCoverage: inspectRelatedRouteCoverage,
-  activeReshapeEditorKey,
-  activeReshapeInitialKind,
-  activeReshapeInitialEntry,
-  onReshapeFormKindChange: setReshapeFormKind,
-  relatedExpandQueryOwnerRef,
-  combineCatalog,
-  onEditConstructionStep: editConstructionStep,
-  onCancelConstructionEditor: cancelConstructionEditor,
-  onClose: closeConstructionWorkspace,
-}: OperationEditorHostProps) => {
+export const OperationEditorHost = ({ configuredAdvancedColumns, renderColumnRule }: OperationEditorHostProps) => {
+  const {
+    activeOperation,
+    rowIntentSession,
+    editingConstructionStep,
+    lifecycle: constructionLifecycle,
+    pendingCommands,
+    publishing,
+    showReshapeColumnSelection,
+    selectedColumnIds,
+    selectableColumns,
+    currentStage,
+    activeConstructionFamily,
+    onToggleSelectedColumn: toggleSelectedColumn,
+    setColumnSelection,
+    rowValuesSupported,
+    graphSource,
+    addSourceRouteContext,
+    addColumnsViewRevision,
+    fieldPresentationContext,
+    addColumnsView: columnKind,
+    columnRulesUnavailableReason,
+    columnRuleInventoryScope,
+    columnRuleFieldPaths,
+    reviewingAdvancedColumns,
+    onBackFromColumnRuleReview,
+    onSwitchAddColumnsView: selectColumnKind,
+    existingSourceKeys,
+    capabilityNodeOccurrences,
+    sourceAvailability,
+    relatedSourceAvailability,
+    hasUnsupportedSavedSourceColumns,
+    sourceSelectionDisabledReason,
+    groupedRowValuePolicy,
+    onAddSelected: addSelectedFeatures,
+    onPreviewSelected: previewRelatedSourceColumns,
+    onInspectRouteCoverage: inspectRelatedRouteCoverage,
+    activeReshapeEditorKey,
+    activeReshapeInitialKind,
+    activeReshapeInitialEntry,
+    onReshapeFormKindChange: setReshapeFormKind,
+    relatedExpandQueryOwnerRef,
+    combineCatalog,
+    onEditConstructionStep: editConstructionStep,
+    onCancelConstructionEditor: cancelConstructionEditor,
+    onClose: closeConstructionWorkspace,
+  } = useOperationEditorSession(session => session);
   const { state, ownerKey, builderQueryArgs } = useBuilderSession(draft => draft);
   const { project: projectId, authResourcePath } = builderQueryArgs;
   const table = selectedTable(state)!;

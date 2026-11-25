@@ -1,3 +1,6 @@
+import { createConstructionNavigationActions, useConstructionNavigationState } from './constructionNavigation';
+import { reshapeAvailabilityFor } from './reshapeAvailabilityFor';
+import type { ColumnRuleOccurrence } from '../model/sourceColumnRule';
 import { useResolveConfiguredColumnContextsQuery, useResolvePopulationSelectionQuery } from '../../../data/builderQueries';
 import { useWorkspaceUi, useWorkspaceUiActions } from './useWorkspaceUi';
 import type { DatasetReviewTarget } from '../model/datasetReviewSelection';
@@ -21,14 +24,13 @@ import { useCommandQueueActions } from './useCommandQueueActions';
 import { usePublish } from './usePublish';
 import { useBuilderActions, useBuilderSession } from './BuilderSessionProvider';
 import { useRecipeFocus } from './useRecipeFocus';
-import { useConstructionNavigationState } from './constructionNavigation';
 import { useFirstTableActions } from './useFirstTableActions';
 import { useTableExplorerCrud } from './useTableExplorerCrud';
 import { useSuggestions } from './useSuggestions';
 import { usePopulationExclusion } from './usePopulationExclusion';
-import { useAddColumns } from './useAddColumns';
+import { useAddColumns, type AddColumnsGraphSource } from './useAddColumns';
 import { useTraversalState } from './traversal';
-import { sourceRecipeOwnerKey, useSourceRecipeState } from './sourceRecipe';
+import { createSourceRecipeActions, sourceRecipeOwnerKey, useSourceRecipeState } from './sourceRecipe';
 import { useRootChangeActions } from './useRootChangeActions';
 import { useCombineCatalog } from './useCombineCatalog';
 import { type ConstructionSelectableColumn } from '../model/constructionColumnSelection';
@@ -693,7 +695,7 @@ export function useBuilderWorkspaceActions({
     exactRelated: true,
   } : undefined;
   const selectedRelatedGraphSource = relatedGraphSource?.occurrenceId === relatedGraphSelection ? relatedGraphSource : undefined;
-  const graphSource = selectedRelatedGraphSource ?? (graphOccurrence ? {
+  const graphSource: AddColumnsGraphSource | undefined = selectedRelatedGraphSource ?? (graphOccurrence ? {
     occurrenceId: graphOccurrence.id,
     nodeId: graphOccurrence.catalogNodeId,
     resourceType: graphOccurrence.resourceType,
@@ -804,43 +806,170 @@ export function useBuilderWorkspaceActions({
     !explorers.error &&
     false;
 
+  const { startCombine, selectConstructionFamily, chooseRelatedRows, chooseReshapeRows,
+    selectConstructionHistory, editConstructionStep, closeConstructionWorkspace: closeConstructionNavigation, cancelConstructionEditor,
+    switchRowIntent, closeRowIntentSession, removeConstructionStep, restorePreviousDraft,
+    activeOperation, activeReshapeEditorKey, activeReshapeInitialEntry, activeReshapeInitialKind,
+    showReshapeColumnSelection, hideGenericReshapeSelection } = createConstructionNavigationActions(navigationState, {
+    table, construction, constructionLifecycle, combineCatalog, setConstructionHistorySelection,
+    setEditingConstructionStepId, setRowIntentSession, setFeatureMode, setMessage, applyCommandsWithResult,
+    recipeMutationAllowed, rememberOperationFocus, selectAddColumnsView, canStartCombine,
+    selectedColumnIds, recipeOwner, setRecipeNotice, rowIntentSession, setSourceRowsOpen,
+    editingConstructionStepId, previousDraftRevisionId, setColumnSelection, applyCommands, editingConstructionStep
+  });
+  const closeConstructionWorkspace = () => {
+    setRelatedGraphSelection(undefined);
+    closeConstructionNavigation();
+  };
+  const { capabilityNodeOccurrences, existingSourceKeys, rowValuesSupported, groupedRowValuePolicy, sourceAvailability, capabilityStage, constructionCapabilitiesResponse, capabilityIsForAppendStage, calculateUnavailableReason, reshapeRowsAvailability, relatedRowsAvailability, relatedSourceAvailability, sourceSelectionDisabledReason } = reshapeAvailabilityFor({
+    constructionLifecycle, sourceStageDescriptors, rowValuePolicy, setRowValuePolicy,
+    hasUnsupportedSavedSourceColumns, table, previewIsCurrent, capabilitiesRequest,
+    editingConstructionStep, pendingCommands, state
+  });
+  const { relationshipOwner, loadRecipeNetwork, pendingRelationship, proposeRelationship, cancelRecipeRelationship, sourceReviewStatus, beginSourceReview, proposeColumnPolicy, beginSourceRowsReview, applySourceRecipe } = createSourceRecipeActions(sourceRecipeState, {
+    builderDataKey, state, table, firstTableProgress, loomClient, projectId, authResourcePath,
+    completePendingRecipeFocus, recipeMutationAllowed, rememberRecipeFocus, recipeOwner,
+    setEditingRecipeColumn, constructionLifecycle, restoreRecipeFocus,
+    recipeFocusGeneration, recipeInitiator, recipeInitiatorFact, pendingRecipeFocus, applyCommands
+  });
+  const activeRuleReview = recipeOwner.state.target?.kind === 'createColumnRule' ? recipeOwner.state.target : undefined;
+  const reviewingAdvancedColumns = Boolean(activeRuleReview);
+  const ruleOccurrence: ColumnRuleOccurrence | undefined = table ? {
+    id: graphSource && !graphSource.isRoot ? graphSource.occurrenceId : '',
+    resourceType: graphSource?.resourceType ?? table.document.rootResourceType,
+    label: graphOccurrence?.path ?? table.document.rootResourceType,
+  } : undefined;
+  const removedRuleOccurrence = Boolean(state.selectedOccurrenceId &&
+    table?.document.importedSource?.relationships?.removals?.includes(state.selectedOccurrenceId));
+  const ruleUnavailableReason = !table?.document.importedRecipe
+    ? 'Column rules are available on imported recipe tables.'
+    : removedRuleOccurrence
+      ? 'The selected graph occurrence was removed.'
+      : graphSource && !graphSource.isRoot && !graphSource.nodeId
+        ? 'This graph occurrence is unavailable.'
+        : !capabilities.data
+          ? capabilities.isLoading ? 'Checking whether this Loom server can create column rules…' : 'Could not check whether this Loom server can create column rules.'
+          : !capabilities.data.operations?.includes('sourceRuleCreate')
+            ? 'This Loom server version can’t add new column rules. Imported rules are available under Saved rules.'
+            : undefined;
+  const ruleInventoryScope = {
+    project: projectId, explorerId: state.explorerId, authResourcePath,
+    snapshotToken: state.catalog.snapshotToken,
+    rowRoot: table?.document.rootResourceType ?? '',
+    resourceType: ruleOccurrence?.resourceType ?? '',
+  };
+  const ruleFieldPaths = Array.from(new Set((state.catalog.candidates ?? [])
+    .filter(candidate => candidate.nodeId === graphSource?.nodeId && candidate.populated !== false && candidate.fieldPath)
+    .map(candidate => ruleOccurrence && candidate.fieldPath.startsWith(`${ruleOccurrence.resourceType}.`)
+      ? candidate.fieldPath.slice(ruleOccurrence.resourceType.length + 1) : candidate.fieldPath))).sort();
+  const advancedOccurrenceId = ruleOccurrence?.id || table?.document.route.occurrenceId;
+  const advancedNetwork = table && savedNetwork?.owner === relationshipOwner &&
+    savedNetwork.result.network.outputId === table.outputId ? savedNetwork.result.network : undefined;
+  const importedSourceSteps = table?.document.importedSource?.steps ?? [];
+  const advancedRules = importedSourceSteps.flatMap((step) => {
+    if (!['DYNAMIC_COLUMN', 'EXTENSION_COLUMN', 'CATALOG_PROJECTION', 'PIVOT'].includes(step.kind)) return [];
+    const fields = (advancedNetwork?.projectedFields ?? []).filter((field) =>
+      field.owner === 'PINNED_SOURCE' && field.sourceStepId === step.id && field.occurrenceId === advancedOccurrenceId,
+    );
+    const parentOccurrence = step.parentId
+      ? advancedNetwork?.occurrences.find((item) => item.sourceStepId === step.parentId)?.occurrenceId
+        ?? importedSourceSteps.find((item) => item.id === step.parentId)?.occurrenceId
+      : table?.document.route.occurrenceId;
+    return parentOccurrence === advancedOccurrenceId || fields.length ? [{ step, fields }] : [];
+  });
+  const unassignedFrameIds = new Set<string>();
+  const savedFramesForNode = (table?.document.frames ?? []).filter((frame) => {
+    if (!graphSource || selectedRelatedGraphSource) return false;
+    const owners = graphOccurrences.filter((occurrence) => {
+      if (occurrence.resourceType !== frame.source.resourceType) return false;
+      const edgeIds = edgesToGraphOccurrence(occurrence);
+      return edgeIds.length === frame.route.length && frame.route.every((step, index) => step.edgeId === edgeIds[index]);
+    });
+    if (owners.length === 1) return owners[0].id === graphSource.occurrenceId;
+    if (!graphSource.isRoot) return false;
+    unassignedFrameIds.add(frame.id);
+    return true;
+  });
+  const operationEditorSession = table && activeOperation ? {
+    activeOperation,
+    rowIntentSession,
+    editingConstructionStep,
+    lifecycle: constructionLifecycle,
+    pendingCommands,
+    publishing,
+    showReshapeColumnSelection,
+    selectedColumnIds,
+    selectableColumns,
+    currentStage,
+    activeConstructionFamily,
+    onToggleSelectedColumn: toggleSelectedColumn,
+    setColumnSelection,
+    rowValuesSupported,
+    graphSource,
+    addSourceRouteContext,
+    addColumnsView,
+    reviewingAdvancedColumns,
+    onBackFromColumnRuleReview: () => cancelRecipeRelationship(false),
+    columnRulesUnavailableReason: ruleUnavailableReason,
+    columnRuleInventoryScope: ruleInventoryScope,
+    columnRuleFieldPaths: ruleFieldPaths,
+    addColumnsViewRevision,
+    fieldPresentationContext,
+    onSwitchAddColumnsView: selectAddColumnsView,
+    existingSourceKeys,
+    capabilityNodeOccurrences,
+    sourceAvailability,
+    relatedSourceAvailability,
+    hasUnsupportedSavedSourceColumns,
+    sourceSelectionDisabledReason,
+    groupedRowValuePolicy,
+    onAddSelected: addSelectedFeatures,
+    onPreviewSelected: previewRelatedSourceColumns,
+    onInspectRouteCoverage: inspectRelatedRouteCoverage,
+    activeReshapeEditorKey,
+    activeReshapeInitialKind,
+    activeReshapeInitialEntry,
+    onReshapeFormKindChange: setReshapeFormKind,
+    relatedExpandQueryOwnerRef,
+    combineCatalog,
+    onEditConstructionStep: editConstructionStep,
+    onCancelConstructionEditor: cancelConstructionEditor,
+    onClose: () => {
+      if (reviewingAdvancedColumns && !cancelRecipeRelationship(false)) return;
+      closeConstructionWorkspace();
+    },
+  } : undefined;
+
   return {
     explorers, explorerQueryEnabled, builder, workspaceHostRef, emptyExplorerProject, message,
     createStatus, createCustomExplorer, refetchBuilder, explorerSummaries, effectiveExplorerId,
     selectExplorer, capabilities, deleteCurrentExplorer, state, selectTableFromUser, renameTable,
     addTable, duplicateTable, deleteSelectedTable, reviewOpen, setReviewOpen, draftAccess,
     reconcileCurrent, publish, publishDisabled, publishing, busy, featureMode, tableToolbarHost,
-    navigationState, table, construction, constructionLifecycle, combineCatalog,
-    setConstructionHistorySelection, setEditingConstructionStepId, setRowIntentSession,
-    setFeatureMode, setMessage, applyCommandsWithResult, recipeMutationAllowed,
-    rememberOperationFocus, selectAddColumnsView, canStartCombine, selectedColumnIds, recipeOwner,
-    setRecipeNotice, rowIntentSession, setSourceRowsOpen, editingConstructionStepId,
-    previousDraftRevisionId, setColumnSelection, applyCommands, editingConstructionStep,
-    setRelatedGraphSelection, sourceStageDescriptors, rowValuePolicy, setRowValuePolicy,
-    hasUnsupportedSavedSourceColumns, previewIsCurrent, capabilitiesRequest, pendingCommands,
-    sourceRowMeaning, sourceRecipeState, builderDataKey, firstTableProgress, loomClient, projectId,
-    authResourcePath, completePendingRecipeFocus, rememberRecipeFocus, setEditingRecipeColumn,
-    restoreRecipeFocus, recipeFocusGeneration, recipeInitiator, recipeInitiatorFact,
-    pendingRecipeFocus, activePopulationSelection, cancelingConstructionProposal, graphSource,
-    graphOccurrence, savedNetwork, selectedRelatedGraphSource, graphOccurrences,
-    edgesToGraphOccurrence, selectableColumns, currentStage, activeConstructionFamily,
-    toggleSelectedColumn, addSourceRouteContext, addColumnsView, sourceStepEditAction,
+    table, construction, constructionLifecycle, combineCatalog, setEditingConstructionStepId,
+    setRowIntentSession, applyCommandsWithResult, recipeMutationAllowed, selectAddColumnsView,
+    canStartCombine, recipeOwner, setRecipeNotice, rowIntentSession, setSourceRowsOpen,
+    editingConstructionStepId, previousDraftRevisionId, setColumnSelection, applyCommands,
+    editingConstructionStep, setRelatedGraphSelection, sourceStageDescriptors,
+    hasUnsupportedSavedSourceColumns, previewIsCurrent, pendingCommands, sourceRowMeaning,
+    builderDataKey, firstTableProgress, loomClient, projectId, authResourcePath, rememberRecipeFocus,
+    restoreRecipeFocus, activePopulationSelection, cancelingConstructionProposal, graphSource,
+    savedNetwork, selectedRelatedGraphSource, activeConstructionFamily, sourceStepEditAction,
     advancedRuleEditorReturn, pendingSavedRuleRemoval, setPendingSavedRuleRemoval,
-    addSelectedFeatures, sourceRelationshipRequest, recipeEditToken, addColumnsViewRevision,
-    fieldPresentationContext, previewRelatedSourceColumns, inspectRelatedRouteCoverage,
-    setReshapeFormKind, relatedExpandQueryOwnerRef, ownerKey, setActiveConstructionFamily,
-    tablePreview, applyConstructionProposal, beginConstructionCancellation,
-    finishConstructionCancellation, traversalState, sourceProposal, lastAcceptedOutputPreview,
-    dispatch, sourceStepEditDirty, sourceStepEditCancelAction, candidateForPreviewColumn,
-    occurrencePanelsFor, addColumnsPanel, reshapeEntryKind, reshapeFormKind, columnSelection,
-    restoreAddColumnsPanel, setReshapeEntryKind, relatedGraphSource, connectingRelationship,
-    setRootReplacementInspectorHost, rootChangeState, rootRecipeAssessment, applyRowChangePreview,
-    cancelRootChange, editingRecipeColumn, setSourceStepInspectorHost, setSourceProposal,
-    sourceRowsOpen, setOccurrenceInspectorHost, recipeNotice, occurrenceInspectorHost,
-    rowSettingsOpenAction, setTableToolbarHost, selectRootChoice, setSourceRowsInspectorHost,
-    automaticPreviewQuery, currentPreviewStatus, firstTableName, setFirstTableName,
-    createFirstTableFromRoot, setTableCreatorOpen, pendingRowChangePreview, currentRootChangeIdentity,
-    focusDatasetReviewTarget, blockingDiagnostics, primaryDiagnostic, unsupportedColumns,
+    addSelectedFeatures, sourceRelationshipRequest, recipeEditToken, setReshapeFormKind,
+    relatedExpandQueryOwnerRef, ownerKey, setActiveConstructionFamily, tablePreview,
+    applyConstructionProposal, beginConstructionCancellation, finishConstructionCancellation,
+    traversalState, sourceProposal, lastAcceptedOutputPreview, dispatch, sourceStepEditDirty,
+    sourceStepEditCancelAction, candidateForPreviewColumn, occurrencePanelsFor, addColumnsPanel,
+    reshapeEntryKind, reshapeFormKind, columnSelection, restoreAddColumnsPanel, setReshapeEntryKind,
+    relatedGraphSource, connectingRelationship, setRootReplacementInspectorHost, rootChangeState,
+    rootRecipeAssessment, applyRowChangePreview, cancelRootChange, editingRecipeColumn,
+    setSourceStepInspectorHost, setSourceProposal, sourceRowsOpen, setOccurrenceInspectorHost,
+    recipeNotice, occurrenceInspectorHost, rowSettingsOpenAction, setTableToolbarHost,
+    selectRootChoice, setSourceRowsInspectorHost, automaticPreviewQuery, currentPreviewStatus,
+    firstTableName, setFirstTableName, createFirstTableFromRoot, setTableCreatorOpen,
+    pendingRowChangePreview, currentRootChangeIdentity, focusDatasetReviewTarget,
+    blockingDiagnostics, primaryDiagnostic, unsupportedColumns,
     unsupportedSourceProjectionDiagnostic, incomplete, suggestionsFailure, suggestionIdentity,
     suggestionRequestKey, setSuggestionsFailure, ensureSuggestions, suggestionHostRef,
     setActiveSourceStepId, tableCreatorOpen, activeSourceStepId, addColumnsReason, renameTableById,
@@ -851,6 +980,14 @@ export function useBuilderWorkspaceActions({
     constructionHistorySelection, sourceStepInspectorHost, sourceChangeReviewHost,
     sourceFieldEditAction, sourceOutputEditAction, sourceStepSwitchOccurrenceAction,
     automaticPreviewFailureMessage, previewLimit, setPreviewLimit, setSourceChangeReviewHost,
-    reviewFocusTarget,
+    reviewFocusTarget, selectConstructionFamily, chooseRelatedRows, chooseReshapeRows,
+    selectConstructionHistory, editConstructionStep, closeConstructionWorkspace, switchRowIntent,
+    closeRowIntentSession, removeConstructionStep, restorePreviousDraft, capabilityStage,
+    constructionCapabilitiesResponse, capabilityIsForAppendStage, calculateUnavailableReason,
+    reshapeRowsAvailability, relatedRowsAvailability, relationshipOwner, loadRecipeNetwork,
+    pendingRelationship, proposeRelationship, cancelRecipeRelationship, sourceReviewStatus,
+    beginSourceReview, proposeColumnPolicy, beginSourceRowsReview, applySourceRecipe,
+    activeRuleReview, reviewingAdvancedColumns, ruleOccurrence, ruleFieldPaths, advancedOccurrenceId,
+    advancedRules, unassignedFrameIds, savedFramesForNode, operationEditorSession,
   };
 }
