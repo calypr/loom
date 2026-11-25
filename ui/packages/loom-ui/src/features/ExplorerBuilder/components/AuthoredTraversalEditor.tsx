@@ -5,7 +5,7 @@ import { replaceableIncomingEdges } from '../authoring/routeActions';
 import { authoredTraversal } from './authoredTraversal';
 
 type GraphProps = React.ComponentProps<typeof GuidedGraphWorkspace>;
-export type AuthoredTraversalEditorProps = GraphProps & {
+type AuthoredTraversalEditorProps = GraphProps & {
   readonly projectionKind: 'saved' | 'proposed';
   readonly network?: import('../../../types').AuthoringNetworkResponse['network'];
   readonly rowIdentity?: import('../../../types').AuthoringNetworkResponse['rowIdentity'];

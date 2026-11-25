@@ -5,14 +5,6 @@ import type {
   ProjectViewConfig,
 } from '../../projectViewBuilder';
 
-export const PROJECT_VIEW_CHART_TYPES = [
-  'bar',
-  'horizontalStacked',
-  'pie',
-  'fullPie',
-  'donut',
-] as const;
-
 const safeIdPart = (value: string): string => {
   const normalized = value
     .trim()
@@ -22,7 +14,7 @@ const safeIdPart = (value: string): string => {
   return normalized || 'view';
 };
 
-export const uniqueProjectConfigId = (
+const uniqueProjectConfigId = (
   title: string,
   existing: ReadonlyArray<string>,
 ): string => {
@@ -39,7 +31,7 @@ export const projectViewFrameRef = (
   outputName: string,
 ): string => `${recipeName}/${outputName}`;
 
-export const outputNameForFrameRef = (
+const outputNameForFrameRef = (
   recipeName: string,
   frameRef: string,
 ): string | undefined => {

@@ -14,7 +14,7 @@ import {
   type StageCapability,
 } from './reshapeForms';
 
-export type PivotDiscoveryOwner = (
+type PivotDiscoveryOwner = (
   request: ConstructionReshapePivotDiscoveryRequest,
   onComplete?: (discovery: CompletePivotDiscovery) => void,
 ) => void;
@@ -54,12 +54,12 @@ export type PendingPivotDiscovery = {
 
 export type ScheduledPivotDiscovery = PendingPivotDiscovery & { readonly timer: number };
 
-export type AwaitingPivotDiscovery = PendingPivotDiscovery & {
+type AwaitingPivotDiscovery = PendingPivotDiscovery & {
   readonly contextKey: string;
   readonly seen: ConstructionReshapePivotDiscovery | undefined;
 };
 
-export type PivotDiscoveryState = {
+type PivotDiscoveryState = {
   readonly snapshot: PivotDiscoverySnapshot;
   readonly mounted: boolean;
   readonly revision: number;
@@ -73,7 +73,7 @@ export type PivotDiscoveryState = {
   readonly reportedInitialContextKey?: string;
 };
 
-export type PivotDiscoveryAction =
+type PivotDiscoveryAction =
   | { readonly type: 'root-attached'; readonly snapshot: PivotDiscoverySnapshot }
   | { readonly type: 'root-detached' }
   | { readonly type: 'initial-state-reported'; readonly contextKey: string; readonly hasInitialEntry: boolean }
@@ -91,7 +91,7 @@ export type PivotDiscoveryAction =
   | { readonly type: 'automatic-pair-forgotten'; readonly identity: string }
   | { readonly type: 'pivot-pairs-forgotten'; readonly identities: ReadonlyArray<string>; readonly memoryKeys: ReadonlyArray<string> };
 
-export type PivotDiscoveryTransition = {
+type PivotDiscoveryTransition = {
   readonly state: PivotDiscoveryState;
   readonly accepted: boolean;
 };

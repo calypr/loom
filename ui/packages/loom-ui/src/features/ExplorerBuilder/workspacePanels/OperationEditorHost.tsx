@@ -160,7 +160,7 @@ function ColumnRulePicker({ client, inventoryScope, fieldPaths, disabled, review
   </section>;
 }
 
-export interface OperationEditorHostProps {
+interface OperationEditorHostProps {
   readonly table: Table;
   readonly activeOperation: FamilyOperation;
   readonly state: BuilderAuthoringState;

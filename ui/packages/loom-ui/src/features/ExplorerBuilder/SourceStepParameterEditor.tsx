@@ -19,7 +19,7 @@ type EditorSourceParameters = Omit<ImportedSourceParameters, 'catalog' | 'pivot'
   catalog?: NonNullable<ImportedSourceParameters['catalog']> & { outputs?: CatalogOutputOverride[] };
   pivot?: NonNullable<ImportedSourceParameters['pivot']> & { outputs?: PivotOutputOverride[] };
 };
-export type CatalogOutputChoice = { outputKey: string; columnId?: string; defaultName: string; enabled: boolean };
+type CatalogOutputChoice = { outputKey: string; columnId?: string; defaultName: string; enabled: boolean };
 function Text({ label, value, onChange, placeholder }: { label: string; value?: string; onChange(value: string): void; placeholder?: string }) {
   return <label className="grid gap-1 text-xs">{label}<input aria-label={label} placeholder={placeholder} className={controlClass} value={value ?? ''} onChange={(event) => onChange(event.currentTarget.value)} /></label>;
 }

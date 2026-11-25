@@ -1,6 +1,6 @@
 import { sourceRecipeEditFunctions, type SourceRecipeExpression } from '../../types';
 
-export const sourceExpressionFunctions = sourceRecipeEditFunctions;
+const sourceExpressionFunctions = sourceRecipeEditFunctions;
 export const moveExpressionItem = <T,>(items: ReadonlyArray<T>, index: number, delta: -1 | 1): T[] => {
   const next = [...items];
   const destination = index + delta;

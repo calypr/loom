@@ -6,7 +6,7 @@ import {
   type ReconcileResultIdentity,
 } from './reconcileRecovery';
 
-export type ReconcileAcceptance = 'obsolete' | 'mismatch' | 'diagnostics' | 'accepted';
+type ReconcileAcceptance = 'obsolete' | 'mismatch' | 'diagnostics' | 'accepted';
 
 export const reconcileAcceptance = (
   value: ExplorerBuilderCompileResult,

@@ -17,7 +17,7 @@ import {
   liveFilterSourceUnmaterializedProvenance,
   liveFilterSourceUnmaterializedResponse,
   liveFilterSourceUnmaterializedResponseJson,
-} from './liveConstructionCapabilitiesFixtures';
+} from '../../../../testSupport/liveConstructionCapabilitiesFixtures';
 import { ConstructionOperationEditor } from './ConstructionOperationEditor';
 import { capabilitiesFor as makeCapabilities, sourceStage as makeSourceStage } from '../../../../testSupport/constructionFixtures';
 import { sourceStage as reviewSourceStage } from '../../../../testSupport/constructionFixtures';

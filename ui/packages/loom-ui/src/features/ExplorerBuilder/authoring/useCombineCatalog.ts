@@ -10,7 +10,7 @@ type ConstructionCombineCatalogLoad = {
   readonly loadMoreError?: string;
 };
 
-export type CombineCatalogOwner = {
+type CombineCatalogOwner = {
   readonly ownerKey: string;
   readonly explorerId: string;
 };

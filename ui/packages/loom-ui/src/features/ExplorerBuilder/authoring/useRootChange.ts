@@ -30,7 +30,7 @@ type RootRecipeAttempt = {
   noChange: () => void;
 };
 
-export type RootRecipeActions = {
+type RootRecipeActions = {
   begin: (nodeId: string, mode: 'PRESERVE' | 'REPLACE') => RootRecipeAttempt | undefined;
   cancel: () => boolean;
   apply: (assessment: ReadyRootChangeAssessment) => Promise<boolean>;
@@ -41,7 +41,7 @@ type RowChangePreviewContext = {
   readonly identity: RootChangeRequestIdentity;
 };
 
-export type PendingRowChangePreview =
+type PendingRowChangePreview =
   | (RowChangePreviewContext & { readonly status: 'loading' })
   | (RowChangePreviewContext & { readonly status: 'ready'; readonly preview: ExplorerBuilderPreviewResult });
 

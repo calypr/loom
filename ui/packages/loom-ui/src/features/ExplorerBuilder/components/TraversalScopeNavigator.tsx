@@ -4,13 +4,6 @@ import type { DraftTable } from '../authoring/model';
 import { rowValuePolicyLabel } from './rowRecipeProjection';
 import { traversalScopeModel, type ScopedOperation } from './traversalScopeModel';
 
-export interface TraversalSourceField {
-  readonly fieldId: string;
-  readonly name: string;
-  readonly label?: string;
-  readonly valueMode?: string;
-  readonly editable?: boolean;
-}
 export interface TraversalScopeNavigatorProps {
   readonly table: DraftTable;
   readonly network?: AuthoringNetworkResponse['network'];

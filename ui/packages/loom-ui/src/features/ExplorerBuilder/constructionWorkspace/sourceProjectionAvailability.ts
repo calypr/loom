@@ -1,7 +1,7 @@
 import type { ConstructionCapabilitiesResponse, ConstructionStageDescriptor } from '../../../types';
 import { copyForReasonCode } from '../catalogItems';
 
-export type SourceProjectionAvailability = {
+type SourceProjectionAvailability = {
   readonly available: boolean;
   readonly reason: string;
 };

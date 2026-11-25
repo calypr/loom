@@ -1,4 +1,4 @@
-export type ServerDraftIdentity = {
+type ServerDraftIdentity = {
   readonly draftVersion: number;
   readonly draftDigest: string;
 };

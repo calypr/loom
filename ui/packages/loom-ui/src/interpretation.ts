@@ -3,7 +3,7 @@ import { explorerColumnSourceSchema, contributorPredicateSchema } from './types'
 
 const idSchema = z.string().trim().min(1);
 
-export const interpretationApplicabilitySchema = z.object({
+const interpretationApplicabilitySchema = z.object({
   resourceTypes: z.array(idSchema).optional(),
   sourceProfiles: z.array(z.string()).optional(),
   sourceCanonical: z.array(z.string()).optional(),
@@ -12,7 +12,7 @@ export const interpretationApplicabilitySchema = z.object({
   schemaDigests: z.array(z.string()).optional(),
 }).strict();
 
-export const interpretationStructuralMatchSchema = z.object({
+const interpretationStructuralMatchSchema = z.object({
   resourceType: z.string().optional(),
   sourceProfile: z.string().optional(),
   sourceCanonical: z.string().optional(),
@@ -24,12 +24,12 @@ export const interpretationStructuralMatchSchema = z.object({
   cardinality: z.string().optional(),
 }).strict();
 
-export const interpretationFeatureDefinitionSchema = z.object({
+const interpretationFeatureDefinitionSchema = z.object({
   source: explorerColumnSourceSchema,
   contributor: contributorPredicateSchema.optional(),
 }).strict();
 
-export const interpretationRuleSchema = z.object({
+const interpretationRuleSchema = z.object({
   id: idSchema,
   priority: z.number().int().optional(),
   match: interpretationStructuralMatchSchema,
@@ -50,7 +50,7 @@ export const interpretationRevisionSchema = z.object({
   createdAt: z.string().min(1),
 }).strict();
 
-export const interpretationLibrarySchema = z.object({
+const interpretationLibrarySchema = z.object({
   id: idSchema,
   project: idSchema,
   headRevisionId: idSchema.optional(),
@@ -59,7 +59,7 @@ export const interpretationLibrarySchema = z.object({
   updatedAt: z.string().min(1),
 }).strict();
 
-export const interpretationLibraryViewSchema = z.object({
+const interpretationLibraryViewSchema = z.object({
   library: interpretationLibrarySchema,
   head: interpretationRevisionSchema.optional(),
 }).strict();
@@ -69,7 +69,7 @@ export const interpretationLibraryListResponseSchema = z.object({
   libraries: z.array(interpretationLibraryViewSchema),
 }).strict();
 
-export const interpretationRevisionSummarySchema = z.object({
+const interpretationRevisionSummarySchema = z.object({
   id: idSchema,
   libraryId: idSchema,
   contentDigest: idSchema,
@@ -78,7 +78,7 @@ export const interpretationRevisionSummarySchema = z.object({
   createdAt: z.string().min(1),
 }).strict();
 
-export const interpretationLibrarySummarySchema = z.object({
+const interpretationLibrarySummarySchema = z.object({
   id: idSchema,
   headRevisionId: idSchema.optional(),
   headDigest: idSchema.optional(),
@@ -99,14 +99,14 @@ const configuredColumnUnavailableResolutionSchema = (
   reason: z.string().min(1),
 }).strict();
 
-export const configuredColumnResolutionSchema = z.discriminatedUnion('state', [
+const configuredColumnResolutionSchema = z.discriminatedUnion('state', [
   configuredColumnReadyResolutionSchema,
   configuredColumnUnavailableResolutionSchema('MISSING'),
   configuredColumnUnavailableResolutionSchema('AMBIGUOUS'),
   configuredColumnUnavailableResolutionSchema('UNSUPPORTED'),
 ]);
 
-export const configuredColumnContextSchema = z.object({
+const configuredColumnContextSchema = z.object({
   outputId: idSchema,
   column: idSchema,
   occurrenceId: idSchema,
@@ -122,7 +122,7 @@ export const configuredColumnContextResponseSchema = z.object({
   columns: z.array(configuredColumnContextSchema),
 }).strict();
 
-export const interpretationPreviewSampleSchema = z.object({
+const interpretationPreviewSampleSchema = z.object({
   rowId: idSchema,
   before: z.record(z.string(), z.unknown()),
   after: z.record(z.string(), z.unknown()),
@@ -146,13 +146,13 @@ export const interpretationPreviewResponseSchema = z.object({
 }).strict();
 
 export type InterpretationApplicability = z.infer<typeof interpretationApplicabilitySchema>;
-export type InterpretationFeatureDefinition = z.infer<typeof interpretationFeatureDefinitionSchema>;
+type InterpretationFeatureDefinition = z.infer<typeof interpretationFeatureDefinitionSchema>;
 export type InterpretationRule = z.infer<typeof interpretationRuleSchema>;
 export type InterpretationRevision = z.infer<typeof interpretationRevisionSchema>;
 export type InterpretationLibraryView = z.infer<typeof interpretationLibraryViewSchema>;
 export type InterpretationPreviewResponse = z.infer<typeof interpretationPreviewResponseSchema>;
 export type InterpretationRevisionSummary = z.infer<typeof interpretationRevisionSummarySchema>;
-export type InterpretationLibrarySummary = z.infer<typeof interpretationLibrarySummarySchema>;
-export type ConfiguredColumnResolution = z.infer<typeof configuredColumnResolutionSchema>;
-export type ConfiguredColumnContext = z.infer<typeof configuredColumnContextSchema>;
+type InterpretationLibrarySummary = z.infer<typeof interpretationLibrarySummarySchema>;
+type ConfiguredColumnResolution = z.infer<typeof configuredColumnResolutionSchema>;
+type ConfiguredColumnContext = z.infer<typeof configuredColumnContextSchema>;
 export type ConfiguredColumnContextResponse = z.infer<typeof configuredColumnContextResponseSchema>;

@@ -28,7 +28,7 @@ export type CatalogItem =
     };
 
 
-export const canonicalCatalogSourcePath = (resourceType: string, path: string): string => {
+const canonicalCatalogSourcePath = (resourceType: string, path: string): string => {
   let value = path.trim().replace(/^root\./, '');
   if (resourceType && value.startsWith(`${resourceType}.`)) value = value.slice(resourceType.length + 1);
   return value.replace(/^\./, '');
@@ -148,15 +148,15 @@ export const fieldPresentationMatchesRequest = ({
   return contextMatches && decisionsMatch;
 };
 
-export const CODED_VALUE_RULE_HINT = 'CODED_VALUE_V1';
-export const CODED_CONCEPT_RULE_HINT = 'CODED_CONCEPT_V1';
-export const CODED_CATEGORY_RULE_HINT = 'CODED_CATEGORY_V1';
+const CODED_VALUE_RULE_HINT = 'CODED_VALUE_V1';
+const CODED_CONCEPT_RULE_HINT = 'CODED_CONCEPT_V1';
+const CODED_CATEGORY_RULE_HINT = 'CODED_CATEGORY_V1';
 export const CODED_SEMANTIC_RULE_HINTS = [
   CODED_VALUE_RULE_HINT,
   CODED_CONCEPT_RULE_HINT,
   CODED_CATEGORY_RULE_HINT,
 ] as const;
-export type CodedSemanticRuleHint = (typeof CODED_SEMANTIC_RULE_HINTS)[number];
+type CodedSemanticRuleHint = (typeof CODED_SEMANTIC_RULE_HINTS)[number];
 
 export type CatalogChoiceGroup = {
   readonly item: CatalogItem;
@@ -170,11 +170,11 @@ export type CatalogChoiceGroup = {
   };
 };
 
-export type CatalogItemAvailability =
+type CatalogItemAvailability =
   | { readonly selectable: true }
   | { readonly selectable: false; readonly reason: string };
 
-export type CatalogSourceOption =
+type CatalogSourceOption =
   | {
       readonly kind: 'ALL';
       readonly key: string;
@@ -325,7 +325,7 @@ const semanticStructuralLabel = (item: SemanticInventoryItem): string => {
   return [item.resourceType, structuralPath].filter(Boolean).join(' ') || item.resourceType;
 };
 
-export const semanticConceptTitle = (item: SemanticInventoryItem): string => {
+const semanticConceptTitle = (item: SemanticInventoryItem): string => {
   const label = item.display.trim() || item.code.trim() || item.sourcePath;
   return /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(label)
     ? label.replaceAll('_', ' ').replace(/^./, (first) => first.toUpperCase())
@@ -335,7 +335,7 @@ export const semanticConceptTitle = (item: SemanticInventoryItem): string => {
 export const semanticConceptLabel = (item: SemanticInventoryItem): string =>
   semanticConceptTitle(item);
 
-export const semanticConceptSelectionLabel = (
+const semanticConceptSelectionLabel = (
   item: SemanticInventoryItem,
   selectionMode?: SemanticInventorySelectionMode,
 ): string => {
@@ -521,35 +521,6 @@ export const catalogItemDefaultForm = (
   return defaults.length === 1 ? defaults[0]?.form : undefined;
 };
 
-export const directCatalogChoiceIntents = (
-  items: ReadonlyArray<CatalogItem>,
-  rowRoot: string,
-): ReadonlyArray<CatalogChoiceIntent> | undefined => {
-  if (items.length === 0) return undefined;
-  const selections: CatalogChoiceIntent[] = [];
-  for (const item of items) {
-    const choice = catalogItemConstructionChoice(item);
-    if (
-      !choice ||
-      !catalogItemAvailability(item).selectable ||
-      choice.options.length !== 1
-    ) {
-      return undefined;
-    }
-    const [option] = choice.options;
-    if (!option || option.decision !== 'DEFAULT') return undefined;
-    const intent = catalogChoiceIntent({
-      item,
-      choice,
-      form: option.form,
-      rowRoot,
-    });
-    if (isRelatedFieldCatalogItem(item, rowRoot) && !intent.relatedSource) return undefined;
-    selections.push(intent);
-  }
-  return selections;
-};
-
 export const fieldCatalogItems = (
   catalog: ExplorerBuilderCatalog,
   rowRoot: string,
@@ -610,13 +581,7 @@ export const fieldCatalogItems = (
   }).sort((left, right) => rootPriority(left) - rootPriority(right));
 };
 
-export const rootFieldCatalogItems = (
-  catalog: ExplorerBuilderCatalog,
-  rowRoot: string,
-  query: string,
-): ReadonlyArray<CatalogItem> => fieldCatalogItems(catalog, rowRoot, rowRoot, query);
-
-export const semanticItemMatchesRule = (
+const semanticItemMatchesRule = (
   item: SemanticInventoryItem,
   ruleHint: string,
 ): boolean => {
@@ -679,7 +644,7 @@ export const copyForReasonCode = (reasonCode?: string, reason?: string): string 
   return `Loom reported that this is unavailable (${sanitizeReasonText(code)}) without an explanation.`;
 };
 
-export type OperationSummary = {
+type OperationSummary = {
   readonly label: string;
   readonly detail: string;
   readonly reasonCode?: string;

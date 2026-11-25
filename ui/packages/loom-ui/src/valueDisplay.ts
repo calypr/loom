@@ -1,6 +1,6 @@
-export type UnknownRecordDisplay = 'json' | 'parts';
+type UnknownRecordDisplay = 'json' | 'parts';
 
-export interface ValueDisplayOptions {
+interface ValueDisplayOptions {
   readonly unknownRecord?: UnknownRecordDisplay;
   readonly maxDepth?: number;
 }

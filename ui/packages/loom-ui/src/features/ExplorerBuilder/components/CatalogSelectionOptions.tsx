@@ -81,7 +81,7 @@ export type RouteMatchCoverage = {
   readonly displayedRows: number;
   readonly sampled: boolean;
 };
-export type RouteValueCoverage = {
+type RouteValueCoverage = {
   readonly kind: 'VALUES';
   readonly empty: number;
   readonly one: number;

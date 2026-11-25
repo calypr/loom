@@ -18,7 +18,7 @@ export interface DraftTable {
   readonly document: ExplorerBuilderDocument;
 }
 
-export interface DerivedOccurrence {
+interface DerivedOccurrence {
   readonly id: string;
   readonly index: number;
   readonly nodeId: string;
@@ -324,7 +324,7 @@ export const stateFromCommands = (
   };
 };
 
-export const completeDocument = (
+const completeDocument = (
   table: DraftTable,
 ): ExplorerBuilderDocument | undefined => {
   const title = table.title.trim() || table.document.output.title;

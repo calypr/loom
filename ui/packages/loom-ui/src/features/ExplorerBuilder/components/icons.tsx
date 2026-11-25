@@ -32,17 +32,6 @@ export const IconCopy = (props: IconProps) => (
   </Icon>
 );
 
-export const IconGripVertical = (props: IconProps) => (
-  <Icon {...props}>
-    <circle cx="9" cy="5" fill="currentColor" r="1" stroke="none" />
-    <circle cx="15" cy="5" fill="currentColor" r="1" stroke="none" />
-    <circle cx="9" cy="12" fill="currentColor" r="1" stroke="none" />
-    <circle cx="15" cy="12" fill="currentColor" r="1" stroke="none" />
-    <circle cx="9" cy="19" fill="currentColor" r="1" stroke="none" />
-    <circle cx="15" cy="19" fill="currentColor" r="1" stroke="none" />
-  </Icon>
-);
-
 export const IconTrash = (props: IconProps) => (
   <Icon {...props}>
     <path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3" />

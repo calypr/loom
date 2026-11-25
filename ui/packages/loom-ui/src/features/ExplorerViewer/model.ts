@@ -12,7 +12,7 @@ export const isPageSize = (value: number): value is PageSize => {
   return false;
 };
 
-export type ViewerFilterKind = 'enum' | 'terms';
+type ViewerFilterKind = 'enum' | 'terms';
 
 export interface ViewerSort {
   readonly column: string;
@@ -38,7 +38,7 @@ export const isClearedSelection = (selection: ViewerFieldSelection): boolean =>
 export const isSelectedSelection = (selection: ViewerFieldSelection | undefined): boolean =>
   selection !== undefined && !isClearedSelection(selection);
 
-export interface ViewerOutputState {
+interface ViewerOutputState {
   readonly filterValues: Readonly<Record<string, ViewerFieldSelection>>;
   readonly sort?: ViewerSort;
   readonly pageSize: PageSize;
@@ -50,7 +50,7 @@ export interface ViewerSharedFilterProposal {
   readonly selection: ViewerFieldSelection;
 }
 
-export type ViewerOverlay =
+type ViewerOverlay =
   | { readonly kind: 'none' }
   | { readonly kind: 'rowDetails'; readonly outputId: string; readonly row: Readonly<Record<string, unknown>> }
   | { readonly kind: 'sharedFilterConfirmation'; readonly proposal: ViewerSharedFilterProposal };

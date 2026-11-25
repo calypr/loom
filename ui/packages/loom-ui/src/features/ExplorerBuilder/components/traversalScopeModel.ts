@@ -2,7 +2,7 @@ import type { AuthoringNetworkResponse, ExplorerBuilderDocument, ConstructionSte
 import { constructionHistorySteps } from '../constructionWorkspace/constructionHistory';
 
 export type NavigatorSourceStep = NonNullable<ExplorerBuilderDocument['importedSource']>['steps'][number];
-export interface TraversalScope {
+interface TraversalScope {
   readonly id: string;
   readonly parentId?: string;
   readonly resourceType: string;
@@ -27,14 +27,14 @@ export interface ScopedOperation {
   readonly constructionStep?: ConstructionStep;
   readonly anchorColumnId?: string;
 }
-export interface ScopedColumn {
+interface ScopedColumn {
   readonly id: string;
   readonly label: string;
   readonly scopeId?: string;
   readonly sourceStepId?: string;
   readonly unavailableReason?: string;
 }
-export interface TraversalScopeModel {
+interface TraversalScopeModel {
   readonly scopes: ReadonlyArray<TraversalScope>;
   readonly sourceOperations: ReadonlyArray<ScopedOperation>;
   readonly constructionOperations: ReadonlyArray<ScopedOperation>;

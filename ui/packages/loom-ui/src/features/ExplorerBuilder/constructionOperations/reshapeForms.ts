@@ -15,7 +15,7 @@ export type CandidateIntent = Pick<
   'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource' | 'groupSources' | 'pivotSources' | 'unpivotSources' | 'expandSources'
 >;
 
-export type ReshapeOperationKind = 'PIVOT' | 'CODED_PIVOT' | 'UNPIVOT' | 'GROUP' | 'CODED_GROUP' | 'EXPAND' | 'RELATED_EXPAND';
+type ReshapeOperationKind = 'PIVOT' | 'CODED_PIVOT' | 'UNPIVOT' | 'GROUP' | 'CODED_GROUP' | 'EXPAND' | 'RELATED_EXPAND';
 export type GroupAggregateKind = 'COUNT_ROWS' | 'COUNT_NON_NULL' | 'COUNT_DISTINCT' | 'SUM' | 'MEAN';
 export type EmptyListPolicy = 'ERROR' | 'EXCLUDE' | 'PRESERVE_PARENT';
 
@@ -47,8 +47,8 @@ export type ConstructionReshapePivotDiscovery = ConstructionReshapePivotDiscover
 
 export type CompletePivotDiscovery = Extract<ConstructionReshapePivotDiscovery, { readonly status: 'complete' }>;
 
-export type PivotOperation = Extract<ConstructionStep['operation'], { readonly kind: 'PIVOT' }>;
-export type UnpivotOperation = Extract<ConstructionStep['operation'], { readonly kind: 'UNPIVOT' }>;
+type PivotOperation = Extract<ConstructionStep['operation'], { readonly kind: 'PIVOT' }>;
+type UnpivotOperation = Extract<ConstructionStep['operation'], { readonly kind: 'UNPIVOT' }>;
 
 export type ReshapeColumn = ConstructionStageDescriptor['columns'][number];
 export type ReshapeStage = ConstructionStageDescriptor;
@@ -67,17 +67,17 @@ export type GroupKey = {
   readonly label: string;
 };
 
-export type GroupOperation = Extract<ConstructionStep['operation'], { readonly kind: 'GROUP' }>;
-export type GroupOperationKey = NonNullable<GroupOperation['group']['keys']>[number];
-export type GroupSemanticOperationKey = Extract<GroupOperationKey, { readonly semanticCategory: unknown }>;
-export type GroupSemanticCategory = GroupSemanticOperationKey['semanticCategory'];
-export type GroupFieldSourceOperationKey = Extract<GroupOperationKey, { readonly fieldSource: unknown }>;
-export type GroupFieldSource = GroupFieldSourceOperationKey['fieldSource'];
+type GroupOperation = Extract<ConstructionStep['operation'], { readonly kind: 'GROUP' }>;
+type GroupOperationKey = NonNullable<GroupOperation['group']['keys']>[number];
+type GroupSemanticOperationKey = Extract<GroupOperationKey, { readonly semanticCategory: unknown }>;
+type GroupSemanticCategory = GroupSemanticOperationKey['semanticCategory'];
+type GroupFieldSourceOperationKey = Extract<GroupOperationKey, { readonly fieldSource: unknown }>;
+type GroupFieldSource = GroupFieldSourceOperationKey['fieldSource'];
 export type GroupFieldChoice = NonNullable<ReshapeCapabilities['groupFieldChoices']>[number];
 export type GroupFieldSourceChoice = Extract<GroupFieldChoice, { readonly kind: 'FIELD_SOURCE' }>;
-export type GroupScalarFieldSource = Extract<GroupFieldSource, { readonly kind: 'CHOICE' }>
+type GroupScalarFieldSource = Extract<GroupFieldSource, { readonly kind: 'CHOICE' }>
   | Extract<GroupFieldSource, { readonly kind: 'BINDING'; readonly valueKind: 'SCALAR' }>;
-export type GroupCodingFieldSource = Extract<GroupFieldSource, { readonly kind: 'CHOICE' }>
+type GroupCodingFieldSource = Extract<GroupFieldSource, { readonly kind: 'CHOICE' }>
   | Extract<GroupFieldSource, { readonly kind: 'BINDING'; readonly valueKind: 'CODING_IDENTITY' }>;
 export type SemanticGroupChoice = NonNullable<ReshapeCapabilities['semanticGroupChoices']>[number];
 export type GroupFieldKey =
@@ -103,7 +103,7 @@ export type GroupFieldKey =
       readonly scopeLabel: string;
       readonly valueType: 'string';
     };
-export type GroupSemanticKey = {
+type GroupSemanticKey = {
   readonly semanticCategory: GroupSemanticCategory;
   readonly outputColumnId: string;
   readonly name: string;
@@ -130,7 +130,7 @@ export type GroupCodedCategory = {
   | { readonly choice: 'ready'; readonly sourceChoiceId: string; readonly categoryChoiceId: string }
 );
 
-export type GroupCodedPassthrough = {
+type GroupCodedPassthrough = {
   readonly inputColumnId: string;
   readonly outputColumnId: string;
   readonly name: string;
@@ -153,8 +153,8 @@ export type GroupAggregate =
       readonly label: string;
     };
 
-export type ConstructionRowValue = NonNullable<ConstructionStep['rowValues']>[number];
-export type GroupRowValueFieldSource = Extract<ConstructionRowValue, { readonly fieldSource: unknown }>['fieldSource'];
+type ConstructionRowValue = NonNullable<ConstructionStep['rowValues']>[number];
+type GroupRowValueFieldSource = Extract<ConstructionRowValue, { readonly fieldSource: unknown }>['fieldSource'];
 export type GroupRowValueChoice = ConstructionCapabilitiesResponse['groupRowValueChoices'][number];
 export type GroupRowValue = {
   readonly outputColumnId: string;
@@ -362,7 +362,7 @@ export const groupRowValueChoicesForStage = (
   ? capabilities.groupRowValueChoices
   : [];
 
-export const reshapeKindLabel = (kind: ReshapeOperationKind): string => {
+const reshapeKindLabel = (kind: ReshapeOperationKind): string => {
   switch (kind) {
     case 'PIVOT': return 'pivot';
     case 'CODED_PIVOT': return 'coded pivot';
@@ -378,9 +378,9 @@ export const reshapeKindLabel = (kind: ReshapeOperationKind): string => {
   }
 };
 
-export const reshapeScalarTypes = new Set(['string', 'date', 'date_time', 'datetime', 'code', 'uuid', 'integer', 'decimal', 'number', 'boolean']);
+const reshapeScalarTypes = new Set(['string', 'date', 'date_time', 'datetime', 'code', 'uuid', 'integer', 'decimal', 'number', 'boolean']);
 
-export const isScalarValueType = (type: string | undefined): boolean => reshapeScalarTypes.has(normalizedLogicalType(type));
+const isScalarValueType = (type: string | undefined): boolean => reshapeScalarTypes.has(normalizedLogicalType(type));
 
 export const isScalarColumn = (column: ReshapeColumn): boolean =>
   (column.cardinality === 'required_one' || column.cardinality === 'optional_one')
@@ -476,7 +476,7 @@ export const groupOutputColumns = (form: GroupForm, stage: ReshapeStage): Constr
   return outputs;
 };
 
-export const groupOperationFor = (form: GroupForm): Extract<ConstructionStep['operation'], { readonly kind: 'GROUP' }> => {
+const groupOperationFor = (form: GroupForm): Extract<ConstructionStep['operation'], { readonly kind: 'GROUP' }> => {
   const passthroughID = new Map(form.codedPassthroughs.map(({ inputColumnId, outputColumnId }) => [inputColumnId, outputColumnId]));
   const codedInputs = new Set(form.codedCategories.map((category) => category.helperOutputColumnId));
   const inputID = (columnID: string) => form.codedCategories.length > 0 && !codedInputs.has(columnID)
@@ -554,7 +554,7 @@ export const expandOutputsFor = (form: ExpandForm, stage: ReshapeStage): Constru
   return output;
 };
 
-export const expandOperationFor = (form: ExpandForm): Extract<ConstructionStep['operation'], { readonly kind: 'EXPAND' }> | undefined => {
+const expandOperationFor = (form: ExpandForm): Extract<ConstructionStep['operation'], { readonly kind: 'EXPAND' }> | undefined => {
   if (!form.emptyPolicy) return undefined;
   return {
     kind: 'EXPAND',
@@ -698,7 +698,7 @@ export const pivotOutputsFor = (form: PivotForm, stage: ReshapeStage): Construct
   return [...groupOutputs, ...categoryOutputs];
 };
 
-export const pivotOperationFor = (form: PivotForm): PivotOperation => ({
+const pivotOperationFor = (form: PivotForm): PivotOperation => ({
   kind: 'PIVOT',
   pivot: {
     constructionId: form.stepId,
@@ -732,7 +732,7 @@ export const unpivotOutputsFor = (form: UnpivotForm, stage: ReshapeStage): Const
   ];
 };
 
-export const unpivotOperationFor = (form: UnpivotForm): UnpivotOperation => ({
+const unpivotOperationFor = (form: UnpivotForm): UnpivotOperation => ({
   kind: 'UNPIVOT',
   unpivot: {
     constructionId: form.stepId,
@@ -961,7 +961,7 @@ export const groupStepFromForm = (args: {
   return { step: groupStep, codedInput };
 };
 
-export const sourceGroupProjection = (construction: Construction, step: ConstructionReshapeStep) => {
+const sourceGroupProjection = (construction: Construction, step: ConstructionReshapeStep) => {
   if (step.operation.kind !== 'GROUP') return undefined;
   if (step.operation.group.keys?.some((candidate) => 'semanticCategory' in candidate)) return undefined;
   const key = step.operation.group.keys?.find((candidate) => 'inputColumnId' in candidate);
@@ -1035,7 +1035,7 @@ export const sourceGroupStepFromForm = (
   };
 };
 
-export const initialCodedGroupForm = (stage: ReshapeStage, editingStep?: ConstructionReshapeStep): CodedGroupForm => {
+const initialCodedGroupForm = (stage: ReshapeStage, editingStep?: ConstructionReshapeStep): CodedGroupForm => {
   if (editingStep?.operation.kind === 'CODED_GROUP') {
     return {
       kind: 'coded-group',
@@ -1529,7 +1529,7 @@ export const initialUnpivotForm = (
   };
 };
 
-export const groupKeyName = (stage: ReshapeStage, key: GroupKey): string =>
+const groupKeyName = (stage: ReshapeStage, key: GroupKey): string =>
   stage.columns.find((column) => column.id === key.inputColumnId)?.label ?? 'selected column';
 
 export const formForStep = (
@@ -1697,13 +1697,13 @@ export const groupFieldKeyForChoice = (form: GroupForm, choice: GroupFieldSource
   };
 };
 
-export const scalarGroupFieldSource = (source: GroupFieldSource): GroupScalarFieldSource | undefined => {
+const scalarGroupFieldSource = (source: GroupFieldSource): GroupScalarFieldSource | undefined => {
   if (source.kind === 'CHOICE') return source;
   if (source.valueKind === 'SCALAR') return source;
   return undefined;
 };
 
-export type GroupFieldSourcePresentation = {
+type GroupFieldSourcePresentation = {
   readonly sourceRole: string;
   readonly ownerResourceType: string;
   readonly canonicalPath?: string;
@@ -1741,7 +1741,7 @@ export const groupFieldSourcePresentation = (source: GroupFieldSource): GroupFie
   }
 };
 
-export const codingGroupFieldSource = (source: GroupFieldSource): GroupCodingFieldSource | undefined => {
+const codingGroupFieldSource = (source: GroupFieldSource): GroupCodingFieldSource | undefined => {
   if (source.kind === 'CHOICE') return source;
   if (source.valueKind === 'CODING_IDENTITY') return source;
   return undefined;

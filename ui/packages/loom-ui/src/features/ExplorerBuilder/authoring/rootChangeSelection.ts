@@ -250,7 +250,7 @@ export const compilerRootSelectionLabel = ({
   return `Use ${pathLabel}`;
 };
 
-export type StartingRootChoice = {
+type StartingRootChoice = {
   readonly key: string;
   readonly selection: RootChangeSelection;
   readonly resourceType: string;
@@ -258,12 +258,12 @@ export type StartingRootChoice = {
   readonly current: boolean;
 };
 
-export type CatalogRootRouteSelection = {
+type CatalogRootRouteSelection = {
   readonly edgeIds: ReadonlyArray<string>;
   readonly anchorOccurrenceId: string;
 };
 
-export type ResolvedCatalogRootRouteSelection = CatalogRootRouteSelection & {
+type ResolvedCatalogRootRouteSelection = CatalogRootRouteSelection & {
   readonly edges: ReadonlyArray<ExplorerBuilderCatalog['edges'][number]>;
   readonly anchorLabel: string;
   readonly pathLabel: string;
@@ -271,7 +271,7 @@ export type ResolvedCatalogRootRouteSelection = CatalogRootRouteSelection & {
 
 const routeSelectionPrefix = 'row-change-route:v1:';
 
-export const isCatalogRootRouteSelectionToken = (value: string): boolean =>
+const isCatalogRootRouteSelectionToken = (value: string): boolean =>
   value.startsWith(routeSelectionPrefix);
 
 const routeEdgeLabel = (

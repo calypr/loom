@@ -1,7 +1,7 @@
 import { constructionHistorySteps } from '../constructionWorkspace/constructionHistory';
 import type { AuthoringNetworkResponse, ConstructionStep, ExplorerBuilderColumn, ExplorerBuilderDocument, ExplorerBuilderRouteNode } from '../../../types';
 
-export interface RowConnectionTerm {
+interface RowConnectionTerm {
   readonly occurrenceId: string;
   readonly parentOccurrenceId?: string;
   readonly resourceType: string;
@@ -11,7 +11,7 @@ export interface RowConnectionTerm {
   readonly matchMode: 'OPTIONAL' | 'REQUIRED';
 }
 
-export function rowConnectionTerms(route: ExplorerBuilderRouteNode): readonly RowConnectionTerm[] {
+function rowConnectionTerms(route: ExplorerBuilderRouteNode): readonly RowConnectionTerm[] {
   const terms: RowConnectionTerm[] = [];
   const walk = (node: ExplorerBuilderRouteNode, path: string, parentOccurrenceId?: string) => {
     const currentPath = path ? `${path} → ${node.resourceType}${node.relationship ? ` (${node.relationship})` : ''}` : node.resourceType;
@@ -29,7 +29,7 @@ const policyNames: Readonly<Record<string, string>> = {
   COUNT: 'count of matches', PRESENCE: 'whether a match exists',
 };
 export const rowValuePolicyLabel = (policy: string) => policyNames[policy] ?? policy;
-export const emptyMatchLabel = (policy: string) => ({
+const emptyMatchLabel = (policy: string) => ({
   PRESERVE_PARENT: 'keep the input row', EXCLUDE: 'exclude the input row', ERROR: 'report an error',
   GROUP: 'keep a missing-key group', GROUP_AS_MISSING: 'keep a missing-key group',
   GROUP_AS_UNASSIGNED: 'keep an unassigned group',
@@ -49,7 +49,7 @@ export function columnPolicy(column: ExplorerBuilderColumn, network?: AuthoringN
   return { label: source.kind === 'projectId' ? 'project identifier' : 'configured source policy' };
 }
 
-export function sourceRowExpression(document: ExplorerBuilderDocument): string {
+function sourceRowExpression(document: ExplorerBuilderDocument): string {
   const rows = document.rows;
   if (rows.kind === 'RECORDS') return `One row per ${document.rootResourceType} record`;
   if (rows.kind === 'EXPANDED') {
@@ -61,7 +61,7 @@ export function sourceRowExpression(document: ExplorerBuilderDocument): string {
     : `One row per source key ${rows.groups.source.field.fieldPath}; missing key: ${emptyMatchLabel(rows.groups.source.field.missingKeyPolicy)}`;
 }
 
-export function expressionColumnLabels(document: ExplorerBuilderDocument): ReadonlyMap<string, string> {
+function expressionColumnLabels(document: ExplorerBuilderDocument): ReadonlyMap<string, string> {
   const labels = new Map<string, string>();
   document.columns.forEach((column) => { labels.set(column.columnId ?? column.column, column.label); labels.set(column.column, column.label); });
   document.construction?.sourceProjections?.forEach((column) => labels.set(column.columnId, column.label));
@@ -104,17 +104,4 @@ export function operationExpression(step: ConstructionStep, labels: ReadonlyMap<
         clauses: [summary?.summary ?? 'Retained in execution order; edit using its existing inspector.'] };
     }
   }
-}
-
-export function rowRecipeSentence(document: ExplorerBuilderDocument, network?: AuthoringNetworkResponse['network']): string {
-  const connections = rowConnectionTerms(document.route).filter((term) => term.parentOccurrenceId);
-  const labels = expressionColumnLabels(document);
-  return [sourceRowExpression(document),
-    connections.length ? `connected through ${connections.map((term) => `${term.path} (${term.matchMode === 'REQUIRED' ? 'match required' : 'keep unmatched input'})`).join('; ')}` : 'no related connections',
-    document.columns.length ? `include ${document.columns.map((column) => `${column.label} as ${columnPolicy(column, network).label}`).join('; ')}` : 'no selected columns',
-    ...(document.construction?.steps ?? []).map((step) => {
-      const expression = operationExpression(step, labels);
-      return `${expression.title}; ${expression.clauses.join('; ')}`;
-    }),
-  ].join('. ');
 }

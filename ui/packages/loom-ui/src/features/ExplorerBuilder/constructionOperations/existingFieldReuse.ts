@@ -2,7 +2,7 @@
 
 import type { Construction } from '../../../types';
 
-export type ExistingColumnReuse = {
+type ExistingColumnReuse = {
   readonly columnId: string;
   readonly label: string;
   readonly fieldPath: string;

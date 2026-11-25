@@ -51,11 +51,3 @@ export function authoredStages(table: DraftTable, identity?: AuthoringNetworkRes
     };
   });
 }
-
-export function authoredRowMeaning(table: DraftTable) {
-  const rows = table.document.rows;
-  const source = rows.kind === 'RECORDS' ? `One row per ${table.document.rootResourceType} record.`
-    : rows.kind === 'EXPANDED' ? `One row per item in ${rows.expanded.scopePath} on occurrence ${rows.expanded.occurrenceId}; empty collections: ${rows.expanded.emptyCollectionPolicy}.`
-    : 'One row per source group; inspect its source row definition.';
-  return constructionRowMeaning(source, table.document.construction, table.document.columns.map((column) => ({ id: column.columnId ?? column.column, name: column.column, label: column.label, type: column.logicalType })));
-}

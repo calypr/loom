@@ -1,6 +1,6 @@
 {
-  "unreachableProductionFiles": 9,
-  "unusedExports": 203,
+  "unreachableProductionFiles": 0,
+  "unusedExports": 0,
   "importCycles": 1,
   "effectLikeSites": 16,
   "stalenessComparisons": 131,

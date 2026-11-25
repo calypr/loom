@@ -1,18 +1,18 @@
 import type { ExplorerBuilderCommand } from '../../../types';
 import type { DraftTable } from './model';
 
-export type AdmissionRefusal = {
+type AdmissionRefusal = {
   readonly kind: 'imported-recipe-immutable';
   readonly message: string;
   readonly outputId: string;
   readonly commandIndex?: number;
 };
 
-export type Admission =
+type Admission =
   | { readonly kind: 'admitted' }
   | { readonly kind: 'refused'; readonly refusal: AdmissionRefusal };
 
-export type AuthoringRequest =
+type AuthoringRequest =
   | { readonly kind: 'commands'; readonly commands: ReadonlyArray<ExplorerBuilderCommand> }
   | { readonly kind: 'add-columns-proposal'; readonly outputId: string };
 

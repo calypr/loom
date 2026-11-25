@@ -3,7 +3,7 @@ export interface ServerDraftIdentity {
   readonly digest: string;
 }
 
-export interface CommandDraftIdentity {
+interface CommandDraftIdentity {
   readonly expectedDraftVersion: number;
   readonly expectedDraftDigest?: string;
 }

@@ -5,7 +5,7 @@ export type ConstructionApplyIdentity<Owner> = {
   readonly generation: number;
 };
 export type ConstructionApplyAttempt<Owner> = { readonly identity: ConstructionApplyIdentity<Owner> };
-export type ConstructionApplySlot<Owner> = { current: ConstructionApplyAttempt<Owner> | undefined };
+type ConstructionApplySlot<Owner> = { current: ConstructionApplyAttempt<Owner> | undefined };
 
 export const beginConstructionApply = <Owner>(
   slot: ConstructionApplySlot<Owner>,

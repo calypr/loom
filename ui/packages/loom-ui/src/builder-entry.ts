@@ -5,4 +5,6 @@ export type { LoomClient, LoomClientOptions, ExplorerAuthoringApiError, Explorer
 export { LoomProvider, useLoomClient } from './react';
 export { LoomExplorerBuilder } from './Builder';
 export type { LoomExplorerBuilderProps } from './Builder';
-export * from './features/ExplorerBuilder';
+export {
+  BuilderWorkspace,
+} from './features/ExplorerBuilder';

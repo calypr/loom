@@ -25,7 +25,7 @@ export interface LoomViewerActionContext {
 
 export type LoomViewerActionHandler = (context: LoomViewerActionContext, signal: AbortSignal) => Promise<void> | void;
 
-export interface LoomFeatureRepairContext {
+interface LoomFeatureRepairContext {
   readonly outputId: string;
   readonly column: string;
   readonly label: string;
@@ -475,5 +475,3 @@ export const LoomExplorerViewer = ({ project, explorerId, client, className, act
     </LoomProvider>
   );
 };
-
-export default LoomExplorerViewer;

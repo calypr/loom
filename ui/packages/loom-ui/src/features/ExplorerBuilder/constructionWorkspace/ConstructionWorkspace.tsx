@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { useDismissibleLayer } from '../components/useDismissibleLayer';
+import { useDismissibleLayer } from '../hooks/useDismissibleLayer';
 import { useBrowserSubscription } from '../hooks/useBrowserSubscription';
 
 export type ConstructionOperationFamily =
@@ -9,7 +9,7 @@ export type ConstructionOperationFamily =
   | 'RESHAPE'
   | 'COMBINE';
 
-export interface ConstructionWorkspaceTable {
+interface ConstructionWorkspaceTable {
   readonly outputId: string;
   readonly title: string;
 }
@@ -28,7 +28,7 @@ export interface ConstructionHistoryStep {
   readonly scopeKey?: string;
 }
 
-export interface ConstructionHistoryProps {
+interface ConstructionHistoryProps {
   readonly resourceType: string;
   readonly sourceControl?: React.ReactNode;
   readonly sourceSteps?: React.ReactNode;

@@ -15,7 +15,7 @@ export function hasCommandSelectedTable(
   return selectsTableThroughCommand && selectedOutputId != null;
 }
 
-export type CompilerNavigationSelection = Extract<
+type CompilerNavigationSelection = Extract<
   RootChangeSelection,
   { readonly kind: 'compiler-route' | 'compiler-occurrence' }
 >;

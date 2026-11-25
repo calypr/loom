@@ -24,7 +24,7 @@ const filtersForSelection = (column: string, selection: ViewerFieldSelection): R
   return filtersForFixedValues(column, selection.values);
 };
 
-export const fixedFiltersFor = (output: ExplorerRuntimeOutputV1): ReadonlyArray<LoomOutputFilter> =>
+const fixedFiltersFor = (output: ExplorerRuntimeOutputV1): ReadonlyArray<LoomOutputFilter> =>
   Object.entries(output.fixedFilters).flatMap(([column, values]) => filtersForFixedValues(column, values));
 
 export const outputFiltersFor = (
@@ -48,7 +48,7 @@ export const outputFiltersFor = (
 const supportedChart = (binding: ExplorerRuntimeBindingV1): boolean =>
   ['bar', 'horizontalstacked', 'pie', 'fullpie', 'donut'].includes(binding.type?.trim().toLowerCase() ?? '');
 
-export const requestedFacetsFor = (
+const requestedFacetsFor = (
   runtime: ExplorerRuntimeV1,
   output: ExplorerRuntimeOutputV1,
   state: ViewerState,
@@ -112,7 +112,7 @@ export const outputRequestFor = (
   };
 };
 
-export const outputColumnsForRequest = (output: ExplorerRuntimeOutputV1): ReadonlyArray<string> => {
+const outputColumnsForRequest = (output: ExplorerRuntimeOutputV1): ReadonlyArray<string> => {
   const allowed = new Map(output.columns.map((column) => [column.column, column]));
   return output.table.columns
     .filter((column) => column.visible && allowed.get(column.column)?.visible)

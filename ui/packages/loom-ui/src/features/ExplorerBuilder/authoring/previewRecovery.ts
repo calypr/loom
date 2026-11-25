@@ -1,7 +1,7 @@
 import type { ExplorerAuthoringApiError } from '../../../api';
 
 export type PreviewLimit = 25 | 50 | 100 | 500 | 1000;
-export type PreviewRecoveryAction =
+type PreviewRecoveryAction =
   | 'recompile'
   | 'refresh-catalog'
   | 'retry'

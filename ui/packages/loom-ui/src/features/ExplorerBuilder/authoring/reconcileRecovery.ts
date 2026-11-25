@@ -22,13 +22,13 @@ export const isStaleSnapshot = (code: string | undefined): boolean =>
 export const isDraftDesynchronized = (code: string | undefined): boolean =>
   draftDesynchronizedCodes.has(code ?? '');
 
-export type ReconcileRecoveryAction =
+type ReconcileRecoveryAction =
   | 'refresh-and-retry'
   | 'refresh-and-stop'
   | 'retry'
   | 'repair';
 
-export type ReconcileRecoveryOptions = {
+type ReconcileRecoveryOptions = {
   readonly attempt: number;
   readonly maxAttempts: number;
   readonly staleRefreshes: number;

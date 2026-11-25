@@ -13,7 +13,7 @@ import { constructionWithStep } from './editorShared';
 import { constructionInputForStage } from '../constructionWorkspace/constructionStages';
 import { RelatedExpandContributorEditor, type ContributorChoice, type ContributorCondition } from './RelatedExpandContributorEditor';
 import { relationshipLabel, routePath } from '../constructionWorkspace/routeDisplay';
-import { useDismissibleLayer } from '../components/useDismissibleLayer';
+import { useDismissibleLayer } from '../hooks/useDismissibleLayer';
 
 type RelatedExpandOperation = Extract<ConstructionOperation, { readonly kind: 'RELATED_EXPAND' }>;
 type RelatedExpandStep = Omit<ConstructionStep, 'operation'> & { readonly operation: RelatedExpandOperation };

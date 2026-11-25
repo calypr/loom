@@ -151,3 +151,12 @@ No Phase 1–5 unit was committed. Their per-unit regression suites, oracle comp
 
 - `5c68879a9` — P0: Trace UI dispatches and client request lifetimes in Vitest
 - This report — P0: Record the blocked UI plumbing acceptance gate
+
+## Resumption under revised acceptance
+
+The operator approved behavioral acceptance after reviewing the same-source trace failures.
+Commit `d4799c609` updated the plan and execution instructions and added the graph and
+public API guards. The protected journeys now gate acceptance alongside targeted request
+and race checks. Raw traces remain available for diagnosis. Phase 0 passed all 1,600 UI
+tests and built both packages in the clean worktree. The earlier traces and failure findings
+above remain the historical record.

@@ -14,7 +14,7 @@ export interface ConstructionCombineColumn {
   readonly cardinality?: 'required_one' | 'optional_one' | 'many';
 }
 
-export interface ConstructionCombinePublishedColumn extends ConstructionCombineColumn {
+interface ConstructionCombinePublishedColumn extends ConstructionCombineColumn {
   readonly clickhouseType: string;
 }
 
@@ -30,7 +30,7 @@ export interface ConstructionCombinePublishedRevision {
   readonly columns: ReadonlyArray<ConstructionCombinePublishedColumn>;
 }
 
-export interface ConstructionCombineWorkspaceColumn extends ConstructionCombineColumn {
+interface ConstructionCombineWorkspaceColumn extends ConstructionCombineColumn {
   readonly cardinality: 'required_one' | 'optional_one' | 'many';
   readonly joinCompatibilityKey?: string;
   readonly appendCompatibilityKey?: string;

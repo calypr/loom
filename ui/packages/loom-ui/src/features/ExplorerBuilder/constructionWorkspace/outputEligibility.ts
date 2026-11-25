@@ -1,6 +1,6 @@
 import type { ExplorerBuilderDocument } from '../../../types';
 
-export interface EffectiveOutputAvailability {
+interface EffectiveOutputAvailability {
 
   readonly hasAnyOutputColumn: boolean;
 

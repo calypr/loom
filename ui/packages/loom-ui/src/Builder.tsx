@@ -19,7 +19,7 @@ export interface LoomExplorerBuilderProps {
   readonly featureFocus?: LoomBuilderFeatureFocus;
 }
 
-export interface LoomBuilderFeatureFocus {
+interface LoomBuilderFeatureFocus {
   readonly outputId: string;
   readonly column: string;
   readonly label?: string;
@@ -93,5 +93,3 @@ export const LoomExplorerBuilder = ({
     </LoomProvider>
   );
 };
-
-export default LoomExplorerBuilder;

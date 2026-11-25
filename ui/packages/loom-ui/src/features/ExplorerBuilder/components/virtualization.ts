@@ -1,7 +1,7 @@
 import {useCallback, useRef, useState, type RefCallback} from 'react';
 import { useCommitLifecycle } from '../hooks/useBrowserSubscription';
 
-export interface VirtualRange {
+interface VirtualRange {
   readonly start: number;
   readonly end: number;
 }
@@ -28,14 +28,14 @@ export const virtualRange = ({
   };
 };
 
-export interface VirtualViewport {
+interface VirtualViewport {
   readonly width: number;
   readonly height: number;
   readonly scrollLeft: number;
   readonly scrollTop: number;
 }
 
-export interface VirtualViewportBinding<T extends HTMLElement> {
+interface VirtualViewportBinding<T extends HTMLElement> {
   readonly viewport: VirtualViewport;
   readonly ref: RefCallback<T>;
 }

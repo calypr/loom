@@ -7,7 +7,7 @@ export type SourcePickerChoice = {
   readonly isPopulated: boolean;
 };
 
-export type SourcePickerEmptyClass = 'available' | 'all-bound' | 'none-populated' | 'none-listed';
+type SourcePickerEmptyClass = 'available' | 'all-bound' | 'none-populated' | 'none-listed';
 
 export type SourcePickerEmptiness = {
   readonly emptyClass: SourcePickerEmptyClass;

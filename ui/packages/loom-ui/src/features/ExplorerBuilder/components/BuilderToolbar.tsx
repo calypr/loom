@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import type { ExplorerSummary } from '../../../api';
 import type { DraftTable } from '../authoring/model';
 import { IconCopy, IconTrash } from './icons';
-import { useDismissibleLayer } from './useDismissibleLayer';
+import { useDismissibleLayer } from '../hooks/useDismissibleLayer';
 
 interface BuilderToolbarProps {
   explorers: ReadonlyArray<ExplorerSummary>;

@@ -6,7 +6,7 @@ import { rowValuePolicyLabel } from './rowRecipeProjection';
 type FieldSource = Extract<ExplorerBuilderColumn['source'], { kind: 'field' }>;
 type ProjectionMode = NonNullable<FieldSource['field']['projectionMode']>;
 
-export interface RecipeColumnPolicyInspectorProps {
+interface RecipeColumnPolicyInspectorProps {
 
   readonly column: ExplorerBuilderColumn;
   readonly sourceNodeId: string;

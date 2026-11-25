@@ -209,7 +209,7 @@ export interface CellTraceArgs extends ExplorerAuthoringStateArgs {
   readonly limit?: number;
 }
 
-export interface RowLineageArgs extends ExplorerAuthoringStateArgs {
+interface RowLineageArgs extends ExplorerAuthoringStateArgs {
   readonly receiptId: string;
   readonly outputId: string;
   readonly rowId: string;
@@ -217,17 +217,17 @@ export interface RowLineageArgs extends ExplorerAuthoringStateArgs {
   readonly limit?: number;
 }
 
-export interface PrepareArtifactArgs extends ExplorerAuthoringStateArgs {
+interface PrepareArtifactArgs extends ExplorerAuthoringStateArgs {
   readonly revisionId: string;
   readonly outputId: string;
   readonly idempotencyKey: string;
 }
 
-export interface DownloadArtifactArgs extends ExplorerAuthoringStateArgs {
+interface DownloadArtifactArgs extends ExplorerAuthoringStateArgs {
   readonly artifactId: string;
 }
 
-export interface CreateInterpretationRevisionArgs extends ExplorerAuthoringProjectArgs {
+interface CreateInterpretationRevisionArgs extends ExplorerAuthoringProjectArgs {
   readonly libraryId: string;
   readonly parentRevisionId?: string;
   readonly applicability: InterpretationApplicability;
@@ -254,7 +254,7 @@ export interface ResolveConfiguredColumnContextsArgs extends ExplorerAuthoringSt
   readonly requestId?: string;
 }
 
-export interface CreateInterpretationRevisionFromColumnArgs extends ResolveConfiguredColumnContextsArgs {
+interface CreateInterpretationRevisionFromColumnArgs extends ResolveConfiguredColumnContextsArgs {
   readonly outputId: string;
   readonly column: string;
   readonly libraryId: string;
@@ -295,7 +295,7 @@ export const populationMappingResponseSchema = z.object({
 }).strict();
 export type PopulationMappingResponse = z.infer<typeof populationMappingResponseSchema>;
 
-export const artifactSchema = z.object({
+const artifactSchema = z.object({
   id: z.string().regex(/^artifact_[0-9a-f]{64}$/),
   project: z.string().min(1),
   explorerId: z.string().min(1),
@@ -331,7 +331,7 @@ export interface ExplorerCandidateSuggestionsArgs extends ExplorerAuthoringState
   readonly requestId?: string;
 }
 
-export interface SearchSchemaFieldsArgs extends ExplorerCandidateSuggestionsArgs {
+interface SearchSchemaFieldsArgs extends ExplorerCandidateSuggestionsArgs {
   readonly cursor?: string;
   readonly limit?: number;
 }
@@ -341,7 +341,7 @@ export type BrowseSemanticInventoryArgs = ExplorerAuthoringStateArgs &
   readonly requestId?: string;
   };
 
-export interface BrowseFrameSourceOptionsArgs extends ExplorerAuthoringStateArgs {
+interface BrowseFrameSourceOptionsArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly outputId: string;
   readonly resourceType?: string;
@@ -351,14 +351,14 @@ export interface BrowseFrameSourceOptionsArgs extends ExplorerAuthoringStateArgs
   readonly requestId?: string;
 }
 
-export interface InspectColumnSourceArgs extends ExplorerAuthoringStateArgs {
+interface InspectColumnSourceArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly outputId: string;
   readonly column: string;
   readonly requestId?: string;
 }
 
-export interface SearchConstructionChoicesArgs extends ExplorerAuthoringStateArgs {
+interface SearchConstructionChoicesArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly outputId: string;
   readonly occurrenceId?: string;
@@ -368,7 +368,7 @@ export interface SearchConstructionChoicesArgs extends ExplorerAuthoringStateArg
   readonly requestId?: string;
 }
 
-export interface SearchRelatedExpandChoicesArgs extends ExplorerAuthoringStateArgs {
+interface SearchRelatedExpandChoicesArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly expectedDraftVersion: number;
   readonly expectedDraftDigest: string;
@@ -382,7 +382,7 @@ export interface SearchRelatedExpandChoicesArgs extends ExplorerAuthoringStateAr
   readonly requestId?: string;
 }
 
-export interface SearchRelatedFieldChoicesArgs extends ExplorerAuthoringStateArgs {
+interface SearchRelatedFieldChoicesArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly expectedDraftVersion: number;
   readonly expectedDraftDigest: string;
@@ -394,7 +394,7 @@ export interface SearchRelatedFieldChoicesArgs extends ExplorerAuthoringStateArg
   readonly requestId?: string;
 }
 
-export interface SearchRelatedExpandContributorsArgs extends ExplorerAuthoringStateArgs {
+interface SearchRelatedExpandContributorsArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly expectedDraftVersion: number;
   readonly expectedDraftDigest: string;
@@ -407,7 +407,7 @@ export interface SearchRelatedExpandContributorsArgs extends ExplorerAuthoringSt
   readonly requestId?: string;
 }
 
-export interface SearchPopulationRoutesArgs extends ExplorerAuthoringStateArgs {
+interface SearchPopulationRoutesArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly outputId: string;
   readonly selectionRevisionId: string;
@@ -416,12 +416,12 @@ export interface SearchPopulationRoutesArgs extends ExplorerAuthoringStateArgs {
   readonly requestId?: string;
 }
 
-export interface ListRowDefinitionChoicesArgs extends ExplorerAuthoringStateArgs {
+interface ListRowDefinitionChoicesArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly outputId: string;
 }
 
-export interface ProposeRowDefinitionArgs extends ExplorerAuthoringStateArgs {
+interface ProposeRowDefinitionArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly expectedDraftVersion: number;
   readonly expectedDraftDigest: string;
@@ -431,7 +431,7 @@ export interface ProposeRowDefinitionArgs extends ExplorerAuthoringStateArgs {
   readonly requestId?: string;
 }
 
-export type ConstructionAuthoringStateArgs = ExplorerAuthoringStateArgs & {
+type ConstructionAuthoringStateArgs = ExplorerAuthoringStateArgs & {
   readonly snapshotToken: string;
   readonly expectedDraftVersion: number;
   readonly expectedDraftDigest: string;
@@ -445,7 +445,7 @@ export interface GetConstructionCapabilitiesArgs extends ConstructionAuthoringSt
   readonly includeGroupChoices?: boolean;
 }
 
-export interface GetConstructionColumnPopulationArgs extends ConstructionAuthoringStateArgs {
+interface GetConstructionColumnPopulationArgs extends ConstructionAuthoringStateArgs {
   readonly stageId: string;
   readonly columnIds: string[];
 }
@@ -460,7 +460,7 @@ export interface DiscoverConstructionCategoriesArgs extends ConstructionAuthorin
   readonly valueColumnId: string;
 }
 
-export interface GetConstructionInputsArgs extends ExplorerAuthoringStateArgs {
+interface GetConstructionInputsArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly expectedDraftVersion: number;
   readonly expectedDraftDigest: string;
@@ -472,9 +472,9 @@ export interface GetConstructionInputsArgs extends ExplorerAuthoringStateArgs {
 
 export type DescribeAuthoringNetworkArgs = ExplorerAuthoringStateArgs & AuthoringNetworkRequest;
 
-export type ProposeColumnPolicyArgs = ExplorerAuthoringStateArgs & ColumnPolicyProposalRequest & { readonly requestId?: string };
+type ProposeColumnPolicyArgs = ExplorerAuthoringStateArgs & ColumnPolicyProposalRequest & { readonly requestId?: string };
 
-export type ProposeSourceRelationshipArgs = ExplorerAuthoringStateArgs & SourceRelationshipProposalRequest & { readonly requestId?: string };
+type ProposeSourceRelationshipArgs = ExplorerAuthoringStateArgs & SourceRelationshipProposalRequest & { readonly requestId?: string };
 
 export type ProposeConstructionArgs = ExplorerAuthoringStateArgs &
   ConstructionProposalRequest & { readonly requestId?: string };
@@ -482,7 +482,7 @@ export type ProposeConstructionArgs = ExplorerAuthoringStateArgs &
 export type ProposeConstructionChoicesArgs = ExplorerAuthoringStateArgs &
   ConstructionChoiceProposalRequest & { readonly requestId?: string };
 
-export interface CreateExplicitGroupRevisionArgs extends ExplorerAuthoringStateArgs {
+interface CreateExplicitGroupRevisionArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly selectionRevision: string;
   readonly idempotencyKey: string;
@@ -515,7 +515,7 @@ export interface GetSelectionArgs extends ExplorerAuthoringStateArgs {
   readonly limit?: number;
 }
 
-export interface ProposePopulationMemberRemovalArgs extends ExplorerAuthoringStateArgs {
+interface ProposePopulationMemberRemovalArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly expectedDraftVersion: number;
   readonly expectedDraftDigest: string;
@@ -526,7 +526,7 @@ export interface ProposePopulationMemberRemovalArgs extends ExplorerAuthoringSta
   readonly requestId?: string;
 }
 
-export const populationMemberRemovalProposalResponseSchema = z.object({
+const populationMemberRemovalProposalResponseSchema = z.object({
   proposalId: z.string().min(1),
   outputId: z.string().min(1),
   snapshotToken: z.string().min(1),
@@ -2033,6 +2033,3 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     },
   };
 };
-
-export type { ExplorerBuilderCatalog };
-export type { ConfiguredColumnContextResponse };

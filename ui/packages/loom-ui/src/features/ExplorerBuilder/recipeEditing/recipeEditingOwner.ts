@@ -9,7 +9,7 @@ export interface RecipeEditingIdentity {
   readonly draftVersion: number;
   readonly draftDigest: string;
 }
-export type RecipeEditTarget =
+type RecipeEditTarget =
   | { readonly kind: 'connection'; readonly parentOccurrenceId: string; readonly catalogEdgeId: string }
   | { readonly kind: 'relationship'; readonly occurrenceId: string }
   | { readonly kind: 'sourceRows' }
@@ -34,7 +34,7 @@ export interface RecipeValidatedCandidate {
   readonly candidateNetwork?: AuthoringNetworkResponse['network'];
   readonly candidateRowIdentity?: AuthoringNetworkResponse['rowIdentity'];
 }
-export type RecipeEditingStatus = 'saved' | 'editing' | 'previewing' | 'preview-ready' | 'applying' | 'failed' | 'stale';
+type RecipeEditingStatus = 'saved' | 'editing' | 'previewing' | 'preview-ready' | 'applying' | 'failed' | 'stale';
 export interface RecipeEditingState {
   readonly identity: RecipeEditingIdentity;
   readonly status: RecipeEditingStatus;
@@ -43,18 +43,18 @@ export interface RecipeEditingState {
   readonly candidate?: RecipeValidatedCandidate;
   readonly error?: string;
 }
-export const recipeEditingIdentityKey = (identity: RecipeEditingIdentity): string => JSON.stringify([
+const recipeEditingIdentityKey = (identity: RecipeEditingIdentity): string => JSON.stringify([
   identity.project, identity.explorerId, identity.outputId, identity.snapshotToken, identity.draftVersion, identity.draftDigest,
 ]);
 export const sameRecipeEditingIdentity = (left: RecipeEditingIdentity, right: RecipeEditingIdentity): boolean =>
   recipeEditingIdentityKey(left) === recipeEditingIdentityKey(right);
 export const createRecipeEditingState = (identity: RecipeEditingIdentity): RecipeEditingState => ({ identity, status: 'saved' });
-export const recipeEditIsActive = (state: RecipeEditingState): boolean => state.status !== 'saved';
+const recipeEditIsActive = (state: RecipeEditingState): boolean => state.status !== 'saved';
 const owns = (state: RecipeEditingState, token: RecipeEditToken): boolean =>
   state.token?.requestId === token.requestId && sameRecipeEditingIdentity(state.token.identity, token.identity);
 const current = (state: RecipeEditingState, token: RecipeEditToken): boolean =>
   owns(state, token) && sameRecipeEditingIdentity(state.identity, token.identity) && state.status !== 'stale';
-export type RecipeEditingAction =
+type RecipeEditingAction =
   | { readonly type: 'begin'; readonly token: RecipeEditToken; readonly target: RecipeEditTarget }
   | { readonly type: 'changed'; readonly token: RecipeEditToken; readonly nextToken: RecipeEditToken }
   | { readonly type: 'previewing'; readonly token: RecipeEditToken; readonly nextToken: RecipeEditToken }

@@ -38,7 +38,7 @@ export const uniqueName = (base: string, used: ReadonlySet<string>): string => {
   return `${normalized}_${suffix}`;
 };
 
-export const sourceFieldPathLabel = (path: string): string => {
+const sourceFieldPathLabel = (path: string): string => {
   const words: string[] = [];
   for (const segment of path.replace(/^root\./, '').split('.')) {
     const readable = segment.replace(/\[\]/g, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim();
