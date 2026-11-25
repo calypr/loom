@@ -1,51 +1,16 @@
+import { builderDataKeyFor, hydrateDraft, type LocalDraft } from '../session/draftHydration';
 import { useGetExplorerBuilderStateV2Query } from '../session/useBuilderLoad';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import type { ExplorerBuilderCatalog, ExplorerBuilderState } from '../../../contracts/types';
-import { stateFromBuilder, type BuilderAuthoringState } from '../model/authoring';
+import type { ExplorerBuilderState } from '../../../contracts/types';
 import { builderAuthoringReducer } from '../model/reducer';
 import { shouldSyncServerDraft } from '../model/serverDraftSync';
 import { createBuilderDraftAccess, createRememberedTable } from '../session/draftAccess';
-
-const emptyCatalog = (): ExplorerBuilderCatalog => ({
-  snapshotToken: '',
-  generation: '',
-  routePolicy: {},
-  nodes: [],
-  edges: [],
-  candidates: [],
-});
-const emptyBuilderState = (project: string): BuilderAuthoringState => ({
-  project,
-  explorerId: 'dataframe-default',
-  catalog: emptyCatalog(),
-  workspace: null,
-  draftVersion: 0,
-  draftDigest: '',
-  previewRequestVersion: 0,
-  tables: [],
-  selectedOccurrenceId: 'base',
-  diagnostics: [],
-  dirty: false,
-  reconciliation: 'idle',
-});
-
-const builderDataKeyFor = (
-  ownerKey: string,
-  value: {
-    readonly catalog: ExplorerBuilderCatalog;
-    readonly workspace: unknown;
-    readonly draftVersion: number;
-    readonly draftDigest: string;
-  },
-) =>
-  `${ownerKey}:${value.catalog.snapshotToken}:${value.draftVersion}:${value.draftDigest}:${JSON.stringify(value.workspace)}`;
 
 type UseBuilderDraftOptions = {
   readonly projectId: string;
   readonly authResourcePath?: string;
   readonly effectiveExplorerId: string;
   readonly ownerKey: string;
-  readonly builderOwnerKeyFor: (project: string, authResourcePath: string | undefined, explorerId: string) => string;
 };
 
 export const useBuilderDraft = ({
@@ -53,13 +18,16 @@ export const useBuilderDraft = ({
   authResourcePath,
   effectiveExplorerId,
   ownerKey,
-  builderOwnerKeyFor,
 }: UseBuilderDraftOptions) => {
   const rememberedTable = useMemo(
     () => createRememberedTable(ownerKey, () => window.sessionStorage),
     [ownerKey],
   );
   const rememberedOutputId = useMemo(rememberedTable.read, [rememberedTable]);
+  const draftScope = useMemo(
+    () => ({ projectId, effectiveExplorerId, ownerKey, rememberedOutputId }),
+    [projectId, effectiveExplorerId, ownerKey, rememberedOutputId],
+  );
   const explorerQueryEnabled = Boolean(effectiveExplorerId);
   const builderQueryArgs = {
     project: projectId,
@@ -69,17 +37,11 @@ export const useBuilderDraft = ({
   const builder = useGetExplorerBuilderStateV2Query(builderQueryArgs);
   const refetchBuilder = builder.refetch;
   const builderDataKey = builder.data
-    ? builderDataKeyFor(
-        builderOwnerKeyFor(projectId, authResourcePath, effectiveExplorerId),
-        builder.data,
-      )
+    ? builderDataKeyFor(ownerKey, builder.data)
     : '';
   const builderDataRef = useRef(builder.data);
   builderDataRef.current = builder.data;
-  const [localState, setLocalState] = useState<{
-    readonly key: string;
-    readonly value: BuilderAuthoringState;
-  }>();
+  const [localState, setLocalState] = useState<LocalDraft>();
   const [restorableDraft, setRestorableDraft] = useState<{
     readonly ownerKey: string;
     readonly revisionId?: string;
@@ -90,33 +52,21 @@ export const useBuilderDraft = ({
   const state =
     localState?.key === builderDataKey
       ? localState.value
-      : builder.data
-        ? stateFromBuilder(builder.data, {
-            project: projectId,
-            explorerId: effectiveExplorerId,
-            selectedOutputId: localState?.key.startsWith(`${ownerKey}:`) ? localState.value.selectedOutputId : rememberedOutputId,
-          })
-        : emptyBuilderState(projectId);
+      : hydrateDraft(builder.data, localState, draftScope);
   const dispatch = useCallback(
     (action: Parameters<typeof builderAuthoringReducer>[1]) => {
       setLocalState((current) => {
         const base =
           current?.key === builderDataKey
             ? current.value
-            : builderDataRef.current
-              ? stateFromBuilder(builderDataRef.current, {
-                  project: projectId,
-                  explorerId: effectiveExplorerId,
-                  selectedOutputId: current?.key.startsWith(`${ownerKey}:`) ? current.value.selectedOutputId : rememberedOutputId,
-                })
-              : emptyBuilderState(projectId);
+            : hydrateDraft(builderDataRef.current, current, draftScope);
         return {
           key: builderDataKey,
           value: builderAuthoringReducer(base, action),
         };
       });
     },
-    [authResourcePath, builderDataKey, effectiveExplorerId, ownerKey, projectId, rememberedOutputId],
+    [authResourcePath, builderDataKey, draftScope],
   );
   const serverDraft = useRef({ version: 0, digest: '' });
   const [draftAccess] = useState(() => createBuilderDraftAccess(state));
@@ -132,12 +82,9 @@ export const useBuilderDraft = ({
 
   const syncBuilderData = useCallback(
     (value: ExplorerBuilderState, mode: 'hydrate' | 'catalog') => {
-      const nextKey = builderDataKeyFor(
-        builderOwnerKeyFor(projectId, authResourcePath, effectiveExplorerId),
-        value,
-      );
+      const nextKey = builderDataKeyFor(ownerKey, value);
       setRestorableDraft({
-        ownerKey: builderOwnerKeyFor(projectId, authResourcePath, effectiveExplorerId),
+        ownerKey,
         revisionId: value.previousDraftRevisionId,
       });
       serverDraft.current = {
@@ -148,11 +95,7 @@ export const useBuilderDraft = ({
       setLocalState((current) => {
         const nextValue =
           mode === 'hydrate'
-            ? stateFromBuilder(value, {
-                project: projectId,
-                explorerId: effectiveExplorerId,
-                selectedOutputId: current?.key.startsWith(`${ownerKey}:`) ? current.value.selectedOutputId : rememberedOutputId,
-              })
+            ? hydrateDraft(value, current, draftScope)
             : builderAuthoringReducer(
                 current?.key === builderDataKey
                   ? current.value
@@ -162,7 +105,7 @@ export const useBuilderDraft = ({
         return { key: nextKey, value: nextValue };
       });
     },
-    [builderDataKey, effectiveExplorerId, ownerKey, projectId, rememberedOutputId],
+    [builderDataKey, draftAccess, draftScope, ownerKey],
   );
 
   return {

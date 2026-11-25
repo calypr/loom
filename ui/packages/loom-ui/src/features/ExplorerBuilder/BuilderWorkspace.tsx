@@ -329,7 +329,6 @@ const BuilderWorkspaceContent = ({
     authResourcePath,
     effectiveExplorerId,
     ownerKey,
-    builderOwnerKeyFor,
   });
   if (selectedExplorerId === 'dataframe-default' &&
       (builder.error as { code?: string } | undefined)?.code === 'DEFAULT_DATAFRAME_UNAVAILABLE') {
