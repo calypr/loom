@@ -1,3 +1,4 @@
+import { sameConstructionRoute, sameSemanticItemIdentity, semanticIdentityForItem, semanticItemMatchesIdentity } from '../contracts/identity';
 import { isRecord } from '../contracts/guards';
 import { viewBuilderStateSchema, type ProjectViewBuilderState, type SaveProjectViewConfigRequest, type SaveProjectViewDefaultsRequest } from '../contracts/projectViewBuilder';
 
@@ -94,7 +95,6 @@ import {
   type FieldPresentationRequest,
   type FieldPresentationContext,
   type FieldPresentationReason,
-  type ConstructionRouteStep,
   type SemanticInventoryItem,
   type SemanticInventoryItemIdentity,
   type FrameSourceOptionsResponse,
@@ -1059,58 +1059,6 @@ const presentationUnavailable = (reason: FieldPresentationReason): FieldPresenta
   reason,
 });
 
-const sameConstructionRoute = (
-  left: ReadonlyArray<ConstructionRouteStep>,
-  right: ReadonlyArray<ConstructionRouteStep>,
-): boolean => left.length === right.length && left.every((step, index) => {
-  const other = right[index];
-  return other !== undefined &&
-    step.edgeId === other.edgeId &&
-    step.fromNodeId === other.fromNodeId &&
-    step.toNodeId === other.toNodeId &&
-    step.fromResourceType === other.fromResourceType &&
-    step.toResourceType === other.toResourceType &&
-    step.relationship === other.relationship &&
-    step.storageDirection === other.storageDirection &&
-    step.matchMode === other.matchMode;
-});
-
-const identityForSemanticItem = (
-  item: SemanticInventoryItem,
-): SemanticInventoryItemIdentity | undefined => {
-  if (item.selectionMode === 'SYSTEM_VERSION_CATEGORY' && item.familyId) {
-    return {
-      kind: 'SYSTEM_VERSION_CATEGORY',
-      familyId: item.familyId,
-      bindingId: item.bindingId,
-    };
-  }
-  if (item.selectionMode === undefined && item.familyId === undefined) {
-    return { kind: 'EXACT_CONCEPT', conceptId: item.conceptId, bindingId: item.bindingId };
-  }
-  return undefined;
-};
-
-const semanticItemMatchesIdentity = (
-  item: SemanticInventoryItem,
-  identity: SemanticInventoryItemIdentity,
-): boolean => {
-  if (identity.kind === 'EXACT_CONCEPT') {
-    return item.selectionMode === undefined && item.familyId === undefined &&
-      item.conceptId === identity.conceptId && item.bindingId === identity.bindingId;
-  }
-  return item.selectionMode === 'SYSTEM_VERSION_CATEGORY' &&
-    item.familyId === identity.familyId && item.bindingId === identity.bindingId;
-};
-
-const sameSemanticItemIdentity = (
-  left: SemanticInventoryItemIdentity,
-  right: SemanticInventoryItemIdentity,
-): boolean => left.kind === right.kind && left.bindingId === right.bindingId &&
-  (left.kind === 'EXACT_CONCEPT'
-    ? right.kind === 'EXACT_CONCEPT' && left.conceptId === right.conceptId
-    : right.kind === 'SYSTEM_VERSION_CATEGORY' && left.familyId === right.familyId);
-
 const replacementIsAddableInContext = (
   item: SemanticInventoryItem,
   identity: SemanticInventoryItemIdentity,
@@ -1189,7 +1137,7 @@ const bindPresentationResponseToRequest = (
   const uniqueReferencedReplacementIds = referencedReplacementIds.filter((identity, index) =>
     referencedReplacementIds.findIndex((candidate) => sameSemanticItemIdentity(identity, candidate)) === index,
   );
-  const responseReplacementIds = presentation.replacements.map(identityForSemanticItem);
+  const responseReplacementIds = presentation.replacements.map(semanticIdentityForItem);
   if (responseReplacementIds.some((identity) => identity === undefined) ||
     responseReplacementIds.length !== uniqueReferencedReplacementIds.length ||
     responseReplacementIds.some((identity) => identity === undefined ||

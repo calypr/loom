@@ -8,7 +8,6 @@ import type {
   FieldChoiceSource,
   FieldPresentation,
   FieldPresentationRequest,
-  SemanticInventoryItemIdentity,
   SemanticInventoryItem,
   SemanticInventorySelectionMode,
 } from '../../contracts/types';
@@ -61,49 +60,7 @@ export type SemanticSourceFieldLink = {
   readonly requestKey: string;
 };
 
-export const semanticInventoryIdentityKey = (
-  identity: SemanticInventoryItemIdentity,
-): string => {
-  switch (identity.kind) {
-    case 'EXACT_CONCEPT':
-      return JSON.stringify([identity.kind, identity.conceptId, identity.bindingId]);
-    case 'SYSTEM_VERSION_CATEGORY':
-      return JSON.stringify([identity.kind, identity.familyId, identity.bindingId]);
-    default: {
-      const exhaustive: never = identity;
-      return exhaustive;
-    }
-  }
-};
-
-export const semanticIdentityForItem = (
-  item: SemanticInventoryItem,
-): SemanticInventoryItemIdentity | undefined => {
-  if (item.selectionMode === 'SYSTEM_VERSION_CATEGORY' && item.familyId) {
-    return {
-      kind: 'SYSTEM_VERSION_CATEGORY',
-      familyId: item.familyId,
-      bindingId: item.bindingId,
-    };
-  }
-  if (item.selectionMode === undefined && item.familyId === undefined) {
-    return {
-      kind: 'EXACT_CONCEPT',
-      conceptId: item.conceptId,
-      bindingId: item.bindingId,
-    };
-  }
-  return undefined;
-};
-
-export const semanticItemMatchesIdentity = (
-  item: SemanticInventoryItem,
-  identity: SemanticInventoryItemIdentity,
-): boolean => {
-  const itemIdentity = semanticIdentityForItem(item);
-  return itemIdentity !== undefined &&
-    semanticInventoryIdentityKey(itemIdentity) === semanticInventoryIdentityKey(identity);
-};
+export { semanticInventoryIdentityKey, semanticIdentityForItem, semanticItemMatchesIdentity } from '../../contracts/identity';
 
 export const fieldPresentationMatchesRequest = ({
   presentation,
