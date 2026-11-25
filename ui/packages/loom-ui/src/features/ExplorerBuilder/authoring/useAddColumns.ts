@@ -13,7 +13,7 @@ import { hasPairedPreviewRows } from '../model/workspaceGuards';
 import { useBrowserSubscription } from '../hooks/useBrowserSubscription';
 import type { ConceptCatalogView } from '../components/ConceptCatalog';
 import type { ConstructionHistorySelection, ConstructionOperationFamily } from '../constructionWorkspace/ConstructionWorkspace';
-import type { useConstructionLifecycle } from '../constructionWorkspace/useConstructionLifecycle';
+import type { useConstructionLifecycle } from '../session/useConstructionLifecycle';
 import type { useCommandQueueActions } from '../session/useCommandQueueActions';
 import type { useCombineCatalog } from './useCombineCatalog';
 import type { PreviewLimit } from '../model/previewRecovery';

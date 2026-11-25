@@ -13,7 +13,7 @@ import {
 import {
   useConstructionLifecycle,
   type ConstructionCandidateIntent,
-} from './useConstructionLifecycle';
+} from '../session/useConstructionLifecycle';
 
 import { resourceFor } from '../../../data/resource';
 import {
@@ -23,7 +23,7 @@ import {
 } from '../model/reconcileRecovery';
 import { capabilitiesFor as makeCapabilities, sourceStage } from '../../../../testSupport/constructionFixtures';
 
-type ConstructionLifecycleClient = Parameters<typeof import('./useConstructionLifecycle').useConstructionLifecycle>[0]['client'];
+type ConstructionLifecycleClient = Parameters<typeof import('../session/useConstructionLifecycle').useConstructionLifecycle>[0]['client'];
 
 type Lifecycle = ReturnType<typeof useConstructionLifecycle>;
 type ReadyProposal = Awaited<ReturnType<Lifecycle['proposeCandidateAndWait']>>;

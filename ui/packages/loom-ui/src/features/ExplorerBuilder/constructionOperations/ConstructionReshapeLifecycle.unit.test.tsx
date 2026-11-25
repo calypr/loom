@@ -15,9 +15,9 @@ import { ConstructionReshapeEditor } from './ConstructionReshapeEditor';
 import type { ConstructionReshapePivotCategory } from '../model/reshapeForms';
 import {
   useConstructionLifecycle,
-} from '../constructionWorkspace/useConstructionLifecycle';
+} from '../session/useConstructionLifecycle';
 
-type ConstructionLifecycleClient = Parameters<typeof import('../constructionWorkspace/useConstructionLifecycle').useConstructionLifecycle>[0]['client'];
+type ConstructionLifecycleClient = Parameters<typeof import('../session/useConstructionLifecycle').useConstructionLifecycle>[0]['client'];
 
 const priorStep: Construction['steps'][number] = {
   id: 'filter-specimens',

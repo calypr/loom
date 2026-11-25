@@ -7,7 +7,7 @@ import { intentFingerprint, workspaceFromState, type BuilderAuthoringState } fro
 import { builderAuthoringReducer } from '../model/reducer';
 import { isStaleSnapshot, reconcileResultIsCurrent } from '../model/reconcileRecovery';
 import { effectiveOutputAvailability } from '../model/outputEligibility';
-import type { useConstructionLifecycle } from '../constructionWorkspace/useConstructionLifecycle';
+import type { useConstructionLifecycle } from '../session/useConstructionLifecycle';
 import type { useRecipeEditingOwner } from '../session/recipeEditingOwner';
 
 type PublicationAcknowledgementIdentity = {

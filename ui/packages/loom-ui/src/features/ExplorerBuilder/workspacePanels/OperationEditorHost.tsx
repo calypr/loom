@@ -14,7 +14,7 @@ import type { ConstructionCombineStep } from '../constructionOperations/combineE
 import type { ConstructionReshapeEditorEntry } from '../constructionOperations/ConstructionReshapeEditor';
 import { ConstructionColumnSelection } from '../constructionWorkspace/ConstructionColumnSelection';
 import { ConceptCatalog } from '../components/ConceptCatalog';
-import { useConstructionLifecycle } from '../constructionWorkspace/useConstructionLifecycle';
+import { useConstructionLifecycle } from '../session/useConstructionLifecycle';
 import { useCombineCatalog } from '../authoring/useCombineCatalog';
 import { ConstructionOperationEditor } from '../constructionOperations/ConstructionOperationEditor';
 import { ConstructionReshapeEditor } from '../constructionOperations/ConstructionReshapeEditor';

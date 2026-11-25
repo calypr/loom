@@ -49,7 +49,7 @@ vi.mock('../../react', async (importOriginal) => {
 vi.mock('./session/useAutomaticPreviewResource', () => ({ useAutomaticPreview: () => ({ error: undefined, isLoading: false }) }));
 vi.mock('./hooks/useDirtyBeforeUnload', () => ({ useDirtyBeforeUnload: () => undefined }));
 vi.mock('./hooks/usePortalHost', () => ({ usePortalHost: () => null }));
-vi.mock('./constructionWorkspace/useConstructionLifecycle', () => ({
+vi.mock('./session/useConstructionLifecycle', () => ({
   useConstructionLifecycle: () => {
     const sourceProjectionStage = {
       id: 'source_projection',

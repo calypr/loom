@@ -16,10 +16,10 @@ import {
 } from '../../../contracts/types';
 import {
   useConstructionLifecycle,
-} from './useConstructionLifecycle';
+} from '../session/useConstructionLifecycle';
 import { capabilitiesFor as makeCapabilities, sourceStage } from '../../../../testSupport/constructionFixtures';
 
-type ConstructionLifecycleClient = Parameters<typeof import('./useConstructionLifecycle').useConstructionLifecycle>[0]['client'];
+type ConstructionLifecycleClient = Parameters<typeof import('../session/useConstructionLifecycle').useConstructionLifecycle>[0]['client'];
 
 const capabilitiesFor = (
   args: GetConstructionCapabilitiesArgs,

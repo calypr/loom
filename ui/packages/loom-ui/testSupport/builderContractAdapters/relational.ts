@@ -132,7 +132,7 @@ export const relationalAdapters = {
       'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:873',
       'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3320',
       'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2158',
-      'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:325',
+      'ui/packages/loom-ui/src/features/ExplorerBuilder/session/useConstructionLifecycle.ts:325',
       'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx:258',
     ],
     drive: editSavedGroupAggregate,

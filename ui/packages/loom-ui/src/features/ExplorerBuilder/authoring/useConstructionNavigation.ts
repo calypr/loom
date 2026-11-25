@@ -5,7 +5,7 @@ import { constructionOperationFamilies, type ConstructionHistorySelection, type 
 import { createReshapeEditorEntry, publicScalarListColumnIds, type ConstructionReshapeEditorEntry, type ReshapeEntryKind, type ReshapeForm } from '../constructionOperations/ConstructionReshapeEditor';
 import { constructionAppendStageFor } from '../model/constructionStages';
 import { admitAuthoringRequest } from '../model/admission';
-import type { useConstructionLifecycle } from '../constructionWorkspace/useConstructionLifecycle';
+import type { useConstructionLifecycle } from '../session/useConstructionLifecycle';
 import type { useCombineCatalog } from './useCombineCatalog';
 import type { useCommandQueueActions } from '../session/useCommandQueueActions';
 import type { useRecipeEditingOwner } from '../session/recipeEditingOwner';

@@ -5,7 +5,7 @@ import { fieldCatalogItems } from '../model/catalogItems';
 import type { BuilderAction } from '../model/reducer';
 import type { useSourceRecipe } from './useSourceRecipe';
 import type { useRecipeEditingOwner } from '../session/recipeEditingOwner';
-import type { useConstructionLifecycle } from '../constructionWorkspace/useConstructionLifecycle';
+import type { useConstructionLifecycle } from '../session/useConstructionLifecycle';
 import type { useRecipeFocus } from './useRecipeFocus';
 
 type TraversalActionsOptions = {

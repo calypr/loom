@@ -3,7 +3,7 @@ import { LoomProvider } from '../../src/react';
 import type { LoomClient } from '../../src/client/api';
 import type { Construction, ConstructionCapabilitiesResponse, ConstructionProposalResponse, ExplorerBuilderCatalog, ExplorerBuilderPreviewResult } from '../../src/contracts/types';
 import { RelatedExpandEditor } from '../../src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor';
-import { useConstructionLifecycle } from '../../src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle';
+import { useConstructionLifecycle } from '../../src/features/ExplorerBuilder/session/useConstructionLifecycle';
 import { ConstructionProposalPanel } from '../../src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel';
 import { PreviewTable } from '../../src/features/ExplorerBuilder/components/PreviewTable';
 

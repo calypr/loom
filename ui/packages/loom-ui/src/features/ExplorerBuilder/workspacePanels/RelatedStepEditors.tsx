@@ -4,7 +4,7 @@ import type { BuilderAuthoringState } from '../model/authoring';
 import { RelatedSourceStepEditor, type RelatedSourceStep } from '../constructionOperations/RelatedSourceStepEditor';
 import { RelatedFieldEditor, type RelatedFieldStep } from '../constructionOperations/RelatedFieldEditor';
 import { sanitizeReasonText } from '../model/catalogItems';
-import { useConstructionLifecycle } from '../constructionWorkspace/useConstructionLifecycle';
+import { useConstructionLifecycle } from '../session/useConstructionLifecycle';
 
 type ConstructionLifecycle = ReturnType<typeof useConstructionLifecycle>;
 

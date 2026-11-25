@@ -15,7 +15,7 @@ import {
 } from '../../../contracts/types';
 import { ConstructionOperationEditor } from '../constructionOperations/ConstructionOperationEditor';
 import { ConstructionProposalPanel } from './ConstructionProposalPanel';
-import { useConstructionLifecycle } from './useConstructionLifecycle';
+import { useConstructionLifecycle } from '../session/useConstructionLifecycle';
 
 type ConstructionLifecycleClient = Parameters<typeof useConstructionLifecycle>[0]['client'];
 

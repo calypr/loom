@@ -120,7 +120,7 @@ import {
 import {
   useConstructionLifecycle,
   type ConstructionCandidateIntent,
-} from './constructionWorkspace/useConstructionLifecycle';
+} from './session/useConstructionLifecycle';
 import { ConstructionOperationEditor } from './constructionOperations/ConstructionOperationEditor';
 import { FilterRowsEditor } from './constructionOperations/FilterRowsEditor';
 import { ConstructionReshapeEditor, type ReshapeEntryKind, type ReshapeForm } from './constructionOperations/ConstructionReshapeEditor';

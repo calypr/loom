@@ -2,7 +2,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { GetConstructionCapabilitiesArgs } from '../../../client/api';
 import type { ConstructionCapabilitiesResponse, ConstructionChoiceSelection, ConstructionStep } from '../../../contracts/types';
 import type { BuilderAuthoringState, DraftTable } from '../model/authoring';
-import type { useConstructionLifecycle } from '../constructionWorkspace/useConstructionLifecycle';
+import type { useConstructionLifecycle } from '../session/useConstructionLifecycle';
 import { sanitizeReasonText, unavailableOperationReason } from '../model/catalogItems';
 import { sourceProjectionAvailability } from '../model/sourceProjectionAvailability';
 import { constructionAppendStageFor } from '../model/constructionStages';

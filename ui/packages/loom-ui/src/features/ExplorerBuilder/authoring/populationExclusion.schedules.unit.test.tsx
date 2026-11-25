@@ -33,7 +33,7 @@ import type {
   RowChangeAssessment,
 } from '../../../contracts/types';
 import type { RelatedExpandQueryOwner } from '../session/commandQueue';
-import type { ConstructionCandidateIntent } from '../constructionWorkspace/useConstructionLifecycle';
+import type { ConstructionCandidateIntent } from '../session/useConstructionLifecycle';
 import { createLoomClient } from '../../../client/api';
 import type { LoomClient } from '../../../client/api';
 import type {

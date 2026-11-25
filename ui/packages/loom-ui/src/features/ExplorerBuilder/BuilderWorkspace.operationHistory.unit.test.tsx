@@ -27,7 +27,7 @@ import BuilderWorkspace from './BuilderWorkspace';
 import { ConstructionProposalPanel } from './constructionWorkspace/ConstructionProposalPanel';
 import { constructionProposalIsApplicable } from './model/constructionProposal';
 import { ConstructionReshapeEditor } from './constructionOperations/ConstructionReshapeEditor';
-import { useConstructionLifecycle, type ConstructionCandidateIntent } from './constructionWorkspace/useConstructionLifecycle';
+import { useConstructionLifecycle, type ConstructionCandidateIntent } from './session/useConstructionLifecycle';
 
 const harness = vi.hoisted(() => {
   const client = {

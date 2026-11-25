@@ -5,7 +5,7 @@ import type { BuilderAuthoringState, DraftTable } from '../model/authoring';
 import { createRecipeNetworkLoader } from '../session/recipeNetwork';
 import type { useRecipeEditingOwner, RecipeEditToken } from '../session/recipeEditingOwner';
 import type { useRecipeFocus } from './useRecipeFocus';
-import type { useConstructionLifecycle } from '../constructionWorkspace/useConstructionLifecycle';
+import type { useConstructionLifecycle } from '../session/useConstructionLifecycle';
 import type { useCommandQueueActions } from '../session/useCommandQueueActions';
 
 type SourceRecipeActionsOptions = {
