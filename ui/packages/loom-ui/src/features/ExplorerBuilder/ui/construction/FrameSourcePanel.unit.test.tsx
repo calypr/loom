@@ -4,6 +4,14 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FrameDefinition, FrameSourceOption } from '../../../../contracts/types';
 import { FrameSourcePanel } from './FrameSourcePanel';
+const mockBuilderSession = vi.hoisted(() => ({
+  builderQueryArgs: { project: 'project-a', explorerId: 'explorer-query', authResourcePath: undefined },
+  state: { explorerId: 'explorer-a', catalog: { snapshotToken: 'snapshot-a' } },
+}));
+vi.mock('../../session/BuilderSessionProvider', () => ({
+  useBuilderSession: (select: (session: typeof mockBuilderSession) => unknown) => select(mockBuilderSession),
+}));
+
 
 const mockClient = vi.hoisted(() => ({ browseFrameSourceOptions: vi.fn(), browseSemanticInventory: vi.fn() }));
 vi.mock('../../../../react', async (importOriginal) => ({
@@ -35,9 +43,6 @@ const page = (outputId: string, sources: ReadonlyArray<FrameSourceOption>, nextC
 
 const renderPanel = (outputId = 'output-a') => render(
   <FrameSourcePanel
-    project="project-a"
-    explorerId="explorer-a"
-    snapshotToken="snapshot-a"
     outputId={outputId}
     rowRoot="Patient"
     frames={[]}
@@ -95,7 +100,7 @@ describe('FrameSourcePanel query ownership', () => {
     const oldSignal = mockClient.browseFrameSourceOptions.mock.calls[0]?.[1] as AbortSignal;
 
     rerender(
-      <FrameSourcePanel project="project-a" explorerId="explorer-a" snapshotToken="snapshot-a" outputId="output-b"
+      <FrameSourcePanel outputId="output-b"
         rowRoot="Patient" frames={[]} columns={[]} disabled={false} onSet={vi.fn(async () => true)}
         onReplace={vi.fn(async () => true)} onRemove={vi.fn(async () => true)} onAddSelected={vi.fn(async () => undefined)}
         onRemoveColumn={vi.fn(async () => true)} />,
@@ -129,7 +134,7 @@ describe('FrameSourcePanel query ownership', () => {
     expect(screen.getAllByTestId(/^frame-source-choice-page-/)).toHaveLength(3);
 
     rerender(
-      <FrameSourcePanel project="project-a" explorerId="explorer-a" snapshotToken="snapshot-a" outputId="output-b"
+      <FrameSourcePanel outputId="output-b"
         rowRoot="Patient" frames={[]} columns={[]} disabled={false} onSet={vi.fn(async () => true)}
         onReplace={vi.fn(async () => true)} onRemove={vi.fn(async () => true)} onAddSelected={vi.fn(async () => undefined)}
         onRemoveColumn={vi.fn(async () => true)} />,
@@ -162,7 +167,7 @@ describe('FrameSourcePanel query ownership', () => {
     });
     const DynamicFramePanel = () => {
       const [frames, setFrames] = React.useState<ReadonlyArray<FrameDefinition>>([]);
-      return <FrameSourcePanel project="project-a" explorerId="explorer-a" snapshotToken="snapshot-a" outputId="output-a"
+      return <FrameSourcePanel outputId="output-a"
         rowRoot="Patient" frames={frames} columns={[]} disabled={false}
         addSourceRoute={addOnly ? { resourceType: 'Observation', edgeIds: [] } : undefined}
         onSet={async (choice) => { setFrames([frame(choice)]); return true; }}

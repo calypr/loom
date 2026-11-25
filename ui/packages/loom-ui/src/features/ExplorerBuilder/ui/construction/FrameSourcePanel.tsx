@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useEscapeToClose } from '../../dom/useEscapeToClose';
+import { useBuilderSession } from '../../session/BuilderSessionProvider';
 import { useFrameCategories, useFrameSourceOptions } from '../../session/frameSourceQueries';
 import type { FrameDefinition, FrameSourceOption, SemanticInventoryItem } from '../../../../contracts/types';
 import { catalogChoiceIntent, catalogItemAvailability, type CatalogChoiceIntent, type CatalogItem } from '../../model/catalogItems';
@@ -206,13 +207,9 @@ const CategoryPicker = ({
 };
 
 export const FrameSourcePanel = ({
-  project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot, frames, columns, disabled, allowNewSource = true, addSourceRoute, unassignedFrameIds,
+  outputId, rowRoot, frames, columns, disabled, allowNewSource = true, addSourceRoute, unassignedFrameIds,
   onSet, onReplace, onRemove, onAddSelected, onRemoveColumn,
 }: {
-  readonly project: string;
-  readonly explorerId: string;
-  readonly authResourcePath?: string;
-  readonly snapshotToken: string;
   readonly outputId: string;
   readonly rowRoot: string;
   readonly frames: ReadonlyArray<FrameDefinition>;
@@ -227,6 +224,11 @@ export const FrameSourcePanel = ({
   readonly onAddSelected: (selections: ReadonlyArray<CatalogChoiceIntent>) => Promise<unknown>;
   readonly onRemoveColumn: (column: string) => Promise<boolean>;
 }) => {
+  const { project, explorerId, authResourcePath, snapshotToken } = useBuilderSession(({ builderQueryArgs, state }) => ({
+    ...builderQueryArgs,
+    explorerId: state.explorerId,
+    snapshotToken: state.catalog.snapshotToken,
+  }));
   const [queryInput, setQueryInput] = useState('');
   const [query, setQuery] = useState('');
   const [cursorState, setCursorState] = useState<{ readonly searchKey: string; readonly cursor: string }>();

@@ -1,6 +1,7 @@
 import { hasDraftVersion } from '../../../../contracts/identity';
 import React from 'react';
 import { usePopulationWorkflow } from '../../session/usePopulationWorkflow';
+import { useBuilderSession } from '../../session/BuilderSessionProvider';
 import type { SelectionRevision } from '../../../../contracts/selection';
 import type { ResourceRef } from '../../../../contracts/selection';
 import type {
@@ -15,13 +16,6 @@ export const PopulationPanel = ({
   loading,
   error,
   disabled,
-  project,
-  explorerId,
-  authResourcePath,
-  snapshotToken,
-  draftVersion,
-  draftDigest,
-  receiptId,
   onAttach,
   onClear,
   onExclude,
@@ -32,13 +26,6 @@ export const PopulationPanel = ({
   readonly loading: boolean;
   readonly error?: string;
   readonly disabled: boolean;
-  readonly project: string;
-  readonly explorerId: string;
-  readonly authResourcePath?: string;
-  readonly snapshotToken: string;
-  readonly draftVersion?: number;
-  readonly draftDigest?: string;
-  readonly receiptId?: string;
   readonly onAttach: (routeChoiceId: string) => void;
   readonly onClear: () => void;
   readonly onExclude?: (
@@ -47,6 +34,15 @@ export const PopulationPanel = ({
   ) => void;
   readonly onApplyMemberRemoval?: (proposalId: string) => Promise<boolean>;
 }) => {
+  const { project, explorerId, authResourcePath, snapshotToken, draftVersion, draftDigest, receiptId } =
+    useBuilderSession(({ builderQueryArgs, state }) => ({
+      ...builderQueryArgs,
+      explorerId: state.explorerId,
+      snapshotToken: state.catalog.snapshotToken,
+      draftVersion: state.draftVersion,
+      draftDigest: state.draftDigest,
+      receiptId: state.receipt?.receiptId,
+    }));
   const {
     memberTransport, attached, selectionRevisionId, routeLoadState, currentRouteSelection,
     setRouteSelection, currentCoverage, coverage, coverageError, pathIndex, otherConnectionsOpen,

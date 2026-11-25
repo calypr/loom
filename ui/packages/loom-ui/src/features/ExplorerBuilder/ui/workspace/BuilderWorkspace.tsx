@@ -291,8 +291,7 @@ const BuilderWorkspaceContent = ({
           {savedFramesForNode.length ? (
             <FrameSourcePanel
               key={`${table.outputId}:${state.catalog.snapshotToken}:${graphSource?.occurrenceId}`}
-              project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
-              snapshotToken={state.catalog.snapshotToken} outputId={table.outputId}
+              outputId={table.outputId}
               rowRoot={table.document.rootResourceType} frames={savedFramesForNode} unassignedFrameIds={unassignedFrameIds}
               columns={table.document.columns} disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
               allowNewSource={false}
@@ -727,13 +726,6 @@ const BuilderWorkspaceContent = ({
                             selection={activePopulationSelection}
                             loading={activePopulationSelectionLoading}
                             error={activePopulationSelectionError}
-                            project={projectId}
-                            explorerId={state.explorerId}
-                            authResourcePath={authResourcePath}
-                            snapshotToken={state.catalog.snapshotToken}
-                            draftVersion={state.draftVersion}
-                            draftDigest={state.draftDigest}
-                            receiptId={state.receipt?.receiptId}
                             disabled={activePopulationSelectionLoading || populationVariantPending || pendingCommands > 0 || state.reconciliation === 'pending'}
                             onAttach={(routeChoiceId) => void applyCommands([{
                               type: 'SET_TABLE_POPULATION',

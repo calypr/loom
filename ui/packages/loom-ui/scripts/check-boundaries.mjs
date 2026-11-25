@@ -75,6 +75,14 @@ for (const [key, label] of ratchets) {
   const maximum = graphBaseline[key];
   if (current > maximum) violations.push(`${label}: ${current}, ratchet allows at most ${maximum}.`);
 }
+for (const [metric, label] of [['widePropBags', 'JSX attribute bag'], ['wideOptionBags', 'Hook option bag']]) {
+  const exceptions = graphBaseline[metric] ?? {};
+  const limit = metric === 'widePropBags' ? 10 : 8;
+  for (const { name, count } of graph.metrics[metric]) {
+    const maximum = Object.hasOwn(exceptions, name) ? exceptions[name] : limit;
+    if (count > maximum) violations.push(`${label} ${name}: ${count}, ratchet allows at most ${maximum}.`);
+  }
+}
 if (graphBaseline.enforceLayers && graph.metrics.layerViolations > graphBaseline.layerViolations) {
   violations.push(`Layer violations: ${graph.metrics.layerViolations}, ratchet allows at most ${graphBaseline.layerViolations}.`);
 }

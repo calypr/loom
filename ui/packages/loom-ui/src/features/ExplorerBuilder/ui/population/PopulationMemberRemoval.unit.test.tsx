@@ -7,6 +7,14 @@ import { EXPLORER_AUTHORING_API_VERSION, type PopulationRouteChoice } from '../.
 import type { PopulationMemberRemovalProposalResponse } from '../../../../client/api';
 import type { DraftTable } from '../../model/authoring';
 import { PopulationPanel } from './PopulationPanel';
+const mockBuilderSession = vi.hoisted(() => ({
+  builderQueryArgs: { project: 'project', explorerId: 'query-explorer', authResourcePath: '/programs/alpha' },
+  state: { explorerId: 'explorer-1', catalog: { snapshotToken: 'snapshot' }, draftVersion: 4, draftDigest: 'draft-4', receipt: { receiptId: undefined as string | undefined } },
+}));
+vi.mock('../../session/BuilderSessionProvider', () => ({
+  useBuilderSession: (select: (session: typeof mockBuilderSession) => unknown) => select(mockBuilderSession),
+}));
+
 
 const loomClient = vi.hoisted(() => ({
   searchPopulationRoutes: vi.fn(),
@@ -73,6 +81,7 @@ const renderPanel = (
 ) => {
   const project = options.project ?? 'project';
   const currentSelection = options.selection ?? selection;
+  mockBuilderSession.builderQueryArgs.project = project;
   const currentTable = {
     ...table,
     document: {
@@ -84,8 +93,6 @@ const renderPanel = (
   const view = render(
     <PopulationPanel
       table={currentTable} selection={currentSelection} loading={false} disabled={false}
-      project={project} explorerId="explorer-1" authResourcePath="/programs/alpha"
-      snapshotToken="snapshot" draftVersion={4} draftDigest="draft-4"
       onAttach={vi.fn()} onClear={vi.fn()} onApplyMemberRemoval={onApplyMemberRemoval}
     />,
   );
@@ -93,6 +100,12 @@ const renderPanel = (
 };
 
 beforeEach(() => {
+  mockBuilderSession.builderQueryArgs.project = 'project';
+  mockBuilderSession.state.explorerId = 'explorer-1';
+  mockBuilderSession.state.catalog.snapshotToken = 'snapshot';
+  mockBuilderSession.state.draftVersion = 4;
+  mockBuilderSession.state.draftDigest = 'draft-4';
+  mockBuilderSession.state.receipt.receiptId = undefined;
   loomClient.searchPopulationRoutes.mockReset().mockResolvedValue({
     snapshotToken: 'snapshot', outputId: 'specimens', selectionRevisionId: selection.id,
     complete: true, truncated: false, choices: [routeChoice],
@@ -236,14 +249,15 @@ it('locks controls during Apply and ignores the old completion after the authori
     draftDigest: 'draft-5', baseSelection: nextSelection, candidateSelection: nextCandidate,
     removedMember: nextMember.ref, preview: { ...preview, receiptId: 'proposal-next' },
   };
+  mockBuilderSession.state.catalog.snapshotToken = 'snapshot-next';
+  mockBuilderSession.state.draftVersion = 5;
+  mockBuilderSession.state.draftDigest = 'draft-5';
   loomClient.getSelection.mockResolvedValueOnce({ revision: nextSelection, members: [nextMember] });
   loomClient.proposePopulationMemberRemoval.mockResolvedValueOnce(nextProposal);
   rerender(
     <PopulationPanel
       table={{ ...table, document: { ...table.document, population: { selectionRevisionId: nextSelection.id, route: [] } } }}
       selection={nextSelection} loading={false} disabled={false}
-      project="project" explorerId="explorer-1" authResourcePath="/programs/alpha"
-      snapshotToken="snapshot-next" draftVersion={5} draftDigest="draft-5"
       onAttach={vi.fn()} onClear={vi.fn()} onApplyMemberRemoval={onApplyMemberRemoval}
     />,
   );
@@ -275,14 +289,15 @@ it('finishes a retired member read without showing its stale collection', async 
   await waitFor(() => expect(loomClient.getSelection).toHaveBeenCalledTimes(1));
   expect(loomClient.getSelection.mock.calls[0]).toHaveLength(1);
   const nextSelection = { ...selection, id: 'selection-next', membershipDigest: 'members-next' };
+  mockBuilderSession.state.catalog.snapshotToken = 'snapshot';
+  mockBuilderSession.state.draftVersion = 5;
+  mockBuilderSession.state.draftDigest = 'draft-5';
   const nextMember = { ...member, memberKey: 'next-member', ref: { ...member.ref, id: 'doc-next' } };
   loomClient.getSelection.mockResolvedValueOnce({ revision: nextSelection, members: [nextMember] });
   rerender(
     <PopulationPanel
       table={{ ...table, document: { ...table.document, population: { selectionRevisionId: nextSelection.id, route: [] } } }}
       selection={nextSelection} loading={false} disabled={false}
-      project="project" explorerId="explorer-1" authResourcePath="/programs/alpha"
-      snapshotToken="snapshot" draftVersion={5} draftDigest="draft-5"
       onAttach={vi.fn()} onClear={vi.fn()} onApplyMemberRemoval={vi.fn()}
     />,
   );

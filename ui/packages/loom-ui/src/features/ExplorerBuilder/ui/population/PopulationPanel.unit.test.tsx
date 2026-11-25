@@ -7,6 +7,15 @@ import type { PopulationRouteChoice } from '../../../../contracts/types';
 import type { DraftTable } from '../../model/authoring';
 import { PopulationPanel } from './PopulationPanel';
 
+const mockBuilderSession = vi.hoisted(() => ({
+  builderQueryArgs: { project: 'project', explorerId: 'query-explorer', authResourcePath: undefined },
+  state: { explorerId: 'patients', catalog: { snapshotToken: 'snapshot' }, draftVersion: undefined as number | undefined, draftDigest: undefined as string | undefined, receipt: { receiptId: undefined as string | undefined } },
+}));
+vi.mock('../../session/BuilderSessionProvider', () => ({
+  useBuilderSession: (select: (session: typeof mockBuilderSession) => unknown) => select(mockBuilderSession),
+}));
+
+
 const triggerPopulation = vi.hoisted(() => vi.fn());
 const loomClient = vi.hoisted(() => ({ searchPopulationRoutes: vi.fn() }));
 const searchPopulationRoutes = loomClient.searchPopulationRoutes;
@@ -70,6 +79,9 @@ const reportBinding = (receiptId: string, currentSelection: SelectionRevision = 
 });
 
 beforeEach(() => {
+  mockBuilderSession.state.draftVersion = undefined;
+  mockBuilderSession.state.draftDigest = undefined;
+  mockBuilderSession.state.receipt.receiptId = undefined;
   triggerPopulation.mockReset();
   searchPopulationRoutes.mockReset();
   searchPopulationRoutes.mockImplementation(async (request: { selectionRevisionId: string }) => ({
@@ -84,7 +96,7 @@ beforeEach(() => {
 
 it('attaches a selected file collection through a server-issued route choice', async () => {
   const onAttach = vi.fn();
-  render(<PopulationPanel table={table} selection={selection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={onAttach} onClear={vi.fn()} />);
+  render(<PopulationPanel table={table} selection={selection} loading={false} disabled={false} onAttach={onAttach} onClear={vi.fn()} />);
   expect(screen.getByRole('region', { name: 'Starting collection' })).toHaveAttribute(
     'data-selection-revision-id',
     'selection-1',
@@ -140,7 +152,7 @@ it('prioritizes a direct same-resource route and distinguishes meaningful altern
     choices: [requiredOutboundChoice, optionalInboundChoice, directChoice, duplicateDirectChoice],
   }));
   const onAttach = vi.fn();
-  render(<PopulationPanel table={table} selection={{ ...selection, resourceType: 'Specimen' }} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={onAttach} onClear={vi.fn()} />);
+  render(<PopulationPanel table={table} selection={{ ...selection, resourceType: 'Specimen' }} loading={false} disabled={false} onAttach={onAttach} onClear={vi.fn()} />);
 
   await screen.findByRole('button', { name: 'Use selected resources' });
   expect(screen.getByText('Use selected Specimen records')).toBeTruthy();
@@ -182,7 +194,7 @@ it('keeps the route-search warning when no direct same-resource route is availab
     truncated: true,
     choices: [populationChoice, secondConnection],
   }));
-  render(<PopulationPanel table={table} selection={selection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={vi.fn()} onClear={vi.fn()} />);
+  render(<PopulationPanel table={table} selection={selection} loading={false} disabled={false} onAttach={vi.fn()} onClear={vi.fn()} />);
 
   expect(await screen.findByRole('combobox', { name: 'Population connection' })).toBeTruthy();
   expect(await screen.findByText(/automatic route-search limit/)).toBeTruthy();
@@ -223,7 +235,7 @@ it('preserves an attached non-direct route when a direct route is also available
     truncated: true,
     choices: [directChoice, savedRouteChoice],
   }));
-  render(<PopulationPanel table={savedTable} selection={{ ...selection, resourceType: 'Specimen' }} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={vi.fn()} onClear={vi.fn()} />);
+  render(<PopulationPanel table={savedTable} selection={{ ...selection, resourceType: 'Specimen' }} loading={false} disabled={false} onAttach={vi.fn()} onClear={vi.fn()} />);
 
   const panel = screen.getByRole('region', { name: 'Starting collection' });
   expect(panel).toHaveAttribute('data-attached-selection-revision-id', 'selection-1');
@@ -251,7 +263,7 @@ it('keeps the attached collection visible and replaces it with the selected rout
   const onAttach = vi.fn();
   const onClear = vi.fn();
   const nextSelection = { ...selection, id: 'selection-2', memberCount: 5, membershipDigest: 'members-2' };
-  render(<PopulationPanel table={attachedTable()} selection={nextSelection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" receiptId="receipt-1" onAttach={onAttach} onClear={onClear} />);
+  render(<PopulationPanel table={attachedTable()} selection={nextSelection} loading={false} disabled={false} onAttach={onAttach} onClear={onClear} />);
 
   const panel = screen.getByRole('region', { name: 'Starting collection' });
   expect(panel).toHaveAttribute('data-attached-selection-revision-id', 'selection-1');
@@ -279,7 +291,7 @@ it('keeps both revisions visible but withholds replacement while the handoff rou
   const pendingRoutes = new Promise((resolve) => { resolveRoutes = resolve; });
   searchPopulationRoutes.mockReturnValueOnce(pendingRoutes);
   const nextSelection = { ...selection, id: 'selection-2', memberCount: 5, membershipDigest: 'members-2' };
-  render(<PopulationPanel table={attachedTable()} selection={nextSelection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={vi.fn()} onClear={vi.fn()} />);
+  render(<PopulationPanel table={attachedTable()} selection={nextSelection} loading={false} disabled={false} onAttach={vi.fn()} onClear={vi.fn()} />);
 
   await waitFor(() => expect(searchPopulationRoutes).toHaveBeenCalledTimes(1));
   expect(screen.getByText(/Current collection stays attached until you replace it\. New selection: 5 DocumentReference resources/)).toBeTruthy();
@@ -299,7 +311,7 @@ it('withholds replacement when route lookup fails or finds no supported path', a
   const nextSelection = { ...selection, id: 'selection-2', memberCount: 5, membershipDigest: 'members-2' };
   searchPopulationRoutes.mockRejectedValueOnce(new Error('Route lookup failed.'));
   const onAttach = vi.fn();
-  const { unmount } = render(<PopulationPanel table={attachedTable()} selection={nextSelection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={onAttach} onClear={vi.fn()} />);
+  const { unmount } = render(<PopulationPanel table={attachedTable()} selection={nextSelection} loading={false} disabled={false} onAttach={onAttach} onClear={vi.fn()} />);
 
   expect(await screen.findByRole('alert')).toHaveTextContent('Route lookup failed.');
   expect(screen.queryByRole('button', { name: 'Replace current collection' })).toBeNull();
@@ -309,7 +321,7 @@ it('withholds replacement when route lookup fails or finds no supported path', a
     snapshotToken: 'snapshot', outputId: table.outputId, selectionRevisionId: nextSelection.id,
     complete: true, truncated: false, choices: [],
   });
-  const noRoutePanel = render(<PopulationPanel table={attachedTable()} selection={nextSelection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={onAttach} onClear={vi.fn()} />);
+  const noRoutePanel = render(<PopulationPanel table={attachedTable()} selection={nextSelection} loading={false} disabled={false} onAttach={onAttach} onClear={vi.fn()} />);
 
   expect(await screen.findByRole('alert')).toHaveTextContent('No supported path connects Specimen rows to DocumentReference.');
   expect(screen.queryByRole('button', { name: 'Replace current collection' })).toBeNull();
@@ -320,7 +332,7 @@ it('withholds replacement when route lookup fails or finds no supported path', a
     snapshotToken: 'snapshot', outputId: table.outputId, selectionRevisionId: nextSelection.id,
     complete: true, truncated: true, choices: [],
   });
-  render(<PopulationPanel table={attachedTable()} selection={nextSelection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={onAttach} onClear={vi.fn()} />);
+  render(<PopulationPanel table={attachedTable()} selection={nextSelection} loading={false} disabled={false} onAttach={onAttach} onClear={vi.fn()} />);
 
   expect(await screen.findByText(/automatic route-search limit/)).toBeTruthy();
   expect(screen.queryByText(/No supported path connects/)).toBeNull();
@@ -329,19 +341,19 @@ it('withholds replacement when route lookup fails or finds no supported path', a
 
 it('does not clear the attached selection while disabled', () => {
   const onClear = vi.fn();
-  render(<PopulationPanel table={attachedTable()} selection={selection} loading={false} disabled project="project" explorerId="patients" snapshotToken="snapshot" onAttach={vi.fn()} onClear={onClear} />);
+  render(<PopulationPanel table={attachedTable()} selection={selection} loading={false} disabled onAttach={vi.fn()} onClear={onClear} />);
   fireEvent.click(screen.getByRole('button', { name: 'Use all authorized rows' }));
   expect(onClear).not.toHaveBeenCalled();
 });
 
 it('keeps an unselected table as an all-authorized-resource workflow', () => {
-  render(<PopulationPanel table={table} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={vi.fn()} onClear={vi.fn()} />);
+  render(<PopulationPanel table={table} loading={false} disabled={false} onAttach={vi.fn()} onClear={vi.fn()} />);
   expect(screen.getByRole('region', { name: 'Starting collection' })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Use selected resources' })).toBeNull();
 });
 
 it('exposes active and attached revision identities at the collection boundary', () => {
-  render(<PopulationPanel table={attachedTable()} selection={selection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={vi.fn()} onClear={vi.fn()} />);
+  render(<PopulationPanel table={attachedTable()} selection={selection} loading={false} disabled={false} onAttach={vi.fn()} onClear={vi.fn()} />);
   const panel = screen.getByRole('region', { name: 'Starting collection' });
   expect(panel).toHaveAttribute('data-selection-revision-id', 'selection-1');
   expect(panel).toHaveAttribute('data-attached-selection-revision-id', 'selection-1');
@@ -359,13 +371,13 @@ it('keeps the new scope when an old route body finishes after the owner changes'
     }));
   const onAttach = vi.fn();
   const { rerender } = render(
-    <PopulationPanel table={table} selection={selection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={onAttach} onClear={vi.fn()} />,
+    <PopulationPanel table={table} selection={selection} loading={false} disabled={false} onAttach={onAttach} onClear={vi.fn()} />,
   );
   await waitFor(() => expect(searchPopulationRoutes).toHaveBeenCalledTimes(1));
   expect(searchPopulationRoutes.mock.calls[0]).toHaveLength(1);
   const changedSelection = { ...selection, id: 'selection-2', membershipDigest: 'members-2' };
   rerender(
-    <PopulationPanel table={table} selection={changedSelection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={onAttach} onClear={vi.fn()} />,
+    <PopulationPanel table={table} selection={changedSelection} loading={false} disabled={false} onAttach={onAttach} onClear={vi.fn()} />,
   );
   await screen.findByText(/Specimen → DocumentReference via subject_Specimen/);
   await waitFor(() => expect(searchPopulationRoutes).toHaveBeenCalledTimes(2));
@@ -424,7 +436,7 @@ it('safely discards a route-search body that finishes after its panel unmounts',
   const pending = new Promise((resolve) => { resolveRoutes = resolve; });
   searchPopulationRoutes.mockReturnValueOnce(pending);
   const { unmount } = render(
-    <PopulationPanel table={table} selection={selection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={vi.fn()} onClear={vi.fn()} />,
+    <PopulationPanel table={table} selection={selection} loading={false} disabled={false} onAttach={vi.fn()} onClear={vi.fn()} />,
   );
   await waitFor(() => expect(searchPopulationRoutes).toHaveBeenCalledTimes(1));
   expect(searchPopulationRoutes.mock.calls[0]).toHaveLength(1);
@@ -446,17 +458,19 @@ it('safely discards a route-search body that finishes after its panel unmounts',
 });
 
 it('ignores a deferred report after the receipt and selection change', async () => {
+  mockBuilderSession.state.receipt.receiptId = 'receipt-a';
   let resolveReport: (value: unknown) => void = () => undefined;
   const deferred = new Promise((resolve) => { resolveReport = resolve; });
   triggerPopulation.mockReturnValueOnce({ unwrap: () => deferred, abort: vi.fn() });
   const { rerender } = render(
-    <PopulationPanel table={attachedTable()} selection={selection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" receiptId="receipt-a" onAttach={vi.fn()} onClear={vi.fn()} />,
+    <PopulationPanel table={attachedTable()} selection={selection} loading={false} disabled={false} onAttach={vi.fn()} onClear={vi.fn()} />,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Check selected-resource coverage' }));
 
   const changedSelection = { ...selection, id: 'selection-2', membershipDigest: 'members-2' };
+  mockBuilderSession.state.receipt.receiptId = 'receipt-b';
   rerender(
-    <PopulationPanel table={attachedTable('selection-2')} selection={changedSelection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" receiptId="receipt-b" onAttach={vi.fn()} onClear={vi.fn()} />,
+    <PopulationPanel table={attachedTable('selection-2')} selection={changedSelection} loading={false} disabled={false} onAttach={vi.fn()} onClear={vi.fn()} />,
   );
   await act(async () => {
     resolveReport({ binding: reportBinding('receipt-a'), status: 'COMPLETE', counts: { selected: 2, mapped: 2, unmapped: 0, emittedRows: 1 }, unmapped: [], diagnostics: [] });
@@ -466,6 +480,7 @@ it('ignores a deferred report after the receipt and selection change', async () 
 });
 
 it('renders complete and incomplete report states with the safe binding', async () => {
+  mockBuilderSession.state.receipt.receiptId = 'receipt-a';
   const onExclude = vi.fn();
   triggerPopulation.mockReturnValueOnce({ unwrap: () => Promise.resolve({
     binding: reportBinding('receipt-a'), status: 'COMPLETE',
@@ -474,7 +489,7 @@ it('renders complete and incomplete report states with the safe binding', async 
     diagnostics: [],
   }), abort: vi.fn() });
   const { rerender } = render(
-    <PopulationPanel table={attachedTable()} selection={selection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" receiptId="receipt-a" onAttach={vi.fn()} onClear={vi.fn()} onExclude={onExclude} />,
+    <PopulationPanel table={attachedTable()} selection={selection} loading={false} disabled={false} onAttach={vi.fn()} onClear={vi.fn()} onExclude={onExclude} />,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Check selected-resource coverage' }));
   await waitFor(() => expect(screen.getByText('3 selected · 2 produce rows · 1 needs attention')).toBeTruthy());
@@ -488,8 +503,9 @@ it('renders complete and incomplete report states with the safe binding', async 
   triggerPopulation.mockReturnValueOnce({ unwrap: () => Promise.resolve({
     binding: reportBinding('receipt-b'), status: 'INCOMPLETE', unmapped: [], diagnostics: [{ severity: 'INFO', stage: 'populationMapping', code: 'INCOMPLETE', message: 'incomplete' }],
   }), abort: vi.fn() });
+  mockBuilderSession.state.receipt.receiptId = 'receipt-b';
   rerender(
-    <PopulationPanel table={attachedTable()} selection={selection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" receiptId="receipt-b" onAttach={vi.fn()} onClear={vi.fn()} />,
+    <PopulationPanel table={attachedTable()} selection={selection} loading={false} disabled={false} onAttach={vi.fn()} onClear={vi.fn()} />,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Check selected-resource coverage' }));
   await waitFor(() => expect(screen.getByText('Coverage check incomplete; exact counts are unavailable.')).toBeTruthy());

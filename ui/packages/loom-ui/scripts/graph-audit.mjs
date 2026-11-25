@@ -352,7 +352,7 @@ for (const file of productionFiles) {
     directoryEdges.set(key, (directoryEdges.get(key) ?? 0) + 1);
   }
 }
-const widest = (map) => [...map].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)).slice(0, 10);
+const byWidth = (map) => [...map].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 const identityOwner = /^src\/(?:contracts\/identity\.ts$|data\/|features\/ExplorerBuilder\/model\/)/;
 const identitySitesOutsideOwners = [...new Map(
   [...stalenessSites, ...auditStalenessSites].filter(({ path }) => !identityOwner.test(path))
@@ -380,8 +380,10 @@ const report = {
     cycles,
     layerViolations: layerViolations.length,
     layerViolationSites: layerViolations,
-    widestPropBags: widest(propBags),
-    widestOptionBags: widest(optionBags),
+    widestPropBags: byWidth(propBags).slice(0, 10),
+    widestOptionBags: byWidth(optionBags).slice(0, 10),
+    widePropBags: byWidth(propBags).filter(({ count }) => count > 10),
+    wideOptionBags: byWidth(optionBags).filter(({ count }) => count > 8),
     widestPropBag: Math.max(0, ...propBags.values()),
     widestOptionBag: Math.max(0, ...optionBags.values()),
     stalenessComparisons: auditStalenessSites.length,
