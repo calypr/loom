@@ -3,8 +3,8 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { builderWorkspaceNullMocks } from '../../../testSupport/builderWorkspaceMocks';
-import type { ExplorerBuilderCandidate, ExplorerBuilderState } from '../../types';
-import type { LoomClient } from '../../api';
+import type { ExplorerBuilderCandidate, ExplorerBuilderState } from '../../contracts/types';
+import type { LoomClient } from '../../client/api';
 import { createLoomClientMock } from '../../../testSupport/loomClientMock';
 import BuilderWorkspace from './BuilderWorkspace';
 

@@ -3,7 +3,7 @@ import type {
   ConstructionStageColumn,
   ConstructionTableScalar,
   ContributorPredicate,
-} from '../../../types';
+} from '../../../contracts/types';
 import type { ConstructionHistoryStep } from './ConstructionWorkspace';
 import { relationshipLabel } from './routeDisplay';
 

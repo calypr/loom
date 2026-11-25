@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Construction, ConstructionStep, ConstructionStageDescriptor } from '../../../types';
+import type { Construction, ConstructionStep, ConstructionStageDescriptor } from '../../../contracts/types';
 import { constructionWithStep, stageWithSourceInputs } from './editorShared';
 
 const stage: ConstructionStageDescriptor = {

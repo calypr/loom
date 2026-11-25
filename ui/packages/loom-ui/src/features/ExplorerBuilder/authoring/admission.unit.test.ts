@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ExplorerBuilderCommand, ExplorerBuilderDocument } from '../../../types';
+import type { ExplorerBuilderCommand, ExplorerBuilderDocument } from '../../../contracts/types';
 import { admitAuthoringRequest } from './admission';
 import type { DraftTable } from './model';
 

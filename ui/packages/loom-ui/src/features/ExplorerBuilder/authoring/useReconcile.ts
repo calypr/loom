@@ -1,7 +1,7 @@
 import { useCallback, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import { useReconcileExplorerBuilderV2Mutation, usePreviewExplorerAuthoringV2Mutation, type useGetExplorerBuilderStateV2Query } from '../../../react';
-import type { ExplorerAuthoringApiError } from '../../../api';
-import type { ExplorerAuthoringDiagnostic, ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult, ExplorerBuilderState } from '../../../types';
+import type { ExplorerAuthoringApiError } from '../../../client/api';
+import type { ExplorerAuthoringDiagnostic, ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult, ExplorerBuilderState } from '../../../contracts/types';
 import { intentFingerprint, workspaceFromState, type BuilderAuthoringState } from './model';
 import { builderAuthoringReducer } from './reducer';
 import { reconcileAcceptance } from './reconcileAcceptance';

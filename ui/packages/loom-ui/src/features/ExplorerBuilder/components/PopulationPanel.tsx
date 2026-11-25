@@ -1,12 +1,12 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { useLoomClient, usePopulationMappingMutation, useQuery } from '../../../react';
-import type { PopulationMappingResponse } from '../../../api';
-import type { SelectionRevision } from '../../../selection';
-import type { ResourceRef } from '../../../selection';
+import type { PopulationMappingResponse } from '../../../client/api';
+import type { SelectionRevision } from '../../../contracts/selection';
+import type { ResourceRef } from '../../../contracts/selection';
 import type {
   ConstructionRouteStep,
   PopulationRouteChoice,
-} from '../../../types';
+} from '../../../contracts/types';
 import type { DraftTable } from '../authoring/model';
 import { matchesSavedPopulationRoute, populationRouteOptions } from '../populationRoutes';
 import { PopulationMemberRemoval } from './PopulationMemberRemoval';

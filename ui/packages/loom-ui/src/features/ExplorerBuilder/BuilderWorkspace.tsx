@@ -16,8 +16,8 @@ import {
   useGetExplorerCandidateSuggestionsV2Mutation,
   useLoomClient,
 } from '../../react';
-import type { SelectionRevision } from '../../selection';
-import { canonicalProject, type ExplorerAuthoringApiError } from '../../api';
+import type { SelectionRevision } from '../../contracts/selection';
+import { canonicalProject, type ExplorerAuthoringApiError } from '../../client/api';
 import type {
   ExplorerAuthoringDiagnostic,
   ExplorerBuilderCatalog,
@@ -36,7 +36,7 @@ import type {
   SourceRelationshipProposal,
   SourceRelationshipProposalWithPreview,
   RowDefinitionProposal,
-} from '../../types';
+} from '../../contracts/types';
 import { BuilderToolbar, NewExplorerControl } from './components/BuilderToolbar';
 import {
   DatasetReviewPanel,

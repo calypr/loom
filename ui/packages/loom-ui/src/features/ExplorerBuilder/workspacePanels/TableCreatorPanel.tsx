@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ExplorerBuilderCatalog } from '../../../types';
+import type { ExplorerBuilderCatalog } from '../../../contracts/types';
 import { ConstructionUndoButton } from '../constructionWorkspace/ConstructionWorkspace';
 import { RowRootPicker } from '../components/RowRootPicker';
 

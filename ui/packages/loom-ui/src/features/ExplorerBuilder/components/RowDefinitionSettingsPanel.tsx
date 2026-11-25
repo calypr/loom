@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import React, { useRef, useState, type ReactNode } from 'react';
-import type { LoomClient } from '../../../api';
+import type { LoomClient } from '../../../client/api';
 import type {
   ConstructionStep,
   ExplorerBuilderPreviewResult,
@@ -10,13 +10,13 @@ import type {
   RowDefinitionProposal,
   RowDefinitionSelection,
   RowChangeAssessment,
-} from '../../../types';
+} from '../../../contracts/types';
 import { routeNode, type DraftTable } from '../authoring/model';
 import type {
   RootChangePickerState,
   RootChangeSelection,
 } from '../authoring/rootChangeSelection';
-import type { SelectionRevision } from '../../../selection';
+import type { SelectionRevision } from '../../../contracts/selection';
 import type { ConstructionHistoryStep } from '../constructionWorkspace/ConstructionWorkspace';
 import { ExplicitGroupAuthoring } from './ExplicitGroupAuthoring';
 import { useBrowserSubscription } from '../hooks/useBrowserSubscription';
@@ -425,7 +425,7 @@ export const RowDefinitionSettingsPanel = ({
   readonly onCancelRootProposal?: () => void;
   readonly replacementPresentation?: 'dialog' | 'shared';
   readonly replacementInspectorHost?: HTMLElement | null;
-  readonly onBeginProposal?: () => { ready: (proposal: RowDefinitionProposal, preview: import('../../../types').ExplorerBuilderPreviewResult) => boolean; failed: (message: string) => void } | undefined;
+  readonly onBeginProposal?: () => { ready: (proposal: RowDefinitionProposal, preview: import('../../../contracts/types').ExplorerBuilderPreviewResult) => boolean; failed: (message: string) => void } | undefined;
   readonly onCancelProposal?: () => void;
   readonly openActionRef?: { current: (() => void) | undefined };
   readonly closeActionRef?: { current: (() => void) | undefined };

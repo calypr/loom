@@ -1,4 +1,4 @@
-import type { ExplorerBuilderDocument } from '../../../types';
+import type { ExplorerBuilderDocument } from '../../../contracts/types';
 
 interface EffectiveOutputAvailability {
 

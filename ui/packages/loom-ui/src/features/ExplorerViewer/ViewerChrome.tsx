@@ -1,7 +1,7 @@
 import React from 'react';
 import { Badge, Button, CloseButton, Group, Paper, Stack, Text } from '@mantine/core';
-import type { LoomOutputResult } from '../../api';
-import type { ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from '../../types';
+import type { LoomOutputResult } from '../../client/api';
+import type { ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from '../../contracts/types';
 import { activeOutputState, clearedSelection, type ViewerFieldSelection, type ViewerState } from './model';
 import type { ViewerAction } from './reducer';
 import { filterLabel, MISSING_VALUE } from './serialization';

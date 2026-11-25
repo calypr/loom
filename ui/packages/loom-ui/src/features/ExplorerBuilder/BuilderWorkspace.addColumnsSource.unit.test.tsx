@@ -17,7 +17,7 @@ import {
   usePublishExplorerAuthoringV2Mutation,
   useReconcileExplorerBuilderV2Mutation,
 } from '../../react';
-import type { LoomClient, ProposeConstructionArgs } from '../../api';
+import type { LoomClient, ProposeConstructionArgs } from '../../client/api';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
@@ -34,7 +34,7 @@ import type {
   AuthoringNetworkResponse,
   RelatedFieldChoiceSearchResponse,
   ExplorerRowDefinition,
-} from '../../types';
+} from '../../contracts/types';
 import BuilderWorkspace from './BuilderWorkspace';
 import { ordinaryNetworkFixture } from '../../../testSupport/ordinaryNetworkFixture';
 import { createLoomClientMock } from '../../../testSupport/loomClientMock';

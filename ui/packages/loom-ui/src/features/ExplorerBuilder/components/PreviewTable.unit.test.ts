@@ -8,7 +8,7 @@ import type {
   ExplorerBuilderCandidate,
   ExplorerBuilderColumn,
   ExplorerRowDefinition,
-} from '../../../types';
+} from '../../../contracts/types';
 import type { DraftTable } from '../authoring/model';
 import {
   formatPreviewCell,

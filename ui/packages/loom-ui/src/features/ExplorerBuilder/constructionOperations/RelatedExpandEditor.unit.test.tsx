@@ -2,7 +2,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { relatedExpandContributorSearchResponseSchema, type ConstructionCapabilitiesResponse, type ExplorerBuilderCatalog, type RelatedExpandContributorSearchResponse } from '../../../types';
+import { relatedExpandContributorSearchResponseSchema, type ConstructionCapabilitiesResponse, type ExplorerBuilderCatalog, type RelatedExpandContributorSearchResponse } from '../../../contracts/types';
 import { ConstructionProposalPanel } from '../constructionWorkspace/ConstructionProposalPanel';
 import { RelatedExpandEditor, type RelatedExpandQueryOwner } from './RelatedExpandEditor';
 import { RelatedExpandContributorEditor } from './RelatedExpandContributorEditor';

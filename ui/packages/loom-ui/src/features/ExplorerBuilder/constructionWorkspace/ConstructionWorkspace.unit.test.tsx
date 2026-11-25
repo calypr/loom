@@ -13,7 +13,7 @@ import { constructionHistorySteps, constructionRowMeaning } from './construction
 import { ConstructionColumnSelection } from './ConstructionColumnSelection';
 import { constructionProposalIsApplicable } from './ConstructionProposalPanel';
 import { sourceProjectionAvailability } from './sourceProjectionAvailability';
-import type { Construction, ConstructionProposalResponse, ExplorerBuilderPreviewResult } from '../../../types';
+import type { Construction, ConstructionProposalResponse, ExplorerBuilderPreviewResult } from '../../../contracts/types';
 
 describe('ConstructionWorkspace', () => {
   it('collapses a 100-operation run without crossing source scopes or semantic boundaries', () => {

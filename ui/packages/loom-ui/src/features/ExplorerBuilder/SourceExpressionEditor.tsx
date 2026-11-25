@@ -1,4 +1,4 @@
-import { sourceRecipeEditFunctions, type SourceRecipeExpression } from '../../types';
+import { sourceRecipeEditFunctions, type SourceRecipeExpression } from '../../contracts/types';
 
 const sourceExpressionFunctions = sourceRecipeEditFunctions;
 export const moveExpressionItem = <T,>(items: ReadonlyArray<T>, index: number, delta: -1 | 1): T[] => {

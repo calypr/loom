@@ -2,8 +2,8 @@
 
 import React, { StrictMode } from 'react';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
-import { createLoomClient } from './api';
-import type { ResolveConfiguredColumnContextsArgs } from './api';
+import { createLoomClient } from './client/api';
+import type { ResolveConfiguredColumnContextsArgs } from './client/api';
 import {
   LoomProvider,
   resourceFor,

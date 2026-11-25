@@ -4,7 +4,7 @@ export type { ExplorerViewBuilderProps as LoomSavedViewBuilderProps } from './fe
 export {
   projectViewConfigSchema,
   viewBuilderStateSchema,
-} from './projectViewBuilder';
+} from './contracts/projectViewBuilder';
 export type {
   ProjectViewBuilderCatalog,
   ProjectViewBuilderConfigRevision,
@@ -13,7 +13,7 @@ export type {
   ProjectViewConfig,
   SaveProjectViewConfigRequest,
   SaveProjectViewDefaultsRequest,
-} from './projectViewBuilder';
-export { getProjectViewBuilderState, projectViewBuilderPath, encodeLoomProjectPath } from './api';
-export type { ProjectViewBuilderArgs, SaveProjectViewConfigArgs, DeleteProjectViewConfigArgs, SaveProjectViewDefaultsArgs } from './api';
+} from './contracts/projectViewBuilder';
+export { getProjectViewBuilderState, projectViewBuilderPath, encodeLoomProjectPath } from './client/api';
+export type { ProjectViewBuilderArgs, SaveProjectViewConfigArgs, DeleteProjectViewConfigArgs, SaveProjectViewDefaultsArgs } from './client/api';
 export { selectedProjectViewId, selectedProjectViewTab, useProjectViewTab } from './projectViewSelection';

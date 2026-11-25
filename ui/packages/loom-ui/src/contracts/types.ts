@@ -1,3 +1,4 @@
+import { isRecord } from './guards';
 import { z } from 'zod';
 import { importedSourceParametersSchema, validateEditableSourceParameters } from './sourceRecipeParameters';
 export { importedSourceParametersSchema, sourceRecipeExpressionSchema, sourceRecipeEditFunctions } from './sourceRecipeParameters';
@@ -11,7 +12,7 @@ export interface DataframeSelector {
 
 export const EXPLORER_AUTHORING_API_VERSION =
   'loom.calypr.org/explorer-authoring/v2' as const;
-export { EXPLORER_AUTHORING_SEMANTICS_VERSION } from './authoringSemanticsVersion.mjs';
+export { EXPLORER_AUTHORING_SEMANTICS_VERSION } from '../authoringSemanticsVersion.mjs';
 
 const opaqueIdSchema = z.string().trim().min(1);
 const exactOpaqueIdSchema = z.string().min(1).refine((value) => value === value.trim(), 'ID must not have surrounding whitespace.');
@@ -3855,8 +3856,6 @@ export interface ExplorerStateV1 {
   readonly runtime?: ExplorerRuntimeV1 | null;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
 const legacyExplorerStateKeys = new Set(['draftConfig', 'activeConfig']);
 
 const dataframeSelectorSchema = z

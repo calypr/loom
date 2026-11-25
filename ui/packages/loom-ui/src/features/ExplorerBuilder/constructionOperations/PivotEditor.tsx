@@ -2,7 +2,7 @@ import { fieldPickerList, fieldPickerMetadata, fieldPickerToggleRow } from '../c
 import { useId, useState } from 'react';
 import { FieldPickerDropdown } from '../components/FieldPickerDropdown';
 import { createOpaqueId, isNumericColumn, sourceLabel as pivotSourceLabel } from './editorShared';
-import type { ConstructionTableScalar } from '../../../types';
+import type { ConstructionTableScalar } from '../../../contracts/types';
 import {
   allDiscoveredPivotCategoriesSelected, createPivotCategoryForm, outputNamesAreValid,
   pivotDiscoveryMatches, pivotOriginalPairApplies, pivotOutputsFor, PIVOT_DISCOVERY_MAX_CATEGORIES,

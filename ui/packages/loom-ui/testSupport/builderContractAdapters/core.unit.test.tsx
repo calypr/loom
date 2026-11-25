@@ -2,7 +2,7 @@
 import React from 'react';
 import { render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createLoomClient, type LoomClient } from '../../src/api';
+import { createLoomClient, type LoomClient } from '../../src/client/api';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
@@ -11,8 +11,8 @@ import type {
   ConstructionStageDescriptor,
   ExplorerBuilderState,
   ExplorerBuilderWorkspace,
-} from '../../src/types';
-import { constructionCapabilitiesResponseSchema, constructionProposalRequestSchema } from '../../src/types';
+} from '../../src/contracts/types';
+import { constructionCapabilitiesResponseSchema, constructionProposalRequestSchema } from '../../src/contracts/types';
 import BuilderWorkspace from '../../src/features/ExplorerBuilder/BuilderWorkspace';
 import { coreAdapters } from './core';
 

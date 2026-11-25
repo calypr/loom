@@ -2,7 +2,7 @@
 import React from 'react';
 import { vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import type { ExplorerBuilderCatalog } from '../../../types';
+import type { ExplorerBuilderCatalog } from '../../../contracts/types';
 import type { DraftTable } from '../authoring/model';
 import { RouteExtensionPanel } from './RouteExtensionPanel';
 

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { AuthoringNetworkResponse, ConstructionStageDescriptor } from '../../../types';
+import type { AuthoringNetworkResponse, ConstructionStageDescriptor } from '../../../contracts/types';
 import type { DraftTable } from '../authoring/model';
 import { rowValuePolicyLabel } from './rowRecipeProjection';
 import { traversalScopeModel, type ScopedOperation } from './traversalScopeModel';

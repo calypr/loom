@@ -2,7 +2,7 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { ExplorerBuilderCatalog } from '../../../types';
+import type { ExplorerBuilderCatalog } from '../../../contracts/types';
 import { RowRootPicker } from './RowRootPicker';
 
 const catalog: ExplorerBuilderCatalog = {

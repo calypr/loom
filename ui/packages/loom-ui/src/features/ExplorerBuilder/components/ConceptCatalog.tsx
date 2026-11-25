@@ -13,7 +13,7 @@ import type {
   SemanticInventoryBrowseResponse,
   SemanticInventoryItem,
   SemanticInventorySelectionMode,
-} from '../../../types';
+} from '../../../contracts/types';
 import {
   CODED_SEMANTIC_RULE_HINTS,
   catalogChoiceIntent,

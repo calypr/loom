@@ -1,6 +1,6 @@
 import type { MutableRefObject } from 'react';
-import type { LoomClient } from '../../../api';
-import type { AuthoringNetworkResponse } from '../../../types';
+import type { LoomClient } from '../../../client/api';
+import type { AuthoringNetworkResponse } from '../../../contracts/types';
 import type { BuilderAuthoringState, DraftTable } from './model';
 import type { RecipeFocusActions } from './useRecipeFocus';
 

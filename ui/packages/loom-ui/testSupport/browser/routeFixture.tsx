@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { LoomProvider } from '../../src/react';
-import type { LoomClient } from '../../src/api';
-import type { Construction, ConstructionCapabilitiesResponse, ConstructionProposalResponse, ExplorerBuilderCatalog, ExplorerBuilderPreviewResult } from '../../src/types';
+import type { LoomClient } from '../../src/client/api';
+import type { Construction, ConstructionCapabilitiesResponse, ConstructionProposalResponse, ExplorerBuilderCatalog, ExplorerBuilderPreviewResult } from '../../src/contracts/types';
 import { RelatedExpandEditor } from '../../src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor';
 import { useConstructionLifecycle } from '../../src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle';
 import { ConstructionProposalPanel } from '../../src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel';

@@ -2,7 +2,7 @@ import type {
   ConstructionRouteStep,
   ExplorerBuilderWorkspace,
   PopulationRouteChoice,
-} from '../../types';
+} from '../../contracts/types';
 
 type SavedPopulationRoute = NonNullable<
   ExplorerBuilderWorkspace['documents'][number]['population']

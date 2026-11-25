@@ -4,8 +4,8 @@ import React from 'react';
 import { MantineProvider } from '@mantine/core';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { LoomOutputResult } from '../../api';
-import type { ExplorerRuntimeV1 } from '../../types';
+import type { LoomOutputResult } from '../../client/api';
+import type { ExplorerRuntimeV1 } from '../../contracts/types';
 import { createViewerReducerState } from './reducer';
 import { OutputTable, PageControls } from './components';
 

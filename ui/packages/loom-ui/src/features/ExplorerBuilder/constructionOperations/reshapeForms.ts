@@ -1,6 +1,6 @@
 import { createOpaqueId, isNumericColumn, normalizedLogicalType, normalizedName, uniqueName } from './editorShared';
 import { constructionInputForStage, isSourceProjectionStage } from '../constructionWorkspace/constructionStages';
-import { constructionSchema } from '../../../types';
+import { constructionSchema } from '../../../contracts/types';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
@@ -8,7 +8,7 @@ import type {
   ConstructionStageDescriptor,
   ConstructionTableScalar,
   ConstructionStep,
-} from '../../../types';
+} from '../../../contracts/types';
 
 export type CandidateIntent = Pick<
   ConstructionProposalRequest,

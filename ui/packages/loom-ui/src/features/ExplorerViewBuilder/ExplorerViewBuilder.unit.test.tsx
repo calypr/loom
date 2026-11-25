@@ -9,7 +9,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
-import type { ProjectViewBuilderState } from '../../projectViewBuilder';
+import type { ProjectViewBuilderState } from '../../contracts/projectViewBuilder';
 import { ExplorerViewBuilder } from './ExplorerViewBuilder';
 
 const mocks = vi.hoisted(() => ({

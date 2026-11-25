@@ -6,7 +6,7 @@ import type {
   ConstructionProposalRequest,
   ConstructionStep,
   ExplorerBuilderCatalog,
-} from '../../../types';
+} from '../../../contracts/types';
 import { ConstructionOperationEditor } from './ConstructionOperationEditor';
 import { RelatedEligibilityEditor, type EligibilityStep } from './RelatedEligibilityEditor';
 

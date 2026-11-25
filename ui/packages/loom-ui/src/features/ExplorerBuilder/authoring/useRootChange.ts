@@ -12,7 +12,7 @@ import type {
   ExplorerBuilderPreviewResult,
   ExplorerBuilderState,
   RowChangeAssessment,
-} from '../../../types';
+} from '../../../contracts/types';
 import type {
   useAssessExplorerRowChangeMutation,
   useGetExplorerBuilderStateV2Query,

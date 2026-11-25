@@ -3,7 +3,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { ExplorerBuilderPreviewResult } from '../../../types';
+import type { ExplorerBuilderPreviewResult } from '../../../contracts/types';
 import type { DraftTable } from '../authoring/model';
 import { ConstructionProposalPreview } from './ConstructionProposalPreview';
 

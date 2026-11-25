@@ -2,7 +2,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { LoomClient } from '../../../api';
+import type { LoomClient } from '../../../client/api';
 import { SourceRelationshipReview } from './SourceRelationshipReview';
 vi.mock('../constructionWorkspace/ConstructionProposalPreview', () => ({ ConstructionProposalPreview: () => <p>Candidate values</p> }));
 afterEach(cleanup);

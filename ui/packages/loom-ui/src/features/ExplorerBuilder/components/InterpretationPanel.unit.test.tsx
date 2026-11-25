@@ -2,10 +2,10 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { createLoomClient } from '../../../api';
+import { createLoomClient } from '../../../client/api';
 import { LoomProvider } from '../../../react';
-import type { ConfiguredColumnContextResponse } from '../../../interpretation';
-import type { ExplorerBuilderColumn, ExplorerBuilderCommand } from '../../../types';
+import type { ConfiguredColumnContextResponse } from '../../../contracts/interpretation';
+import type { ExplorerBuilderColumn, ExplorerBuilderCommand } from '../../../contracts/types';
 import { InterpretationPanel } from './InterpretationPanel';
 
 const column = {

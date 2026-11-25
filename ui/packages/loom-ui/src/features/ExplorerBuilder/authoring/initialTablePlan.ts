@@ -1,7 +1,7 @@
 import type {
   ExplorerBuilderCandidate,
   ExplorerBuilderCatalog,
-} from '../../../types';
+} from '../../../contracts/types';
 
 type RowRoot = ExplorerBuilderCatalog['nodes'][number];
 

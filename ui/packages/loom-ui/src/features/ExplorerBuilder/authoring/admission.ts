@@ -1,4 +1,4 @@
-import type { ExplorerBuilderCommand } from '../../../types';
+import type { ExplorerBuilderCommand } from '../../../contracts/types';
 import type { DraftTable } from './model';
 
 type AdmissionRefusal = {

@@ -1,4 +1,4 @@
-import type { ContributorPredicate } from '../../../types';
+import type { ContributorPredicate } from '../../../contracts/types';
 
 export const relatedSourceOutputLabel = (
   resourceType: string,

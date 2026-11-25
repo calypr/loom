@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useReducer } from 'react';
 import { useAutomaticPreview, type AutomaticPreviewIdentity } from '../useAutomaticPreview';
-import type { ExplorerBuilderCompileResult, ExplorerBuilderState } from '../../../types';
+import type { ExplorerBuilderCompileResult, ExplorerBuilderState } from '../../../contracts/types';
 import {
   type BuilderAuthoringState,
   derivedOccurrences,

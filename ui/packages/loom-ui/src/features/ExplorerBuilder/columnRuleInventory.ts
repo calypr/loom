@@ -1,6 +1,6 @@
-import type { LoomClient } from '../../api';
+import type { LoomClient } from '../../client/api';
 import { useQuery } from '../../react';
-import type { SemanticInventoryItem } from '../../types';
+import type { SemanticInventoryItem } from '../../contracts/types';
 
 export interface ColumnRuleInventoryScope {
   readonly project: string;

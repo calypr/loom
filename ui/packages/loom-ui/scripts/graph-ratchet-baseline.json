@@ -1,7 +1,7 @@
 {
   "unreachableProductionFiles": 0,
   "unusedExports": 0,
-  "importCycles": 1,
+  "importCycles": 0,
   "effectLikeSites": 16,
   "stalenessComparisons": 131,
   "abortControllerSites": 27,

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   EXPLORER_AUTHORING_API_VERSION,
   type ExplorerBuilderPreviewResult,
-} from '../../../types';
+} from '../../../contracts/types';
 import { previewResultMultiplicity, previewValueCoverage } from './PreviewValueCoverage';
 
 const preview = (

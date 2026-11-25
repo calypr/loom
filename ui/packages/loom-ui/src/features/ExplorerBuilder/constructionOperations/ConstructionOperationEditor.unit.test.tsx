@@ -2,7 +2,7 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createLoomClient } from '../../../api';
+import { createLoomClient } from '../../../client/api';
 import {
   constructionSchema,
   constructionCapabilitiesResponseSchema,
@@ -12,7 +12,7 @@ import {
   type ConstructionProposalRequest,
   type ConstructionStageDescriptor,
   type ConstructionStep,
-} from '../../../types';
+} from '../../../contracts/types';
 import {
   liveFilterSourceUnmaterializedProvenance,
   liveFilterSourceUnmaterializedResponse,
@@ -21,7 +21,7 @@ import {
 import { ConstructionOperationEditor } from './ConstructionOperationEditor';
 import { capabilitiesFor as makeCapabilities, sourceStage as makeSourceStage } from '../../../../testSupport/constructionFixtures';
 import { sourceStage as reviewSourceStage } from '../../../../testSupport/constructionFixtures';
-import { type ConstructionDeriveSourceSelection } from '../../../types';
+import { type ConstructionDeriveSourceSelection } from '../../../contracts/types';
 
 type CandidateIntent = Pick<
   ConstructionProposalRequest,

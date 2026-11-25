@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import type { ExplorerSummary } from '../../../api';
+import type { ExplorerSummary } from '../../../client/api';
 import type { DraftTable } from '../authoring/model';
 import { IconCopy, IconTrash } from './icons';
 import { useDismissibleLayer } from '../hooks/useDismissibleLayer';

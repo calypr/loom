@@ -3,7 +3,7 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ConstructionReshapeEditor, type ConstructionReshapeEditorProps, type ConstructionReshapeStep } from './ConstructionReshapeEditor';
-import { constructionSchema } from '../../../types';
+import { constructionSchema } from '../../../contracts/types';
 
 type Capabilities = ConstructionReshapeEditorProps['capabilities'];
 const sourceStage: Capabilities['selectedStage'] = {

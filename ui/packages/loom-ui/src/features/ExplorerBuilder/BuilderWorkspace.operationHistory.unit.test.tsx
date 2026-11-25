@@ -12,7 +12,7 @@ import type {
   GetConstructionCapabilitiesArgs,
   PreviewExplorerBuilderArgs,
   ProposeConstructionArgs,
-} from '../../api';
+} from '../../client/api';
 import type {
   Construction,
   ConstructionCategoryDiscoveryResponse,
@@ -22,7 +22,7 @@ import type {
   ExplorerBuilderPreviewResult,
   ExplorerBuilderState,
   ExplorerBuilderWorkspace,
-} from '../../types';
+} from '../../contracts/types';
 import BuilderWorkspace from './BuilderWorkspace';
 import { ConstructionProposalPanel, constructionProposalIsApplicable } from './constructionWorkspace/ConstructionProposalPanel';
 import { ConstructionReshapeEditor } from './constructionOperations/ConstructionReshapeEditor';

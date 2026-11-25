@@ -3,7 +3,7 @@ import { useQuery } from '../../../react';
 import { semanticConceptLabel } from '../catalogItems';
 import { createOpaqueId, uniqueName, type CodedPivotContext } from './editorShared';
 import { codedCategoryKey, codedFamilyKey, ensureGroupCodedPassthroughs, getUsedGroupNames, type GroupCodedCategory, type GroupForm, type GroupKey, type ReshapeStage } from './reshapeForms';
-import type { FrameSourceOption, SemanticInventoryBrowseResponse, SemanticInventoryItem } from '../../../types';
+import type { FrameSourceOption, SemanticInventoryBrowseResponse, SemanticInventoryItem } from '../../../contracts/types';
 
 const INITIAL_VISIBLE_CODED_CHOICES = 10;
 const CODED_INVENTORY_READINESS_POLL_INTERVAL_MS = 1_000;

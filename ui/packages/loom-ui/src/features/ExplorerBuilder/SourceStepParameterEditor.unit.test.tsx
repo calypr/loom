@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { ImportedSourceParameters, SourceRecipeExpression } from '../../types';
+import type { ImportedSourceParameters, SourceRecipeExpression } from '../../contracts/types';
 import { SourceExpressionEditor } from './SourceExpressionEditor';
 import { SourceStepParameterEditor } from './SourceStepParameterEditor';
 

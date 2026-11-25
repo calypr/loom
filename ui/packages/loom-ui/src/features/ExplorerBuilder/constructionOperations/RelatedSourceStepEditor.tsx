@@ -11,7 +11,7 @@ import type {
   ConstructionProposalRequest,
   ConstructionStep,
   ExplorerBuilderCatalog,
-} from '../../../types';
+} from '../../../contracts/types';
 import { ConceptCatalog } from '../components/ConceptCatalog';
 import { catalogSourceOptions, type CatalogChoiceIntent } from '../catalogItems';
 import { relatedSourceOutputLabel } from '../constructionWorkspace/relatedSourceOutputLabel';

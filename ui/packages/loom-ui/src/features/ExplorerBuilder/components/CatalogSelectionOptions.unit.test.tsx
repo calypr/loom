@@ -6,7 +6,7 @@ import type {
   ConstructionChoice,
   ExplorerBuilderCandidate,
   FieldChoiceSource,
-} from '../../../types';
+} from '../../../contracts/types';
 import type { CatalogChoiceGroup, CatalogChoiceIntent, CatalogItem } from '../catalogItems';
 import {
   CatalogSelectionOptions,

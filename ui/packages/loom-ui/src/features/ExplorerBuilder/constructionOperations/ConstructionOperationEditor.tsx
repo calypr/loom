@@ -8,7 +8,7 @@ import type {
   ConstructionProposalRequest,
   ConstructionStageDescriptor,
   ConstructionStep,
-} from '../../../types';
+} from '../../../contracts/types';
 import { constructionInputForStage } from '../constructionWorkspace/constructionStages';
 import { classifySourcePickerEmptiness, sourcePickerBoundSet, type SourcePickerEmptiness } from './sourcePickerExplanations';
 import { existingColumnForFieldPath, type PublicFieldCarrier } from './existingFieldReuse';

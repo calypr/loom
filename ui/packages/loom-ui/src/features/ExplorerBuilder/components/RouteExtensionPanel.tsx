@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import type { ExplorerBuilderCatalog } from '../../../types';
+import type { ExplorerBuilderCatalog } from '../../../contracts/types';
 import { derivedOccurrences, type DraftTable } from '../authoring/model';
 import { legalEdgesToNode } from '../authoring/routeActions';
 

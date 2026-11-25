@@ -1,6 +1,6 @@
 
 
-import type { Construction } from '../../../types';
+import type { Construction } from '../../../contracts/types';
 
 type ExistingColumnReuse = {
   readonly columnId: string;

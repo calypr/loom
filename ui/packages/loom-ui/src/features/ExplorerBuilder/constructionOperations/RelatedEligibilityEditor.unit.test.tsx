@@ -2,7 +2,7 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ConstructionCapabilitiesResponse, ExplorerBuilderCatalog } from '../../../types';
+import type { ConstructionCapabilitiesResponse, ExplorerBuilderCatalog } from '../../../contracts/types';
 import { RelatedEligibilityEditor } from './RelatedEligibilityEditor';
 
 const searchRelatedExpandChoices = vi.fn();

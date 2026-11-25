@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ExplorerBuilderPreviewResult } from '../../../types';
+import type { ExplorerBuilderPreviewResult } from '../../../contracts/types';
 import type { DraftTable } from '../authoring/model';
 import { formatPreviewCell, previewCellTitle, sortByPresentationOrder } from '../components/PreviewTable';
 

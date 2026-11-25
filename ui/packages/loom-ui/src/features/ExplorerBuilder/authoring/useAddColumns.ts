@@ -1,7 +1,7 @@
 import { useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type React from 'react';
 import type { useLoomClient } from '../../../react';
-import type { Construction, ConstructionStep, ConstructionChoiceSelection, ConstructionCapabilitiesResponse, ExplorerBuilderCommand } from '../../../types';
+import type { Construction, ConstructionStep, ConstructionChoiceSelection, ConstructionCapabilitiesResponse, ExplorerBuilderCommand } from '../../../contracts/types';
 import type { BuilderAuthoringState, DraftTable } from './model';
 import { selectedTable } from './model';
 import { admitAuthoringRequest } from './admission';

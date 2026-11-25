@@ -36,7 +36,7 @@ import {
   sourceRelationshipProposalRequestSchema,
   explicitGroupCreateRequestSchema,
   explicitGroupRevisionSummarySchema,
-} from './types';
+} from './contracts/types';
 
 describe('explorerBuilderDocumentSchema', () => {
   const document = {

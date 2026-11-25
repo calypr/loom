@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Construction, ConstructionStageDescriptor } from '../../../types';
+import type { Construction, ConstructionStageDescriptor } from '../../../contracts/types';
 import { existingColumnForFieldPath } from './existingFieldReuse';
 
 const column = (id: string, label: string): ConstructionStageDescriptor['columns'][number] => ({

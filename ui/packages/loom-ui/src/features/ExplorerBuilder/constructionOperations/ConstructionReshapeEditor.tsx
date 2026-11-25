@@ -9,7 +9,7 @@ import type {
   ConstructionTableScalar,
   ConstructionStep,
   ExplorerBuilderCatalog,
-} from '../../../types';
+} from '../../../contracts/types';
 import { RelatedExpandEditor, type RelatedExpandQueryOwner } from './RelatedExpandEditor';
 import { CodedPivotEditor } from './CodedPivotEditor';
 import { GroupEditor } from './GroupEditor';

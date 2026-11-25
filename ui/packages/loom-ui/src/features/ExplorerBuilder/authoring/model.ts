@@ -7,7 +7,7 @@ import type {
   ExplorerBuilderPreviewResult,
   ExplorerBuilderState,
   ExplorerBuilderWorkspace,
-} from '../../../types';
+} from '../../../contracts/types';
 
 export interface DraftTable {
   readonly outputId: string;

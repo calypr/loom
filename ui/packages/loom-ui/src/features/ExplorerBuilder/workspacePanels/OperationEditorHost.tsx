@@ -3,8 +3,8 @@ import { observedCategorySystems, observedExtensionPaths, observedIdentifierSyst
 import { columnRulePresets, type ColumnRulePreset } from '../sourceColumnRule';
 import type { AddColumnsGraphSource, AddColumnsView } from '../authoring/useAddColumns';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
-import type { Construction, ConstructionCapabilitiesResponse, ConstructionChoiceSelection, ConstructionStep } from '../../../types';
-import type { LoomClient } from '../../../api';
+import type { Construction, ConstructionCapabilitiesResponse, ConstructionChoiceSelection, ConstructionStep } from '../../../contracts/types';
+import type { LoomClient } from '../../../client/api';
 import type { BuilderAuthoringState } from '../authoring/model';
 import { sanitizeReasonText } from '../catalogItems';
 import type { ConstructionOperationFamily } from '../constructionWorkspace/ConstructionWorkspace';

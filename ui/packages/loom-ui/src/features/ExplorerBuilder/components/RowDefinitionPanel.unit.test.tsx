@@ -2,7 +2,7 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ExplorerBuilderCatalog } from '../../../types';
+import type { ExplorerBuilderCatalog } from '../../../contracts/types';
 import type { DraftTable } from '../authoring/model';
 import type {
   RootChangePickerState,

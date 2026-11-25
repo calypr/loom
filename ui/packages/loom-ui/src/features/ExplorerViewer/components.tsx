@@ -13,8 +13,8 @@ import {
 } from '@mantine/core';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import type { EChartsOption } from 'echarts';
-import type { LoomFacetResult, LoomOutputResult } from '../../api';
-import type { ExplorerRuntimeBindingV1, ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from '../../types';
+import type { LoomFacetResult, LoomOutputResult } from '../../client/api';
+import type { ExplorerRuntimeBindingV1, ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from '../../contracts/types';
 import { resultUnitTitle } from '../../resultUnitDisplay';
 import { PAGE_SIZES, activeOutputState, clearedSelection, isPageSize, isSelectedSelection, missingSelection, valuesSelection, type ViewerFieldSelection, type ViewerState } from './model';
 import type { ViewerAction } from './reducer';

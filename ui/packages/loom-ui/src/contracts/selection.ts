@@ -1,5 +1,27 @@
 import { z } from 'zod';
-import type { LoomOutputFilter } from './api';
+
+export type LoomOutputFilterOperator =
+  | 'EQ'
+  | 'NEQ'
+  | 'IN'
+  | 'NOT_IN'
+  | 'LT'
+  | 'LTE'
+  | 'GT'
+  | 'GTE'
+  | 'CONTAINS'
+  | 'STARTS_WITH'
+  | 'EXISTS'
+  | 'IS_NULL'
+  | 'ARRAY_CONTAINS'
+  | 'ARRAY_OVERLAPS';
+
+export interface LoomOutputFilter {
+  readonly column: string;
+  readonly op: LoomOutputFilterOperator;
+
+  readonly value: unknown;
+}
 
 const identity = z.string().min(1);
 export const resourceRefSchema = z.object({

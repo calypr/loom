@@ -2,7 +2,7 @@
 import React from 'react';
 import { vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { ExplorerBuilderCatalog } from '../../../types';
+import type { ExplorerBuilderCatalog } from '../../../contracts/types';
 import type { DraftTable } from '../authoring/model';
 import { legalOutgoingEdges } from '../authoring/routeActions';
 import { graphEdgeOverviewLabels, GuidedGraphWorkspace, layoutDiscoveryRail, layoutTraversalTree } from './GuidedGraphWorkspace';

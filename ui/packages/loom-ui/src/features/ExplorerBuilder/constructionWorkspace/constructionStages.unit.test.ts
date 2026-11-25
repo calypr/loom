@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Construction, ConstructionStageDescriptor, ExplorerBuilderDocument } from '../../../types';
+import type { Construction, ConstructionStageDescriptor, ExplorerBuilderDocument } from '../../../contracts/types';
 import {
   constructionAppendStageFor,
   constructionInputForStage,

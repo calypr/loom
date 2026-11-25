@@ -4,7 +4,7 @@ import type {
   ExplorerBuilderCatalog,
   ExplorerBuilderCompileResult,
   ExplorerBuilderPreviewResult,
-} from '../../../types';
+} from '../../../contracts/types';
 import {
   derivedOccurrences,
   type BuilderAuthoringState,

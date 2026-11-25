@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState, type Dispatch, type MutableRefObject } from 'react';
 import type { useGetExplorerCandidateSuggestionsV2Mutation } from '../../../react';
-import type { ExplorerAuthoringApiError } from '../../../api';
+import type { ExplorerAuthoringApiError } from '../../../client/api';
 import { derivedOccurrences, selectedTable, type BuilderAuthoringState } from './model';
 import type { BuilderAction } from './reducer';
 

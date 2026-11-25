@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Alert, Button, Group, Select, Stack, Text } from '@mantine/core';
-import type { ProjectViewBuilderState } from '../../../projectViewBuilder';
+import type { ProjectViewBuilderState } from '../../../contracts/projectViewBuilder';
 import { useSaveProjectViewDefaultsMutation } from '../../../projectViewBuilderReact';
 import {
   projectViewFrameRef,

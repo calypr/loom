@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import type { ImportedSourceParameters, SourceRuleCreate } from '../../types';
+import type { ImportedSourceParameters, SourceRuleCreate } from '../../contracts/types';
 import { fieldPickerList, fieldPickerToggleRow } from './components/fieldPickerStyles';
 import { SourceStepParameterEditor } from './SourceStepParameterEditor';
 import { isCategoryCodingRule, isIdentifierColumnRule, type ColumnRuleOccurrence, type ColumnRulePreset } from './sourceColumnRule';

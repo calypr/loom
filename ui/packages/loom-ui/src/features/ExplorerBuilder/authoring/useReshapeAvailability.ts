@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react';
-import type { GetConstructionCapabilitiesArgs } from '../../../api';
-import type { ConstructionCapabilitiesResponse, ConstructionChoiceSelection, ConstructionStep } from '../../../types';
+import type { GetConstructionCapabilitiesArgs } from '../../../client/api';
+import type { ConstructionCapabilitiesResponse, ConstructionChoiceSelection, ConstructionStep } from '../../../contracts/types';
 import type { BuilderAuthoringState, DraftTable } from './model';
 import type { useConstructionLifecycle } from '../constructionWorkspace/useConstructionLifecycle';
 import { sanitizeReasonText, unavailableOperationReason } from '../catalogItems';

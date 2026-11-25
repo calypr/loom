@@ -15,8 +15,8 @@ import {
   type ExplorerBuilderPreviewResult,
   type ExplorerBuilderState,
   type ExplorerBuilderWorkspace,
-} from '../../types';
-import type { LoomClient } from '../../api';
+} from '../../contracts/types';
+import type { LoomClient } from '../../client/api';
 import { createLoomClientMock } from '../../../testSupport/loomClientMock';
 import BuilderWorkspace from './BuilderWorkspace';
 

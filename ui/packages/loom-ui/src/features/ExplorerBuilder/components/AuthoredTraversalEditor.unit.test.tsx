@@ -2,7 +2,7 @@
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { vi } from 'vitest';
-import type { ExplorerBuilderCatalog } from '../../../types';
+import type { ExplorerBuilderCatalog } from '../../../contracts/types';
 import type { DraftTable } from '../authoring/model';
 import { AuthoredTraversalEditor } from './AuthoredTraversalEditor';
 import { authoredStages, authoredTraversal } from './authoredTraversal';
@@ -171,7 +171,7 @@ it('keeps exact source policy editing in the traversal navigator across proposed
       {id:'patient_fields',parentId:'patient_traversal',kind:'CATALOG_PROJECTION',title:'Patient fields',summary:'Patient names',editable:true,valueMode:'ALL'},
     ]},columns:[{columnId:'patient_names',column:'names',label:'Patient names',occurrenceId:'subjectPatient',source:{kind:'imported',imported:{outputColumn:'names'}}}],
   }};
-  const network: import('../../../types').AuthoringNetworkResponse['network']={owner:'IMPORTED_SOURCE',outputId:'subjects',sourceRows:imported.document.rows,
+  const network: import('../../../contracts/types').AuthoringNetworkResponse['network']={owner:'IMPORTED_SOURCE',outputId:'subjects',sourceRows:imported.document.rows,
     projectedFields:[],occurrences:[],operations:[],bindings:[{columnId:'patient_names',occurrenceId:'subjectPatient',sourceStepId:'patient_fields',valueMode:'ALL',status:'EXACT'}]};
   const values={...navigatorProps(imported),selectedOccurrenceId:'subjectPatient',network};
   const graph={...callbacks(),table:imported,catalog,disabled:false,projectionKind:'saved' as const,selectedOccurrenceId:'subjectPatient',network};

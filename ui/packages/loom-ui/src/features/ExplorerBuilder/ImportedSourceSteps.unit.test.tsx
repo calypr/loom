@@ -2,7 +2,7 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ExplorerBuilderCommand, ExplorerBuilderDocument } from '../../types';
+import type { ExplorerBuilderCommand, ExplorerBuilderDocument } from '../../contracts/types';
 import { groupSourceSteps, ImportedSourceSteps } from './ImportedSourceSteps';
 
 afterEach(cleanup);

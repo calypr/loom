@@ -2,7 +2,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { EXPLORER_AUTHORING_API_VERSION, type ExplorerBuilderCompileResult } from '../../../types';
+import { EXPLORER_AUTHORING_API_VERSION, type ExplorerBuilderCompileResult } from '../../../contracts/types';
 import { DataframeContractPanel } from './DataframeContractPanel';
 
 const receipt: ExplorerBuilderCompileResult = {

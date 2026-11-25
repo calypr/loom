@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { createLoomClient, type LoomClient } from './api';
+import { createLoomClient, type LoomClient } from './client/api';
 import BuilderWorkspace from './features/ExplorerBuilder/BuilderWorkspace';
 import { LoomProvider, useQuery } from './react';
 

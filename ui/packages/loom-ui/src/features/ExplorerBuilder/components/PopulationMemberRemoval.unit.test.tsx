@@ -2,9 +2,9 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
-import type { SelectionPage, SelectionRevision } from '../../../selection';
-import { EXPLORER_AUTHORING_API_VERSION, type PopulationRouteChoice } from '../../../types';
-import type { PopulationMemberRemovalProposalResponse } from '../../../api';
+import type { SelectionPage, SelectionRevision } from '../../../contracts/selection';
+import { EXPLORER_AUTHORING_API_VERSION, type PopulationRouteChoice } from '../../../contracts/types';
+import type { PopulationMemberRemovalProposalResponse } from '../../../client/api';
 import type { DraftTable } from '../authoring/model';
 import { PopulationPanel } from './PopulationPanel';
 

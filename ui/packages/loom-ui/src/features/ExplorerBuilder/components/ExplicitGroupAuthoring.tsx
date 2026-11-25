@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
-import type { LoomClient } from '../../../api';
+import type { LoomClient } from '../../../client/api';
 import { useQuery } from '../../../react';
-import type { ExplicitGroupRevisionSummary } from '../../../types';
-import type { SelectionPage, SelectionRevision } from '../../../selection';
+import type { ExplicitGroupRevisionSummary } from '../../../contracts/types';
+import type { SelectionPage, SelectionRevision } from '../../../contracts/selection';
 
 type SelectedMember = { readonly memberId: string; readonly label: string };
 type GroupDraft = { readonly id: string; readonly label: string; readonly ordinal: number; readonly memberIds: ReadonlyArray<string> };

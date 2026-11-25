@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import type { AuthoringNetworkResponse, Construction, ExplorerBuilderDocument, ExplorerBuilderPreviewResult, SourceRuleCreate } from '../../../types';
+import type { AuthoringNetworkResponse, Construction, ExplorerBuilderDocument, ExplorerBuilderPreviewResult, SourceRuleCreate } from '../../../contracts/types';
 
 export interface RecipeEditingIdentity {
   readonly project: string;

@@ -1,19 +1,19 @@
 // @vitest-environment jsdom
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { LoomRequestError } from '../../../api';
+import { LoomRequestError } from '../../../client/api';
 import type {
   DiscoverConstructionCategoriesArgs,
   GetConstructionCapabilitiesArgs,
   ProposeConstructionArgs,
-} from '../../../api';
+} from '../../../client/api';
 import {
   EXPLORER_AUTHORING_API_VERSION,
   type ConstructionCapabilitiesResponse,
   type ConstructionCategoryDiscoveryResponse,
   type ConstructionProposalResponse,
   type ExplorerBuilderPreviewResult,
-} from '../../../types';
+} from '../../../contracts/types';
 import {
   useConstructionLifecycle,
   type ConstructionLifecycleClient,

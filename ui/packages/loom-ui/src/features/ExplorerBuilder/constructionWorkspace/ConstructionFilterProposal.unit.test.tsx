@@ -3,8 +3,8 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { LoomRequestError } from '../../../api';
-import type { GetConstructionCapabilitiesArgs, ProposeConstructionArgs } from '../../../api';
+import { LoomRequestError } from '../../../client/api';
+import type { GetConstructionCapabilitiesArgs, ProposeConstructionArgs } from '../../../client/api';
 import {
   EXPLORER_AUTHORING_API_VERSION,
   type ConstructionCapabilitiesResponse,
@@ -12,7 +12,7 @@ import {
   type ConstructionProposalResponse,
   type ConstructionStageDescriptor,
   type ExplorerBuilderPreviewResult,
-} from '../../../types';
+} from '../../../contracts/types';
 import { ConstructionOperationEditor } from '../constructionOperations/ConstructionOperationEditor';
 import { ConstructionProposalPanel } from './ConstructionProposalPanel';
 import { useConstructionLifecycle, type ConstructionLifecycleClient } from './useConstructionLifecycle';

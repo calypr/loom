@@ -2,7 +2,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FrameDefinition, FrameSourceOption } from '../../../types';
+import type { FrameDefinition, FrameSourceOption } from '../../../contracts/types';
 import { FrameSourcePanel } from './FrameSourcePanel';
 
 const mockClient = vi.hoisted(() => ({ browseFrameSourceOptions: vi.fn(), browseSemanticInventory: vi.fn() }));

@@ -3,9 +3,9 @@ import React from 'react';
 import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 
-import { createLoomClient } from './api';
+import { createLoomClient } from './client/api';
 import { LoomExplorerBuilder } from './Builder';
-import type { SelectionPage, SelectionRevision } from './selection';
+import type { SelectionPage, SelectionRevision } from './contracts/selection';
 
 const renderedPopulationStates = vi.hoisted(
   (): Array<{

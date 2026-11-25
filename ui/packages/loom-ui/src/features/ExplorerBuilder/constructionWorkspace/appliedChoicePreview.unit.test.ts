@@ -1,7 +1,7 @@
 import type {
   ExplorerBuilderCompileResult,
   ExplorerBuilderPreviewResult,
-} from '../../../types';
+} from '../../../contracts/types';
 import { matchesAcceptedPreviewHandoff, type AppliedPreviewHandoff } from './appliedChoicePreview';
 
 const preview: ExplorerBuilderPreviewResult = {

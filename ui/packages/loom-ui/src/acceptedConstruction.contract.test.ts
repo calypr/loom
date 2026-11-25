@@ -4,7 +4,7 @@ import fixtureJson from '../../../../tests/fixtures/openapi/accepted-constructio
 import {
   explorerBuilderAcceptedConstructionSchema,
   explorerBuilderCommandsResultSchema,
-} from './types';
+} from './contracts/types';
 
 const fixture = JSON.parse(fixtureJson) as unknown;
 

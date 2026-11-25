@@ -2,7 +2,7 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { GetConstructionCapabilitiesArgs, ProposeConstructionArgs } from '../../../api';
+import type { GetConstructionCapabilitiesArgs, ProposeConstructionArgs } from '../../../client/api';
 import {
   EXPLORER_AUTHORING_API_VERSION,
   type Construction,
@@ -10,7 +10,7 @@ import {
   type ConstructionCategoryDiscoveryResponse,
   type ConstructionProposalResponse,
   type ExplorerBuilderPreviewResult,
-} from '../../../types';
+} from '../../../contracts/types';
 import {
   ConstructionReshapeEditor,
   type ConstructionReshapePivotCategory,

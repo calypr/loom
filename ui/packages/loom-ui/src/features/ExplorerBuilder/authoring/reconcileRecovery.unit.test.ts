@@ -1,5 +1,5 @@
-import type { ExplorerAuthoringApiError } from '../../../api';
-import type { ExplorerBuilderCompileResult } from '../../../types';
+import type { ExplorerAuthoringApiError } from '../../../client/api';
+import type { ExplorerBuilderCompileResult } from '../../../contracts/types';
 import {
   isDraftDesynchronized,
   isStaleSnapshot,

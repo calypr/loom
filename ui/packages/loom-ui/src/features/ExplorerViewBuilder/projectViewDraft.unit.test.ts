@@ -5,7 +5,7 @@ import {
   projectViewFrameRef,
   viewForFrameReference,
 } from './projectViewDraft';
-import type { ProjectViewBuilderCatalog, ProjectViewConfig } from '../../projectViewBuilder';
+import type { ProjectViewBuilderCatalog, ProjectViewConfig } from '../../contracts/projectViewBuilder';
 
 const catalog: ProjectViewBuilderCatalog = {
   recipeName: 'published_recipe',

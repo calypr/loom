@@ -8,7 +8,7 @@ import type {
   ConstructionStep,
   ExplorerBuilderCatalog,
   RelatedExpandChoiceSearchResponse,
-} from '../../../types';
+} from '../../../contracts/types';
 import { constructionWithStep } from './editorShared';
 import { constructionInputForStage } from '../constructionWorkspace/constructionStages';
 import { RelatedExpandContributorEditor, type ContributorChoice, type ContributorCondition } from './RelatedExpandContributorEditor';

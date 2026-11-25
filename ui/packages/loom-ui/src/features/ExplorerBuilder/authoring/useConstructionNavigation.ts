@@ -1,5 +1,5 @@
 import { useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import type { Construction, ConstructionOperation, ConstructionStep } from '../../../types';
+import type { Construction, ConstructionOperation, ConstructionStep } from '../../../contracts/types';
 import { derivedOccurrences, selectedTable, type BuilderAuthoringState, type DraftTable } from './model';
 import { constructionOperationFamilies, type ConstructionHistorySelection, type ConstructionOperationFamily } from '../constructionWorkspace/ConstructionWorkspace';
 import { createReshapeEditorEntry, publicScalarListColumnIds, type ConstructionReshapeEditorEntry, type ReshapeEntryKind, type ReshapeForm } from '../constructionOperations/ConstructionReshapeEditor';

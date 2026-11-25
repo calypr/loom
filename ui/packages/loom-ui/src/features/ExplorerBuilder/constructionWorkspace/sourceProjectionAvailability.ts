@@ -1,4 +1,4 @@
-import type { ConstructionCapabilitiesResponse, ConstructionStageDescriptor } from '../../../types';
+import type { ConstructionCapabilitiesResponse, ConstructionStageDescriptor } from '../../../contracts/types';
 import { copyForReasonCode } from '../catalogItems';
 
 type SourceProjectionAvailability = {

@@ -10,11 +10,11 @@ import {
   type ConstructionReshapeStep,
 } from './ConstructionReshapeEditor';
 import { ConstructionHistory, type ConstructionHistorySelection } from '../constructionWorkspace/ConstructionWorkspace';
-import { constructionCapabilitiesResponseSchema, constructionProposalRequestSchema, constructionSchema } from '../../../types';
+import { constructionCapabilitiesResponseSchema, constructionProposalRequestSchema, constructionSchema } from '../../../contracts/types';
 import { ConstructionReshapeEditor, createReshapeEditorEntry, publicScalarListColumnIds } from './ConstructionReshapeEditor';
 import { capabilitiesFor as makeCapabilities, sourceStage as makeSourceStage } from '../../../../testSupport/constructionFixtures';
 import { sourceStage as reviewSourceStage } from '../../../../testSupport/constructionFixtures';
-import { type Construction } from '../../../types';
+import { type Construction } from '../../../contracts/types';
 import { type Mock } from 'vitest';
 
 const sourceColumns: ConstructionReshapeEditorProps['capabilities']['selectedStage']['columns'] = [

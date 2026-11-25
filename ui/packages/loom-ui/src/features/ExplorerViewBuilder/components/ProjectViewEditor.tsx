@@ -14,7 +14,7 @@ import type {
   ProjectViewBuilderCatalog,
   ProjectViewBuilderFrame,
   ProjectViewConfig,
-} from '../../../projectViewBuilder';
+} from '../../../contracts/projectViewBuilder';
 import { canUseViewColumnPresentation } from '../projectViewDraft';
 
 const frameForView = (

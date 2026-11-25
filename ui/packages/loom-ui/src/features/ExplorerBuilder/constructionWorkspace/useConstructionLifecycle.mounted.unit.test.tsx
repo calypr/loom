@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { DiscoverConstructionCategoriesArgs, ExplorerAuthoringApiError, GetConstructionCapabilitiesArgs, ProposeConstructionArgs } from '../../../api';
+import type { DiscoverConstructionCategoriesArgs, ExplorerAuthoringApiError, GetConstructionCapabilitiesArgs, ProposeConstructionArgs } from '../../../client/api';
 import {
   EXPLORER_AUTHORING_API_VERSION,
   type ConstructionCapabilitiesResponse,
@@ -9,7 +9,7 @@ import {
   type ConstructionProposalResponse,
   type ExplorerBuilderCompileResult,
   type ExplorerBuilderPreviewResult,
-} from '../../../types';
+} from '../../../contracts/types';
 import {
   useConstructionLifecycle,
   type ConstructionCandidateIntent,

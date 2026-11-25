@@ -8,7 +8,7 @@ import type {
   ExplorerBuilderPreviewRowSource,
   ExplorerBuilderRowLineageResponse,
   ConstructionStageColumn,
-} from '../../../types';
+} from '../../../contracts/types';
 import type { DraftTable } from '../authoring/model';
 import { effectiveOutputAvailability } from '../constructionWorkspace/outputEligibility';
 import { displayValue, losslessText } from '../../../valueDisplay';

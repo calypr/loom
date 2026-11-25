@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { createLoomClient, type ResolveConfiguredColumnContextsArgs } from './api';
+import { createLoomClient, type ResolveConfiguredColumnContextsArgs } from './client/api';
 import {
   LoomProvider,
   useResolveConfiguredColumnContextsQuery,

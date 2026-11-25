@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import type { ExplorerBuilderCompileResult } from '../../../types';
+import type { ExplorerBuilderCompileResult } from '../../../contracts/types';
 import { useVirtualViewport, virtualRange } from './virtualization';
 
 const ROW_HEIGHT = 42;

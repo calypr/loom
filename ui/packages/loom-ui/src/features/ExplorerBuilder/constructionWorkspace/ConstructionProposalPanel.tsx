@@ -3,7 +3,7 @@ import type {
   Construction,
   ConstructionProposalResponse,
   ExplorerBuilderPreviewResult,
-} from '../../../types';
+} from '../../../contracts/types';
 import { formatPreviewCell } from '../components/PreviewTable';
 import { PreviewValueCoverage } from './PreviewValueCoverage';
 import { constructionHistorySteps } from './constructionHistory';

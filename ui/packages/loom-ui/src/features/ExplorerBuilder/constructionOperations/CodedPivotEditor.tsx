@@ -1,7 +1,7 @@
 import { fieldPickerList, fieldPickerToggleRow } from '../components/fieldPickerStyles';
 import React, { useId, useMemo, useRef, useState } from 'react';
 import { useCommitLifecycle } from '../hooks/useBrowserSubscription';
-import type { LoomClient } from '../../../api';
+import type { LoomClient } from '../../../client/api';
 import { useQuery } from '../../../react';
 import type {
   Construction,
@@ -10,7 +10,7 @@ import type {
   FrameSourceOption,
   SemanticInventoryBrowseResponse,
   SemanticInventoryItem,
-} from '../../../types';
+} from '../../../contracts/types';
 import { constructionWithStep } from './editorShared';
 import { semanticConceptLabel } from '../catalogItems';
 

@@ -1,6 +1,6 @@
 import React, { useMemo, useReducer, useRef, useState } from 'react';
 import { Alert, Button, Center, Group, Loader, MantineProvider, Modal, Stack, Tabs, Text, Title } from '@mantine/core';
-import { createLoomClient, type Artifact, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './api';
+import { createLoomClient, type Artifact, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './client/api';
 import { ChartToggle, QualitySummary, QuerySummary } from './features/ExplorerViewer/ViewerChrome';
 import { FilterRail, OutputCharts, OutputTable, PageControls, textFor, type ViewerRow } from './features/ExplorerViewer/components';
 import { runtimeSessionKey } from './features/ExplorerViewer/model';
@@ -10,7 +10,7 @@ import { CellExplanationDialog, type CellExplanationCoordinate } from './feature
 import { LoomProvider, useCellTraceMutation, useLoomClient, useLoomOutput, useLoomRuntime } from './react';
 import { resultUnitTitle } from './resultUnitDisplay';
 import type { CellTraceResponse } from './cellTrace';
-import type { ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from './types';
+import type { ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from './contracts/types';
 
 type ViewerRuntimeAction = NonNullable<ExplorerRuntimeOutputV1['actions']>[number];
 

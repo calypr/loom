@@ -1,4 +1,4 @@
-import type { Construction, ConstructionStageDescriptor, ConstructionStep, ExplorerBuilderDocument } from '../../../types';
+import type { Construction, ConstructionStageDescriptor, ConstructionStep, ExplorerBuilderDocument } from '../../../contracts/types';
 
 type ConstructionInputStage = Pick<ConstructionStageDescriptor, 'id' | 'operation'>;
 

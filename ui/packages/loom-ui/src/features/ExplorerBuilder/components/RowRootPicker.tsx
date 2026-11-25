@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import type { ExplorerBuilderCatalog } from '../../../types';
+import type { ExplorerBuilderCatalog } from '../../../contracts/types';
 
 export const RowRootPicker = ({
   catalog,

@@ -1,6 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import { useCreateExplorerAuthoringMutation, useDeleteExplorerAuthoringMutation, type useGetExplorerAuthoringExplorersQuery, type useGetExplorerAuthoringCapabilityV2Query } from '../../../react';
-import type { ExplorerAuthoringApiError } from '../../../api';
+import type { ExplorerAuthoringApiError } from '../../../client/api';
 import type { BuilderAuthoringState, DraftTable } from './model';
 import type { BuilderAction } from './reducer';
 import type { useCommandQueue } from './useCommandQueue';

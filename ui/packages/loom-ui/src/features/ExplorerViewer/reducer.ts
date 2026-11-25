@@ -1,4 +1,4 @@
-import type { ExplorerRuntimeV1 } from '../../types';
+import type { ExplorerRuntimeV1 } from '../../contracts/types';
 import {
   activeOutputState,
   initialViewerState,

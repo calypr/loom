@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { useLoomClient, useQuery } from '../../../react';
-import type { FrameDefinition, FrameSourceOption, SemanticInventoryItem } from '../../../types';
+import type { FrameDefinition, FrameSourceOption, SemanticInventoryItem } from '../../../contracts/types';
 import { catalogChoiceIntent, catalogItemAvailability, type CatalogChoiceIntent, type CatalogItem } from '../catalogItems';
 
 type LoadState<T> =

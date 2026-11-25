@@ -1,4 +1,4 @@
-import type { AuthoringNetworkResponse, ExplorerBuilderCatalog, ExplorerBuilderDocument } from '../../../types';
+import type { AuthoringNetworkResponse, ExplorerBuilderCatalog, ExplorerBuilderDocument } from '../../../contracts/types';
 import type { DraftTable } from '../authoring/model';
 import { routePath } from '../constructionWorkspace/routeDisplay';
 import { constructionHistorySteps, constructionRowMeaning } from '../constructionWorkspace/constructionHistory';

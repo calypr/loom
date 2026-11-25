@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ConstructionCapabilitiesResponse, ConstructionStageDescriptor } from '../../../types';
+import type { ConstructionCapabilitiesResponse, ConstructionStageDescriptor } from '../../../contracts/types';
 import { sourceProjectionAvailability } from './sourceProjectionAvailability';
 
 const groupedStages = [

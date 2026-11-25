@@ -1,5 +1,5 @@
-import type { DescribeAuthoringNetworkArgs } from '../src/api';
-import type { AuthoringNetworkResponse, ExplorerBuilderDocument } from '../src/types';
+import type { DescribeAuthoringNetworkArgs } from '../src/client/api';
+import type { AuthoringNetworkResponse, ExplorerBuilderDocument } from '../src/contracts/types';
 
 export function ordinaryNetworkFixture(document: ExplorerBuilderDocument, args: DescribeAuthoringNetworkArgs): AuthoringNetworkResponse {
   if (document.importedRecipe) throw new Error('Pinned sources require an explicit server-network fixture.');

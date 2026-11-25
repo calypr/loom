@@ -9,7 +9,7 @@ import type {
   ConstructionProposalRequest,
   ConstructionStep,
   RelatedFieldChoiceSearchResponse,
-} from '../../../types';
+} from '../../../contracts/types';
 import { constructionWithStep } from './editorShared';
 import { constructionInputForStage } from '../constructionWorkspace/constructionStages';
 

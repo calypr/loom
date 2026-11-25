@@ -1,5 +1,5 @@
 import { constructionHistorySteps } from '../constructionWorkspace/constructionHistory';
-import type { AuthoringNetworkResponse, ConstructionStep, ExplorerBuilderColumn, ExplorerBuilderDocument, ExplorerBuilderRouteNode } from '../../../types';
+import type { AuthoringNetworkResponse, ConstructionStep, ExplorerBuilderColumn, ExplorerBuilderDocument, ExplorerBuilderRouteNode } from '../../../contracts/types';
 
 interface RowConnectionTerm {
   readonly occurrenceId: string;

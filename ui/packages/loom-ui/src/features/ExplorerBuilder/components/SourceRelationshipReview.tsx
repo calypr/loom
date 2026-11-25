@@ -1,14 +1,14 @@
 import { useCallback, useRef, useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
-import type { SourceRuleCreate } from '../../../types';
-import { LoomRequestError, type LoomClient } from '../../../api';
+import type { SourceRuleCreate } from '../../../contracts/types';
+import { LoomRequestError, type LoomClient } from '../../../client/api';
 import type {
   ExplorerBuilderCommand,
   ExplorerBuilderPreviewResult,
   SourceRelationshipChange,
   SourceRelationshipProposal,
   SourceRelationshipProposalWithPreview,
-} from '../../../types';
+} from '../../../contracts/types';
 
 type PreparedSourceProposal = Pick<SourceRelationshipProposal, 'candidateDocument' | 'proposalId'> &
   Partial<Pick<SourceRelationshipProposal, 'affectedColumns' | 'notices'>>;

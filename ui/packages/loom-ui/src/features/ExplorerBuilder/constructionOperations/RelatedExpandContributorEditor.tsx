@@ -3,7 +3,7 @@ import React, { useRef, useState } from 'react';
 import { useCommitLifecycle } from '../hooks/useBrowserSubscription';
 import { ZodError } from 'zod';
 import { useLoomClient } from '../../../react';
-import type { RelatedExpandContributorSearchResponse } from '../../../types';
+import type { RelatedExpandContributorSearchResponse } from '../../../contracts/types';
 
 export type ContributorChoice = RelatedExpandContributorSearchResponse['choices'][number];
 export type ContributorCondition =

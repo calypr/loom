@@ -1,3 +1,4 @@
+import { isRecord } from './contracts/guards';
 type UnknownRecordDisplay = 'json' | 'parts';
 
 interface ValueDisplayOptions {
@@ -5,8 +6,6 @@ interface ValueDisplayOptions {
   readonly maxDepth?: number;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const scalarText = (value: unknown): string | undefined => {
   if (typeof value === 'string') return value.trim() || undefined;

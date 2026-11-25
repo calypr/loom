@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { useKeyedQuery, type QueryRefetchOptions } from '../../react';
-import type { ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult } from '../../types';
+import type { ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult } from '../../contracts/types';
 import type { PreviewLimit } from './authoring/previewRecovery';
 
 export type AutomaticPreviewIdentity = {

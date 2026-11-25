@@ -1,16 +1,16 @@
 import React, { useMemo, useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
-import type { PreviewInterpretationCandidateArgs } from '../../../api';
+import type { PreviewInterpretationCandidateArgs } from '../../../client/api';
 import { useLoomClient } from '../../../react';
 import type {
   ConfiguredColumnContextResponse,
   InterpretationPreviewResponse,
   InterpretationRevisionSummary,
-} from '../../../interpretation';
+} from '../../../contracts/interpretation';
 import type {
   ExplorerBuilderColumn,
   ExplorerBuilderCommand,
-} from '../../../types';
+} from '../../../contracts/types';
 
 export type InterpretationContextState =
   | { readonly status: 'loading' }

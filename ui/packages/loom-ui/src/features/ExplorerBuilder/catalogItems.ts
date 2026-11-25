@@ -11,7 +11,7 @@ import type {
   SemanticInventoryItemIdentity,
   SemanticInventoryItem,
   SemanticInventorySelectionMode,
-} from '../../types';
+} from '../../contracts/types';
 
 export type CatalogItem =
   | {

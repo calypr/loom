@@ -8,7 +8,7 @@ import {
   type ExplorerBuilderCompileResult,
   type ExplorerBuilderContractColumn,
   type ExplorerBuilderPreviewResult,
-} from '../../../types';
+} from '../../../contracts/types';
 import type { DraftTable } from '../authoring/model';
 import { DatasetReviewPanel, type DatasetReviewTarget } from './DatasetReviewPanel';
 

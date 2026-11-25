@@ -8,7 +8,7 @@ import { PreviewTable } from '../../src/features/ExplorerBuilder/components/Prev
 import { OutputTable } from '../../src/features/ExplorerViewer/components';
 import { createViewerReducerState } from '../../src/features/ExplorerViewer/reducer';
 import type { DraftTable } from '../../src/features/ExplorerBuilder/authoring/model';
-import type { ExplorerBuilderColumn, ExplorerBuilderPreviewResult, ExplorerRuntimeV1 } from '../../src/types';
+import type { ExplorerBuilderColumn, ExplorerBuilderPreviewResult, ExplorerRuntimeV1 } from '../../src/contracts/types';
 
 const columns: ExplorerBuilderColumn[] = ['First', 'Second'].map((label, order) => ({
   column: label.toLowerCase(), label, occurrenceId: 'base',

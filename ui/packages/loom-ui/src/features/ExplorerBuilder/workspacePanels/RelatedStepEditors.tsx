@@ -1,5 +1,5 @@
 import React from 'react';
-import type { Construction } from '../../../types';
+import type { Construction } from '../../../contracts/types';
 import type { BuilderAuthoringState } from '../authoring/model';
 import { RelatedSourceStepEditor, type RelatedSourceStep } from '../constructionOperations/RelatedSourceStepEditor';
 import { RelatedFieldEditor, type RelatedFieldStep } from '../constructionOperations/RelatedFieldEditor';

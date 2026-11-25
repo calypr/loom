@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createLoomClient, LoomRequestError } from './api';
+import { createLoomClient, LoomRequestError } from './client/api';
 
 const projectArgs = { project: 'project-a' } as const;
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ExplorerBuilderDocument } from '../../../types';
+import type { ExplorerBuilderDocument } from '../../../contracts/types';
 import { effectiveOutputAvailability } from './outputEligibility';
 
 const document = (

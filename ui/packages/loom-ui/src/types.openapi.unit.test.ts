@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import * as runtimeTypes from './types';
+import * as runtimeTypes from './contracts/types';
 
 const openApiSchema = z.object({
   $ref: z.string().optional(),

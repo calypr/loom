@@ -1,5 +1,5 @@
-import type { LoomFacetSpec, LoomOutputFilter, LoomOutputRequest } from '../../api';
-import type { ExplorerRuntimeBindingV1, ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from '../../types';
+import type { LoomFacetSpec, LoomOutputFilter, LoomOutputRequest } from '../../client/api';
+import type { ExplorerRuntimeBindingV1, ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from '../../contracts/types';
 import { activeOutputState, filterSelectionsFor, isClearedSelection, isSelectedSelection, viewerFilterKind, type ViewerFieldSelection, type ViewerState } from './model';
 
 export const facetName = (outputId: string, column: string): string => `loom:${outputId}:${column}`;

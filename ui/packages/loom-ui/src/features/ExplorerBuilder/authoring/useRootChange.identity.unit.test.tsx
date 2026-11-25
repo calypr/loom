@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { createLoomClient } from '../../../api';
-import type { ExplorerBuilderCatalog, RowChangeAssessment } from '../../../types';
+import { createLoomClient } from '../../../client/api';
+import type { ExplorerBuilderCatalog, RowChangeAssessment } from '../../../contracts/types';
 import { useRootChange } from './useRootChange';
 import type { BuilderAuthoringState, DraftTable } from './model';
 

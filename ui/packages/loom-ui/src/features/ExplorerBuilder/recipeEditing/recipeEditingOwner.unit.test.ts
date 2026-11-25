@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, renderHook } from '@testing-library/react';
-import type { ExplorerBuilderDocument } from '../../../types';
+import type { ExplorerBuilderDocument } from '../../../contracts/types';
 import { createRecipeEditingState, projectRecipeCandidate, recipeEditingReducer, useRecipeEditingOwner,
   type RecipeEditingIdentity, type RecipeEditingState, type RecipeEditToken, type RecipeValidatedCandidate } from './recipeEditingOwner';
 const identity: RecipeEditingIdentity = { project: 'p', explorerId: 'e', outputId: 'subjects', snapshotToken: 'snapshot', draftVersion: 2, draftDigest: 'draft' };

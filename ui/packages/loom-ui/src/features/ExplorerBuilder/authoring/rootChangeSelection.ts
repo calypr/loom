@@ -2,7 +2,7 @@ import type {
   ExplorerBuilderCatalog,
   RowChangeAssessment,
   RowChangeUnresolvedReference,
-} from '../../../types';
+} from '../../../contracts/types';
 import { relationshipLabel } from '../constructionWorkspace/routeDisplay';
 import { derivedOccurrences, type DraftTable } from './model';
 

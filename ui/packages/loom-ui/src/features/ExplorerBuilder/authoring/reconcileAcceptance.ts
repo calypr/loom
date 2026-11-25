@@ -1,4 +1,4 @@
-import type { ExplorerBuilderCompileResult } from '../../../types';
+import type { ExplorerBuilderCompileResult } from '../../../contracts/types';
 import {
   reconcileReceiptMatchesRequest,
   reconcileResultIsCurrent,

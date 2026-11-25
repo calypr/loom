@@ -1,4 +1,5 @@
-import { viewBuilderStateSchema, type ProjectViewBuilderState, type SaveProjectViewConfigRequest, type SaveProjectViewDefaultsRequest } from './projectViewBuilder';
+import { isRecord } from '../contracts/guards';
+import { viewBuilderStateSchema, type ProjectViewBuilderState, type SaveProjectViewConfigRequest, type SaveProjectViewDefaultsRequest } from '../contracts/projectViewBuilder';
 
 export interface ProjectViewBuilderArgs { readonly project: string; readonly authResourcePath?: string }
 export interface SaveProjectViewConfigArgs extends ProjectViewBuilderArgs { readonly configId: string; readonly request: SaveProjectViewConfigRequest }
@@ -98,8 +99,8 @@ import {
   type SemanticInventoryItemIdentity,
   type FrameSourceOptionsResponse,
   type ExplorerBuilderRowLineageResponse,
-} from './types';
-import type { ExplorerAuthoringDiagnostic } from './types';
+} from '../contracts/types';
+import type { ExplorerAuthoringDiagnostic } from '../contracts/types';
 import {
   configuredColumnContextResponseSchema,
   interpretationLibraryListResponseSchema,
@@ -111,18 +112,19 @@ import {
   type InterpretationPreviewResponse,
   type InterpretationRule,
   type InterpretationRevision,
-} from './interpretation';
+} from '../contracts/interpretation';
 import { z } from 'zod';
-import { cellTraceResponseSchema, type CellTraceResponse } from './cellTrace';
+import { cellTraceResponseSchema, type CellTraceResponse } from '../cellTrace';
 import {
   selectionPageSchema,
   selectionRevisionSchema,
   resourceRefSchema,
+  type LoomOutputFilter,
   type ResourceRef,
   type SelectionPage,
   type SelectionRevision,
   type SelectionSourceIntent,
-} from './selection';
+} from '../contracts/selection';
 
 export interface ExplorerSummary {
   readonly project: string;
@@ -567,29 +569,6 @@ export interface LoomRowsOptions {
   readonly signal?: AbortSignal;
 }
 
-export type LoomOutputFilterOperator =
-  | 'EQ'
-  | 'NEQ'
-  | 'IN'
-  | 'NOT_IN'
-  | 'LT'
-  | 'LTE'
-  | 'GT'
-  | 'GTE'
-  | 'CONTAINS'
-  | 'STARTS_WITH'
-  | 'EXISTS'
-  | 'IS_NULL'
-  | 'ARRAY_CONTAINS'
-  | 'ARRAY_OVERLAPS';
-
-export interface LoomOutputFilter {
-  readonly column: string;
-  readonly op: LoomOutputFilterOperator;
-
-  readonly value: unknown;
-}
-
 export interface LoomOutputSort {
   readonly column: string;
   readonly desc?: boolean;
@@ -872,8 +851,6 @@ export const getProjectViewBuilderState = async (get: (path: string) => Promise<
   return viewBuilderStateSchema.parse(payload);
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const parseJSON = async (response: Response): Promise<unknown> => {
   const text = await response.text();
@@ -2033,3 +2010,5 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     },
   };
 };
+
+export type { LoomOutputFilter, LoomOutputFilterOperator } from '../contracts/selection';

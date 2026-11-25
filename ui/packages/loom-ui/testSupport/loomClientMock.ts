@@ -1,5 +1,5 @@
 import { vi, type Mock } from 'vitest';
-import type { LoomClient } from '../src/api';
+import type { LoomClient } from '../src/client/api';
 import { traceLoomClient } from './traceLoomClient';
 
 const never = () => new Promise<never>(() => undefined);

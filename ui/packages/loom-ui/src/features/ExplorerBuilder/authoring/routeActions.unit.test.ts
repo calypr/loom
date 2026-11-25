@@ -1,4 +1,4 @@
-import type { ExplorerBuilderCatalog } from '../../../types';
+import type { ExplorerBuilderCatalog } from '../../../contracts/types';
 import type { DraftTable } from './model';
 import {
   isLegalRouteExtension,

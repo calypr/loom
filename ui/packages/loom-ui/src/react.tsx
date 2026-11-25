@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { createLoomClient, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './api';
-import type { SelectionRevision } from './selection';
+import { createLoomClient, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './client/api';
+import type { SelectionRevision } from './contracts/selection';
 import type {
   ApplyExplorerBuilderCommandsArgs,
   AssessExplorerRowChangeArgs,
@@ -16,7 +16,7 @@ import type {
   PublishExplorerBuilderArgs,
   ReconcileExplorerBuilderArgs,
   ResolveConfiguredColumnContextsArgs,
-} from './api';
+} from './client/api';
 
 const LoomClientContext = createContext<LoomClient | null>(null);
 

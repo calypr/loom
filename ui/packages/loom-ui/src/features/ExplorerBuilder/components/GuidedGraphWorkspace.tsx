@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Background, Controls, MarkerType, Position, ReactFlow, ViewportPortal } from '@xyflow/react';
 import type { Edge, Node } from '@xyflow/react';
-import type { ExplorerBuilderCatalog } from '../../../types';
+import type { ExplorerBuilderCatalog } from '../../../contracts/types';
 import { derivedOccurrences, type DraftTable } from '../authoring/model';
 import {
   legalOutgoingEdges,

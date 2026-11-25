@@ -1,20 +1,20 @@
 import {useCallback, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import { useCommitLifecycle } from '../hooks/useBrowserSubscription';
 import { resourceFor } from '../../../react';
-import { LoomRequestError } from '../../../api';
+import { LoomRequestError } from '../../../client/api';
 import type {
   DiscoverConstructionCategoriesArgs,
   GetConstructionCapabilitiesArgs,
   LoomClient,
   ProposeConstructionArgs,
-} from '../../../api';
+} from '../../../client/api';
 import type {
   ConstructionCapabilitiesResponse,
   ConstructionCategoryDiscoveryResponse,
   ConstructionProposalRequest,
   ConstructionProposalResponse,
   ExplorerBuilderPreviewResult,
-} from '../../../types';
+} from '../../../contracts/types';
 import type {
   CompletePivotDiscovery,
   ConstructionReshapePivotDiscovery,

@@ -5,8 +5,8 @@ import type {
   ProjectViewBuilderArgs,
   SaveProjectViewConfigArgs,
   SaveProjectViewDefaultsArgs,
-} from './api';
-import type { ProjectViewBuilderState } from './projectViewBuilder';
+} from './client/api';
+import type { ProjectViewBuilderState } from './contracts/projectViewBuilder';
 
 export const useGetProjectViewBuilderQuery = (args: ProjectViewBuilderArgs) => {
   const client = useLoomClient();

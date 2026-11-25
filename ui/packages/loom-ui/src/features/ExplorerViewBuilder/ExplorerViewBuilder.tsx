@@ -13,8 +13,8 @@ import {
   Tabs,
   Title,
 } from '@mantine/core';
-import type { ProjectViewBuilderState, ProjectViewConfig } from '../../projectViewBuilder';
-import { createLoomClient, type LoomClient } from '../../api';
+import type { ProjectViewBuilderState, ProjectViewConfig } from '../../contracts/projectViewBuilder';
+import { createLoomClient, type LoomClient } from '../../client/api';
 import { LoomProvider } from '../../react';
 import {
   useAdoptProjectViewBuilderCatalogsMutation,

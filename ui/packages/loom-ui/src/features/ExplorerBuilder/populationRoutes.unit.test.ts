@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ConstructionRouteStep } from '../../types';
+import type { ConstructionRouteStep } from '../../contracts/types';
 import {
   matchesSavedPopulationRoute,
   sameConstructionRoute,

@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
-import { canonicalProject, type LoomClient } from '../../../api';
+import { canonicalProject, type LoomClient } from '../../../client/api';
 import { useQuery } from '../../../react';
-import type { ResourceRef, SelectionPage, SelectionRevision } from '../../../selection';
-import type { PopulationMemberRemovalProposalResponse } from '../../../api';
+import type { ResourceRef, SelectionPage, SelectionRevision } from '../../../contracts/selection';
+import type { PopulationMemberRemovalProposalResponse } from '../../../client/api';
 
 const PAGE_SIZE = 100;
 const PREVIEW_LIMIT = 25;

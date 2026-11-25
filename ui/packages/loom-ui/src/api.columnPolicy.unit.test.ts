@@ -1,5 +1,5 @@
-import { createLoomClient } from './api';
-import type { ColumnPolicyProposal } from './types';
+import { createLoomClient } from './client/api';
+import type { ColumnPolicyProposal } from './contracts/types';
 const document={kind:'ExplorerBuilderDocument' as const,output:{id:'subjects',title:'Subjects'},rootResourceType:'ResearchSubject',route:{occurrenceId:'base',resourceType:'ResearchSubject'},rows:{kind:'RECORDS' as const,records:{}},columns:[]};
 const proposal:ColumnPolicyProposal={proposalId:'candidate',candidateReceiptId:'candidate',outputId:'subjects',snapshotToken:'snapshot',draftVersion:4,draftDigest:'draft-4',baseDocumentDigest:'base',candidateWorkspaceDigest:'next',previewStatus:'READY',sampledRows:1,sampled:true,affectedColumns:[],notices:[],candidateDocument:document,candidateNetwork:{owner:'DOCUMENT',outputId:'subjects',sourceRows:document.rows,projectedFields:[],occurrences:[],bindings:[],operations:[]},candidateRowIdentity:{outputId:'subjects',sourceDefinition:document.rows,stages:[],relationships:[]}};
 const args={project:'org/project',explorerId:'editor',authResourcePath:'/programs/org/projects/project',snapshotToken:'snapshot',expectedDraftVersion:4,expectedDraftDigest:'draft-4',outputId:'subjects',columnId:'existing-column',projectionMode:'ALL' as const,requestId:'review-column-policy'};

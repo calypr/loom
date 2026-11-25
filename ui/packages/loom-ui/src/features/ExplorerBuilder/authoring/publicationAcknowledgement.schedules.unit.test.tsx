@@ -3,10 +3,10 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoomProvider } from '../../../react';
-import { createLoomClient } from '../../../api';
+import { createLoomClient } from '../../../client/api';
 import BuilderWorkspace from '../BuilderWorkspace';
 import { reconcileResultIsCurrent } from './reconcileRecovery';
-import { EXPLORER_AUTHORING_API_VERSION } from '../../../types';
+import { EXPLORER_AUTHORING_API_VERSION } from '../../../contracts/types';
 import { publication_acknowledgement as cases, publication_identity_guards as identityGuards } from '../../../../testdata/schedules/publication_acknowledgement';
 
 const harness = vi.hoisted(() => ({

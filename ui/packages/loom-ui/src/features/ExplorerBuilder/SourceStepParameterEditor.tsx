@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from 'react';
-import type { ImportedSourceParameters, ProjectedField, SourceRecipeExpression } from '../../types';
+import type { ImportedSourceParameters, ProjectedField, SourceRecipeExpression } from '../../contracts/types';
 import { isCategoryCodingRule, isIdentifierColumnRule } from './sourceColumnRule';
 import { moveExpressionItem, SourceExpressionEditor } from './SourceExpressionEditor';
 

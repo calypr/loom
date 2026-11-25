@@ -2,11 +2,11 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { createLoomClient as createFullLoomClient, LoomRequestError } from '../../../api';
+import { createLoomClient as createFullLoomClient, LoomRequestError } from '../../../client/api';
 
 const createLoomClient = createFullLoomClient;
 import { LoomProvider } from '../../../react';
-import { semanticInventoryBrowseRequestSchema } from '../../../types';
+import { semanticInventoryBrowseRequestSchema } from '../../../contracts/types';
 import type {
   AggregateTransformationCapability,
   ColumnValueTransformationCapabilities,
@@ -17,7 +17,7 @@ import type {
   FieldPresentationRequest,
   SemanticInventoryBrowseResponse,
   SemanticInventoryItem,
-} from '../../../types';
+} from '../../../contracts/types';
 import type { CatalogInitialSelection } from './CatalogSelectionOptions';
 import {
   ConceptCatalog,

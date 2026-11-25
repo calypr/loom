@@ -1,7 +1,7 @@
 import './styles.css';
 
-export { createLoomClient, LoomRequestError } from './api';
-export type { LoomClient, LoomClientOptions, LoomRowsOptions, LoomOutputFilterOperator, LoomOutputFilter, LoomOutputSort, LoomFacetSpec, LoomOutputRequest, LoomFacetResult, LoomOutputResult, ExplorerAuthoringApiError, ExplorerSummary, BrowseSemanticInventoryArgs } from './api';
+export { createLoomClient, LoomRequestError } from './client/api';
+export type { LoomClient, LoomClientOptions, LoomRowsOptions, LoomOutputFilterOperator, LoomOutputFilter, LoomOutputSort, LoomFacetSpec, LoomOutputRequest, LoomFacetResult, LoomOutputResult, ExplorerAuthoringApiError, ExplorerSummary, BrowseSemanticInventoryArgs } from './client/api';
 export { LoomProvider, useLoomClient, useLoomRows, useLoomRuntime, useLoomOutput } from './react';
 export { LoomExplorerBuilder } from './Builder';
 export type { LoomExplorerBuilderProps } from './Builder';
@@ -161,7 +161,7 @@ export {
   unitNormalizationCapabilitySchema,
   unitNormalizationPresetCapabilitySchema,
   valueTransformationCapabilitySchema,
-} from './types';
+} from './contracts/types';
 export type {
   AggregateOperationCapability,
   AggregateOrdering,
@@ -315,9 +315,9 @@ export type {
   TemporalReductionCapability,
   UnitNormalizationCapability,
   UnitNormalizationPresetCapability,
-} from './types';
-export type { CreateSelectionArgs, GetSelectionArgs } from './api';
-export type { ResourceRef, SelectionSourceIntent, SelectionRevision, SelectionPage } from './selection';
+} from './contracts/types';
+export type { CreateSelectionArgs, GetSelectionArgs } from './client/api';
+export type { ResourceRef, SelectionSourceIntent, SelectionRevision, SelectionPage } from './contracts/selection';
 export {
   BuilderWorkspace,
 } from './features/ExplorerBuilder';
@@ -327,7 +327,7 @@ export type { ExplorerViewBuilderProps as LoomSavedViewBuilderProps } from './fe
 export {
   projectViewConfigSchema,
   viewBuilderStateSchema,
-} from './projectViewBuilder';
+} from './contracts/projectViewBuilder';
 export type {
   ProjectViewBuilderCatalog,
   ProjectViewBuilderConfigRevision,
@@ -336,7 +336,7 @@ export type {
   ProjectViewConfig,
   SaveProjectViewConfigRequest,
   SaveProjectViewDefaultsRequest,
-} from './projectViewBuilder';
-export { projectViewBuilderPath, getProjectViewBuilderState, encodeLoomProjectPath } from './api';
-export type { ProjectViewBuilderArgs, SaveProjectViewConfigArgs, DeleteProjectViewConfigArgs, SaveProjectViewDefaultsArgs } from './api';
+} from './contracts/projectViewBuilder';
+export { projectViewBuilderPath, getProjectViewBuilderState, encodeLoomProjectPath } from './client/api';
+export type { ProjectViewBuilderArgs, SaveProjectViewConfigArgs, DeleteProjectViewConfigArgs, SaveProjectViewDefaultsArgs } from './client/api';
 export { selectedProjectViewId, selectedProjectViewTab, useProjectViewTab } from './projectViewSelection';

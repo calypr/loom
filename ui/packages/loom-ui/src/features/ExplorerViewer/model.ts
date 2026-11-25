@@ -2,7 +2,7 @@ import type {
   ExplorerRuntimeBindingV1,
   ExplorerRuntimeOutputV1,
   ExplorerRuntimeV1,
-} from '../../types';
+} from '../../contracts/types';
 
 export const PAGE_SIZES = [5, 10, 20, 40, 100] as const;
 export type PageSize = (typeof PAGE_SIZES)[number];

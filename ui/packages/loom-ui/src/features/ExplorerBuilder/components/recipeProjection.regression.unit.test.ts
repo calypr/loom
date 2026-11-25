@@ -9,7 +9,7 @@ it('discloses existing first-related selection even with authoritative exact net
 
 it('describes a calculation without repeating hundreds of unchanged passthrough columns', () => {
   const outputs = Array.from({ length: 300 }, (_, index) => ({ id: `source_${index}`, name: `source_${index}`, label: `Unchanged source ${index}` }));
-  const step: import('../../../types').ConstructionStep = {
+  const step: import('../../../contracts/types').ConstructionStep = {
     id: 'derive_one', inputs: [{ kind: 'SOURCE_PROJECTION' }],
     operation: { kind: 'DERIVE', derive: { constructionId: 'derive_one', missingInputPolicy: 'ERROR', outputColumnId: 'new', operation: 'ADD', left: { kind: 'COLUMN', columnId: 'source_0' }, right: { kind: 'LITERAL', literal: { kind: 'INTEGER', integer: 2 } } } },
     outputs: [...outputs, { id: 'new', name: 'new', label: 'Calculated value' }],

@@ -1,8 +1,8 @@
 import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { useApplyExplorerBuilderCommandsV2Mutation, useGetExplorerBuilderStateV2Query } from '../../../react';
-import type { ExplorerAuthoringApiError } from '../../../api';
-import { explorerBuilderAcceptedConstructionSchema } from '../../../types';
-import type { ExplorerAuthoringDiagnostic, ExplorerBuilderCommand, ExplorerBuilderCommandsResult, ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult, ExplorerBuilderState } from '../../../types';
+import type { ExplorerAuthoringApiError } from '../../../client/api';
+import { explorerBuilderAcceptedConstructionSchema } from '../../../contracts/types';
+import type { ExplorerAuthoringDiagnostic, ExplorerBuilderCommand, ExplorerBuilderCommandsResult, ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult, ExplorerBuilderState } from '../../../contracts/types';
 import { admitAuthoringRequest } from './admission';
 import { commandDraftIdentity, type ServerDraftIdentity } from './commandDraftIdentity';
 import { selectedTable, type BuilderAuthoringState } from './model';

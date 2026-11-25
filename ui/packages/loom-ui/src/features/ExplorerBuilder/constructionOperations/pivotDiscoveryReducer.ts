@@ -1,4 +1,4 @@
-import type { Construction } from '../../../types';
+import type { Construction } from '../../../contracts/types';
 import {
   pivotDiscoveryMatches,
   pivotDiscoveryRequestIdentity,

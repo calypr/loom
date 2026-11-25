@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import type { ExplorerAuthoringApiError } from '../../../api';
-import type { ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult } from '../../../types';
+import type { ExplorerAuthoringApiError } from '../../../client/api';
+import type { ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult } from '../../../contracts/types';
 import { selectedTable, type BuilderAuthoringState } from './model';
 import type { builderAuthoringReducer } from './reducer';
 import type { PreviewLimit } from './previewRecovery';

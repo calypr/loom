@@ -7,7 +7,7 @@ import type {
   ExplorerBuilderCommandsResult,
   ExplorerBuilderPreviewResult,
   ExplorerBuilderState,
-} from '../../../types';
+} from '../../../contracts/types';
 import {
   derivedOccurrences,
   replaceRouteNode,

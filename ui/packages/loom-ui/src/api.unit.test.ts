@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import fieldPresentationReadyFixture from '../../../../tests/fixtures/semantic-field-presentation-ready.json?raw';
-import { canonicalProject, createLoomClient, LoomRequestError, populationMappingResponseSchema } from './api';
+import { canonicalProject, createLoomClient, LoomRequestError, populationMappingResponseSchema } from './client/api';
 import { cellTraceResponseSchema } from './cellTrace';
 import {
   EXPLORER_AUTHORING_API_VERSION,
@@ -13,7 +13,7 @@ import {
   constructionProposalResponseSchema,
   fieldPresentationSchema,
   semanticInventoryBrowseResponseSchema,
-} from './types';
+} from './contracts/types';
 
 const tracedFeature = { outputId: 'patients', column: 'gender', authoredColumn: 'patient_gender', occurrenceId: 'base', label: 'Gender', logicalType: 'string', sourceResourceType: 'Patient', sourcePath: 'gender', projectionMode: 'VALUE', lossless: true, lossReasons: [] };
 const constructionCapabilitiesResponse = {

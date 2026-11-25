@@ -1,4 +1,4 @@
-import type { ConstructionRouteStep } from '../../../types';
+import type { ConstructionRouteStep } from '../../../contracts/types';
 
 export const relationshipLabel = (edge: Pick<ConstructionRouteStep, 'fromResourceType' | 'toResourceType' | 'relationship'>): string => {
   const relationship = [edge.fromResourceType, edge.toResourceType].reduce((name, resourceType) => {

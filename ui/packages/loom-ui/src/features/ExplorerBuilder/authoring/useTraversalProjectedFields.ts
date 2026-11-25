@@ -1,5 +1,5 @@
 import { useRef, useState, type Dispatch } from 'react';
-import type { ExplorerBuilderColumn, ExplorerBuilderCommand, ProjectedField, SourceRelationshipChange } from '../../../types';
+import type { ExplorerBuilderColumn, ExplorerBuilderCommand, ProjectedField, SourceRelationshipChange } from '../../../contracts/types';
 import { routeNode, type BuilderAuthoringState, type DraftTable } from './model';
 import { fieldCatalogItems } from '../catalogItems';
 import type { BuilderAction } from './reducer';

@@ -1,4 +1,4 @@
-import type { ExplorerAuthoringApiError } from '../../../api';
+import type { ExplorerAuthoringApiError } from '../../../client/api';
 import {
   isPreviewResponseSizeError,
   previewRecoveryAction,

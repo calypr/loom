@@ -4,7 +4,7 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { builderWorkspaceNullMocks } from '../../../testSupport/builderWorkspaceMocks';
-import { createLoomClient, type LoomClient, type ApplyExplorerBuilderCommandsArgs } from '../../api';
+import { createLoomClient, type LoomClient, type ApplyExplorerBuilderCommandsArgs } from '../../client/api';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
@@ -13,13 +13,13 @@ import type {
   ConstructionStageDescriptor,
   ExplorerBuilderState,
   ExplorerBuilderWorkspace,
-} from '../../types';
+} from '../../contracts/types';
 import {
   constructionCapabilitiesResponseSchema,
   constructionProposalRequestSchema,
   explorerBuilderStateSchema,
   explorerBuilderWorkspaceSchema,
-} from '../../types';
+} from '../../contracts/types';
 import { relationalAdapters } from '../../../testSupport/builderContractAdapters/relational';
 import { coreAdapters } from '../../../testSupport/builderContractAdapters/core';
 import BuilderWorkspace from './BuilderWorkspace';

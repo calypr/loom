@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { useLoomClient } from '../../../react';
-import type { ResourceRef, SelectionRevision } from '../../../selection';
-import type { ConstructionRouteStep } from '../../../types';
+import type { ResourceRef, SelectionRevision } from '../../../contracts/selection';
+import type { ConstructionRouteStep } from '../../../contracts/types';
 import { sameConstructionRoute } from '../populationRoutes';
 import { selectedTable, type BuilderAuthoringState, type DraftTable } from './model';
 import type { useCommandQueue } from './useCommandQueue';

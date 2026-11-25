@@ -3,7 +3,7 @@ import type {
   ProjectViewBuilderConfigRevision,
   ProjectViewBuilderFrame,
   ProjectViewConfig,
-} from '../../projectViewBuilder';
+} from '../../contracts/projectViewBuilder';
 
 const safeIdPart = (value: string): string => {
   const normalized = value

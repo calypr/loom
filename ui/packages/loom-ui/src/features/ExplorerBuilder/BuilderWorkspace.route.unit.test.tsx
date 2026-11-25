@@ -16,7 +16,7 @@ import {
   usePublishExplorerAuthoringV2Mutation,
   useReconcileExplorerBuilderV2Mutation,
 } from '../../react';
-import type { LoomClient } from '../../api';
+import type { LoomClient } from '../../client/api';
 import { createLoomClientMock } from '../../../testSupport/loomClientMock';
 import BuilderWorkspace from './BuilderWorkspace';
 

@@ -19,7 +19,7 @@ import {
 import BuilderWorkspace from './BuilderWorkspace';
 import { LoomExplorerBuilder } from '../../Builder';
 import { ordinaryNetworkFixture } from '../../../testSupport/ordinaryNetworkFixture';
-import type { SelectionRevision } from '../../selection';
+import type { SelectionRevision } from '../../contracts/selection';
 import type {
   ConstructionCategoryDiscoveryResponse,
   Construction,
@@ -31,11 +31,11 @@ import type {
   ExplorerBuilderPreviewResult,
   ExplorerBuilderWorkspace,
   RowChangeAssessment,
-} from '../../types';
+} from '../../contracts/types';
 import type { RelatedExpandQueryOwner } from './constructionOperations/RelatedExpandEditor';
 import type { ConstructionCandidateIntent } from './constructionWorkspace/useConstructionLifecycle';
-import { createLoomClient } from '../../api';
-import type { LoomClient } from '../../api';
+import { createLoomClient } from '../../client/api';
+import type { LoomClient } from '../../client/api';
 import { createLoomClientMock } from '../../../testSupport/loomClientMock';
 import type {
   ApplyExplorerBuilderCommandsArgs,
@@ -43,7 +43,7 @@ import type {
   ProposeConstructionArgs,
   ProposeConstructionChoicesArgs,
   ReconcileExplorerBuilderArgs,
-} from '../../api';
+} from '../../client/api';
 
 const mockLoomClientReference = vi.hoisted(() => ({
   current: undefined as unknown,

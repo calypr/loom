@@ -1,7 +1,7 @@
 import type {
   ExplorerBuilderCompileResult,
   ExplorerBuilderPreviewResult,
-} from '../../../types';
+} from '../../../contracts/types';
 import type { PreviewLimit } from '../authoring/previewRecovery';
 
 export type AppliedPreviewHandoff = {

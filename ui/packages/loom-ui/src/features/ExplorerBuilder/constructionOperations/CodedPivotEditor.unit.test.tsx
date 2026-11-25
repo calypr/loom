@@ -2,8 +2,8 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { LoomClient } from '../../../api';
-import type { Construction, FrameSourceOption } from '../../../types';
+import type { LoomClient } from '../../../client/api';
+import type { Construction, FrameSourceOption } from '../../../contracts/types';
 import { CodedPivotEditor } from './CodedPivotEditor';
 
 const directSourceOption = (overrides: Partial<FrameSourceOption> = {}): FrameSourceOption => ({

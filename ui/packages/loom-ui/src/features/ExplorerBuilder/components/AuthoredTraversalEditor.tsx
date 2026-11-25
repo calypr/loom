@@ -7,8 +7,8 @@ import { authoredTraversal } from './authoredTraversal';
 type GraphProps = React.ComponentProps<typeof GuidedGraphWorkspace>;
 type AuthoredTraversalEditorProps = GraphProps & {
   readonly projectionKind: 'saved' | 'proposed';
-  readonly network?: import('../../../types').AuthoringNetworkResponse['network'];
-  readonly rowIdentity?: import('../../../types').AuthoringNetworkResponse['rowIdentity'];
+  readonly network?: import('../../../contracts/types').AuthoringNetworkResponse['network'];
+  readonly rowIdentity?: import('../../../contracts/types').AuthoringNetworkResponse['rowIdentity'];
   readonly onEditSourceStep?: (sourceStepId: string) => void;
   readonly onInspectValues?: (occurrenceId: string) => void;
   readonly onInspectRelatedRows?: (occurrenceId: string) => void;

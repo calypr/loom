@@ -4,7 +4,7 @@ import type {
   ConstructionChoiceForm,
   ConstructionChoiceSelection,
   SemanticInventorySelectionMode,
-} from '../../../types';
+} from '../../../contracts/types';
 import {
   catalogItemDefaultForm,
   catalogItemConstructionChoice,

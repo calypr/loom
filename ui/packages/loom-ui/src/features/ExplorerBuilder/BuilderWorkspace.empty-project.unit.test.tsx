@@ -2,7 +2,7 @@
 import React from 'react';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { createLoomClient } from '../../api';
+import { createLoomClient } from '../../client/api';
 import {
   useApplyExplorerBuilderCommandsV2Mutation,
   useAssessExplorerRowChangeMutation,

@@ -2,7 +2,7 @@
 import React from 'react';
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, expect, it } from 'vitest';
-import type { ConstructionRouteStep } from '../../../types';
+import type { ConstructionRouteStep } from '../../../contracts/types';
 import { TraversalPath } from './TraversalPath';
 
 afterEach(cleanup);

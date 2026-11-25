@@ -1,6 +1,6 @@
 import { useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { useLoomClient } from '../../../react';
-import type { AuthoringNetworkResponse, ExplorerBuilderCommand, ExplorerBuilderPreviewResult, RowDefinitionProposal, SourceRelationshipChange, SourceRelationshipProposal } from '../../../types';
+import type { AuthoringNetworkResponse, ExplorerBuilderCommand, ExplorerBuilderPreviewResult, RowDefinitionProposal, SourceRelationshipChange, SourceRelationshipProposal } from '../../../contracts/types';
 import type { BuilderAuthoringState, DraftTable } from './model';
 import { createRecipeNetworkLoader } from './recipeNetwork';
 import type { useRecipeEditingOwner, RecipeEditToken } from '../recipeEditing/recipeEditingOwner';

@@ -2,8 +2,8 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
-import type { SelectionRevision } from '../../../selection';
-import type { PopulationRouteChoice } from '../../../types';
+import type { SelectionRevision } from '../../../contracts/selection';
+import type { PopulationRouteChoice } from '../../../contracts/types';
 import type { DraftTable } from '../authoring/model';
 import { PopulationPanel } from './PopulationPanel';
 

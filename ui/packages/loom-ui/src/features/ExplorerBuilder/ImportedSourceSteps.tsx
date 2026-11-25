@@ -3,7 +3,7 @@ import { useEscapeToClose } from './hooks/useEscapeToClose';
 import { createPortal } from 'react-dom';
 import { isIdentifierColumnRule } from './sourceColumnRule';
 import { SourceStepParameterEditor } from './SourceStepParameterEditor';
-import type { ImportedSourceParameters, ExplorerBuilderCommand, ExplorerBuilderDocument, ProjectedField } from '../../types';
+import type { ImportedSourceParameters, ExplorerBuilderCommand, ExplorerBuilderDocument, ProjectedField } from '../../contracts/types';
 
 type ImportedSourceStep = NonNullable<ExplorerBuilderDocument['importedSource']>['steps'][number];
 type ValueMode = 'AUTO' | 'VALUE' | 'FIRST' | 'ALL' | 'DISTINCT';
