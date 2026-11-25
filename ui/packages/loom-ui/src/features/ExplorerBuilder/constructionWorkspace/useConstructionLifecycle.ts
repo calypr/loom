@@ -1,5 +1,6 @@
 import {useCallback, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import { resourceFor } from '../../../data/resource';
+import { RequestOwner } from '../../../data/requests';
 import { constructionCapabilitiesResource } from '../session/constructionCapabilities';
 import { LoomRequestError } from '../../../client/api';
 import type {
@@ -47,15 +48,15 @@ interface ConstructionEditingOwner {
   onStart(intent: ConstructionCandidateIntent, request: GetConstructionCapabilitiesArgs): ConstructionEditingAttempt | undefined;
 }
 
+type ConstructionRequest = NonNullable<ReturnType<RequestOwner['start']>>;
 type ProposalOutcome = Extract<ConstructionProposalViewState, { readonly status: 'ready' | 'needs-repair' }>;
 type ReadyProposalOutcome = Extract<ProposalOutcome, { readonly status: 'ready' }>;
 type ProposalResource = ReturnType<typeof resourceFor<ProposalOutcome>>;
 type ProposalOwner = {
   readonly id: number;
   readonly requestKey: string;
-  readonly generation: number;
   readonly resource: ProposalResource;
-  readonly abortController: AbortController;
+  readonly request: ConstructionRequest;
   readonly editingAttempt?: ConstructionEditingAttempt;
 };
 type ProposalOverride = {
@@ -155,22 +156,25 @@ export const useConstructionLifecycle = ({
   readonly previewLimit?: number;
   readonly editingOwner?: ConstructionEditingOwner;
 }) => {
+  const requestKey = capabilitiesIdentity(capabilitiesRequest);
+  const requestOwnerIdentity = 'construction';
+  const [requests] = useState(() => {
+    const owner = new RequestOwner();
+    owner.setIdentity(requestOwnerIdentity);
+    return owner;
+  });
   const [proposalOwner, setProposalOwner] = useState<ProposalOwner | undefined>();
   const [proposalOverride, setProposalOverride] = useState<ProposalOverride | undefined>();
   const [pivotDiscoveryLoad, setPivotDiscoveryLoad] = useState<PivotDiscoveryLoad>({ key: '', state: undefined });
-  const pivotDiscoveryController = useRef<AbortController | undefined>(undefined);
-  const proposalGeneration = useRef(0);
   const proposalOwnerSequence = useRef(0);
   const proposalOwnerRef = useRef<ProposalOwner | undefined>(undefined);
   const applyingOwnerRef = useRef<ConstructionApplyAttempt<ProposalOwner> | undefined>(undefined);
-  const pivotDiscoveryGeneration = useRef(0);
   const candidateIntent = useRef<ConstructionCandidateIntent | undefined>(undefined);
   const editingOwnerRef = useRef(editingOwner);
   editingOwnerRef.current = editingOwner;
   const capabilitiesRequestRef = useRef(capabilitiesRequest);
   capabilitiesRequestRef.current = capabilitiesRequest;
 
-  const requestKey = capabilitiesIdentity(capabilitiesRequest);
   const idleProposalResource = useMemo(
     () => resourceFor<ProposalOutcome>(async () => { throw new Error('No construction proposal is active.'); }, false),
     [],
@@ -196,10 +200,8 @@ export const useConstructionLifecycle = ({
     : snapshotProposal;
 
   const invalidatePivotDiscovery = useCallback(() => {
-    pivotDiscoveryGeneration.current += 1;
-    pivotDiscoveryController.current?.abort();
-    pivotDiscoveryController.current = undefined;
-  }, []);
+    requests.cancel('category-discovery');
+  }, [requests]);
 
   const capabilities = useMemo(
     () => constructionCapabilitiesResource(client, () => capabilitiesRequestRef.current, Boolean(requestKey)),
@@ -220,16 +222,16 @@ export const useConstructionLifecycle = ({
   ), [capabilitiesSnapshot.data, requestKey]);
 
   const invalidateProposalRequest = useCallback(() => {
-    proposalGeneration.current += 1;
-    proposalOwnerRef.current?.abortController.abort();
+    requests.cancel('proposal');
     proposalOwnerRef.current = undefined;
     setProposalOwner(undefined);
     setProposalOverride(undefined);
-  }, []);
+  }, [requests]);
 
   const startCandidateProposal = useCallback((intent: ConstructionCandidateIntent) => {
     const currentRequest = capabilitiesRequestRef.current;
     if (!currentRequest) return Promise.reject(new Error('The current table is still loading.'));
+    if (capabilitiesIdentity(currentRequest) !== requestKey) return Promise.reject(abortError());
     let editingAttempt: ConstructionEditingAttempt | undefined;
     try {
       editingAttempt = editingOwnerRef.current?.onStart(intent, currentRequest);
@@ -239,7 +241,6 @@ export const useConstructionLifecycle = ({
     invalidateProposalRequest();
     candidateIntent.current = intent;
 
-    const generation = proposalGeneration.current;
     const args: ProposeConstructionArgs = {
       project: currentRequest.project,
       explorerId: currentRequest.explorerId,
@@ -252,15 +253,16 @@ export const useConstructionLifecycle = ({
       limit: previewLimit,
       requestId: `construction-proposal-${window.crypto.randomUUID()}`,
     };
-    const abortController = new AbortController();
+    const proposalRequest = requests.start('proposal', requestOwnerIdentity);
+    if (!proposalRequest) return Promise.reject(abortError());
     const resource = resourceFor<ProposalOutcome>(async (resourceSignal) => {
-      const abortFromResource = () => abortController.abort();
-      if (resourceSignal.aborted) abortController.abort();
+      const abortFromResource = () => proposalRequest.cancel();
+      if (resourceSignal.aborted) proposalRequest.cancel();
       else resourceSignal.addEventListener('abort', abortFromResource, { once: true });
       try {
-        await delayFor(300, abortController.signal);
-        const response = await client.proposeConstruction(args, abortController.signal);
-        if (abortController.signal.aborted || proposalGeneration.current !== generation) throw abortError();
+        await delayFor(300, proposalRequest.signal);
+        const response = await client.proposeConstruction(args, proposalRequest.signal);
+        if (!proposalRequest.isCurrent()) throw abortError();
         const matchesBase = response.outputId === args.outputId &&
           response.snapshotToken === args.snapshotToken &&
           response.draftVersion === args.expectedDraftVersion &&
@@ -279,9 +281,9 @@ export const useConstructionLifecycle = ({
             outputId: args.outputId,
             limit: previewLimit,
             requestId: `construction-preview-${window.crypto.randomUUID()}`,
-          }, abortController.signal);
+          }, proposalRequest.signal);
         }
-        if (abortController.signal.aborted || proposalGeneration.current !== generation) throw abortError();
+        if (!proposalRequest.isCurrent()) throw abortError();
         if (!previewMatchesProposal(preview, proposalId, args.outputId)) {
           throw new Error('Loom did not return rows for this proposal receipt, so it cannot be applied yet.');
         }
@@ -294,9 +296,8 @@ export const useConstructionLifecycle = ({
     const owner: ProposalOwner = {
       id: ++proposalOwnerSequence.current,
       requestKey,
-      generation,
       resource,
-      abortController,
+      request: proposalRequest,
       editingAttempt,
     };
     proposalOwnerRef.current = owner;
@@ -307,8 +308,8 @@ export const useConstructionLifecycle = ({
     const onAbort = () => rejectAbort?.(abortError());
     const aborted = new Promise<never>((_resolve, reject) => {
       rejectAbort = reject;
-      if (abortController.signal.aborted) onAbort();
-      else abortController.signal.addEventListener('abort', onAbort, { once: true });
+      if (proposalRequest.signal.aborted) onAbort();
+      else proposalRequest.signal.addEventListener('abort', onAbort, { once: true });
     });
     return Promise.race([
       request.then(({ data, error }) => {
@@ -318,20 +319,20 @@ export const useConstructionLifecycle = ({
       }),
       aborted,
     ]).then((outcome) => {
-      if (abortController.signal.aborted || proposalGeneration.current !== generation ||
+      if (!proposalRequest.isCurrent() ||
         capabilitiesIdentity(capabilitiesRequestRef.current) !== requestKey || proposalOwnerRef.current !== owner) {
         throw abortError();
       }
       if (outcome.status !== 'ready') throw new Error('This construction change needs repair before it can be applied.');
       return outcome;
     }).catch((error: unknown) => {
-      if (!errorIsProposalInactive(error) && !abortController.signal.aborted && proposalGeneration.current === generation &&
+      if (!errorIsProposalInactive(error) && proposalRequest.isCurrent() &&
           capabilitiesIdentity(capabilitiesRequestRef.current) === requestKey && proposalOwnerRef.current === owner) {
         editingAttempt?.failed(errorMessage(error, 'Loom could not check this construction change.'));
       }
       throw error;
-    }).finally(() => abortController.signal.removeEventListener('abort', onAbort));
-  }, [client, invalidateProposalRequest, previewLimit, requestKey]);
+    }).finally(() => proposalRequest.signal.removeEventListener('abort', onAbort));
+  }, [client, invalidateProposalRequest, previewLimit, requests, requestKey]);
 
   const onCandidateChange = useCallback((intent: ConstructionCandidateIntent | undefined) => {
     if (!intent) {
@@ -388,9 +389,8 @@ export const useConstructionLifecycle = ({
       return;
     }
 
-    const generation = pivotDiscoveryGeneration.current;
-    const controller = new AbortController();
-    pivotDiscoveryController.current = controller;
+    const discovery = requests.start('category-discovery', requestOwnerIdentity);
+    if (!discovery) return;
     setPivotDiscoveryLoad({ key: discoveryKey, state: { ...request, status: 'loading' } });
     let discoveryRequest: Promise<ConstructionCategoryDiscoveryResponse>;
     try {
@@ -410,9 +410,9 @@ export const useConstructionLifecycle = ({
         ...(request.pivotSources?.length ? { pivotSources: request.pivotSources, candidateConstruction: request.candidateConstruction } : {}),
         requestId: `construction-categories-${window.crypto.randomUUID()}`,
       };
-      discoveryRequest = client.discoverConstructionCategories(discoveryArgs, controller.signal);
+      discoveryRequest = client.discoverConstructionCategories(discoveryArgs, discovery.signal);
     } catch (error: unknown) {
-      if (controller.signal.aborted || pivotDiscoveryGeneration.current !== generation) return;
+      if (!discovery.isCurrent()) return;
       setPivotDiscoveryLoad({
         key: discoveryKey,
         state: {
@@ -425,7 +425,7 @@ export const useConstructionLifecycle = ({
     }
     void discoveryRequest.then(
       (response: ConstructionCategoryDiscoveryResponse) => {
-        if (controller.signal.aborted || pivotDiscoveryGeneration.current !== generation) return;
+        if (!discovery.isCurrent()) return;
         const matchesRequest =
           response.snapshotToken === args.snapshotToken &&
           response.draftVersion === args.expectedDraftVersion &&
@@ -452,7 +452,7 @@ export const useConstructionLifecycle = ({
         if (nextState.status === 'complete') onComplete?.(nextState);
       },
     ).catch((error: unknown) => {
-      if (controller.signal.aborted || pivotDiscoveryGeneration.current !== generation) return;
+      if (!discovery.isCurrent()) return;
       setPivotDiscoveryLoad({
         key: discoveryKey,
         state: {
@@ -462,14 +462,14 @@ export const useConstructionLifecycle = ({
         },
       });
     });
-  }, [activeCapabilities, client, invalidatePivotDiscovery, requestKey]);
+  }, [activeCapabilities, client, invalidatePivotDiscovery, requests, requestKey]);
 
   const beginApply = useCallback((expectedProposal?: ReadyProposalOutcome) => {
     if (applyingOwnerRef.current) return undefined;
     const owner = proposalOwnerRef.current;
     const currentRequest = capabilitiesRequestRef.current;
     if (!owner || !currentRequest || owner.requestKey !== capabilitiesIdentity(currentRequest) ||
-      owner.generation !== proposalGeneration.current) return undefined;
+      !owner.request.isCurrent()) return undefined;
     let state: ConstructionProposalViewState;
     if (expectedProposal) {
       const snapshot = owner.resource.getSnapshot();
@@ -498,14 +498,14 @@ export const useConstructionLifecycle = ({
     if (owner.editingAttempt && !owner.editingAttempt.beginApply()) return undefined;
     const finish = beginConstructionApply(
       applyingOwnerRef,
-      { owner, requestKey: owner.requestKey, generation: owner.generation },
+      { owner, requestKey: owner.requestKey, generation: owner.id },
       () => {
         const liveOwner = proposalOwnerRef.current;
         const liveRequest = capabilitiesRequestRef.current;
-        return liveOwner && liveRequest ? {
+        return liveOwner && liveRequest && liveOwner.request.isCurrent() ? {
           owner: liveOwner,
           requestKey: capabilitiesIdentity(liveRequest),
-          generation: proposalGeneration.current,
+          generation: liveOwner.id,
         } : undefined;
       },
       (applied) => {
