@@ -84,16 +84,16 @@ import { usePublish } from './authoring/usePublish';
 import { shouldShowBuilderLoadError } from './authoring/builderLoadError';
 import { BuilderSessionProvider, useBuilderActions, useBuilderSession } from './session/BuilderSessionProvider';
 import { useBuilderSessionDraft } from './session/useBuilderSessionDraft';
-import { useRecipeFocus } from './authoring/useRecipeFocus';
+import { useRecipeFocus } from './session/useRecipeFocus';
 import { useReshapeAvailability } from './authoring/useReshapeAvailability';
-import { useConstructionNavigation } from './authoring/useConstructionNavigation';
+import { createConstructionNavigationActions, useConstructionNavigationState } from './session/constructionNavigation';
 import { useFirstTableActions } from './session/useFirstTableActions';
 import { useTableExplorerCrud } from './authoring/useTableExplorerCrud';
 import { useSuggestions } from './authoring/useSuggestions';
 import { usePopulationExclusion } from './authoring/usePopulationExclusion';
 import { useAddColumns } from './authoring/useAddColumns';
-import { useTraversalProjectedFields } from './authoring/useTraversalProjectedFields';
-import { useSourceRecipe } from './authoring/useSourceRecipe';
+import { createTraversalActions, useTraversalState } from './session/traversal';
+import { createSourceRecipeActions, useSourceRecipeState } from './session/sourceRecipe';
 import { useRootChangeActions } from './session/useRootChangeActions';
 import { useCombineCatalog } from './authoring/useCombineCatalog';
 import { useDirtyBeforeUnload } from './hooks/useDirtyBeforeUnload';
@@ -320,10 +320,11 @@ const BuilderWorkspaceContent = ({
     rowValuePolicy, setRowValuePolicy, reviewOpen, setReviewOpen, reviewFocusTarget, setReviewFocusTarget,
     reviewFocusColumn, setReviewFocusColumn, interpretationContextRefreshVersion, setInterpretationContextRefreshVersion,
   } = useWorkspaceUi<OccurrencePanel, typeof loomClient>();
+  const traversalState = useTraversalState();
   const { occurrenceInspectorHost, setOccurrenceInspectorHost, editingRecipeColumn, setEditingRecipeColumn,
     sourceStepInspectorHost, setSourceStepInspectorHost, activeSourceStepId, setActiveSourceStepId,
     columnPolicyRequest, sourceStepEditAction, sourceStepSwitchOccurrenceAction, sourceFieldEditAction, sourceOutputEditAction,
-    rowSettingsOpenAction, rowSettingsCloseAction, actionsFor: traversalActionsFor } = useTraversalProjectedFields();
+    rowSettingsOpenAction, rowSettingsCloseAction } = traversalState;
   const [sourceChangeReviewHost, setSourceChangeReviewHost] = useState<HTMLDivElement | null>(null);
   const sourceStepEditDirty = useRef(false);
   const advancedRuleEditorReturn = useRef<string | undefined>(undefined);
@@ -332,13 +333,15 @@ const BuilderWorkspaceContent = ({
     firstTableName, setFirstTableName, tableCreatorOpen, setTableCreatorOpen,
     firstTableProgress, isFirstTableActionPending, createFirstTableFromRoot,
   } = useFirstTableActions({ getSuggestions, setMessage });
+  const sourceRecipeState = useSourceRecipeState();
   const { sourceRelationshipRequest, recipeEditToken, sourceProposal, setSourceProposal,
     lastAcceptedOutputPreview, connectingRelationship, setConnectingRelationship, savedNetwork,
-    recipeNotice, setRecipeNotice, setRelationshipEdit, actionsFor: sourceRecipeActionsFor } = useSourceRecipe();
-  const { activeConstructionFamily, setActiveConstructionFamily, setActiveConstructionSelection,
-    reshapeEntryKind, setReshapeEntryKind, reshapeFormKind, setReshapeFormKind, actionsFor: constructionNavigationActionsFor } = useConstructionNavigation({
+    recipeNotice, setRecipeNotice, setRelationshipEdit } = sourceRecipeState;
+  const navigationState = useConstructionNavigationState({
     ownerKey, state, draftAccess,
   });
+  const { activeConstructionFamily, setActiveConstructionFamily, setActiveConstructionSelection,
+    reshapeEntryKind, setReshapeEntryKind, reshapeFormKind, setReshapeFormKind } = navigationState;
   const toolbarHost = usePortalHost('explorer-builder-toolbar-host');
   const [tableToolbarHost, setTableToolbarHost] = useState<HTMLElement | null>(
     null,
@@ -1142,7 +1145,7 @@ const BuilderWorkspaceContent = ({
     selectConstructionHistory, editConstructionStep, closeConstructionWorkspace: closeConstructionNavigation, cancelConstructionEditor,
     switchRowIntent, closeRowIntentSession, removeConstructionStep, restorePreviousDraft,
     activeOperation, activeReshapeEditorKey, activeReshapeInitialEntry, activeReshapeInitialKind,
-    showReshapeColumnSelection, hideGenericReshapeSelection } = constructionNavigationActionsFor({
+    showReshapeColumnSelection, hideGenericReshapeSelection } = createConstructionNavigationActions(navigationState, {
     table, construction, constructionLifecycle, combineCatalog, setConstructionHistorySelection,
     setEditingConstructionStepId, setRowIntentSession, setFeatureMode, setMessage, applyCommandsWithResult,
     recipeMutationAllowed, rememberOperationFocus, selectAddColumnsView, canStartCombine,
@@ -1173,7 +1176,7 @@ const BuilderWorkspaceContent = ({
     type: column.logicalType,
   }));
   const rowMeaning = constructionRowMeaning(sourceRowMeaning, table?.document.construction, sourceColumns);
-  const { relationshipOwner, loadRecipeNetwork, pendingRelationship, proposeRelationship, cancelRecipeRelationship, sourceReviewStatus, beginSourceReview, beginSourceRowsReview, applySourceRecipe } = sourceRecipeActionsFor({
+  const { relationshipOwner, loadRecipeNetwork, pendingRelationship, proposeRelationship, cancelRecipeRelationship, sourceReviewStatus, beginSourceReview, beginSourceRowsReview, applySourceRecipe } = createSourceRecipeActions(sourceRecipeState, {
     builderDataKey, state, table, firstTableProgress, loomClient, projectId, authResourcePath,
     completePendingRecipeFocus, recipeMutationAllowed, rememberRecipeFocus, recipeOwner,
     columnPolicyRequest, setEditingRecipeColumn, constructionLifecycle, restoreRecipeFocus,
@@ -1487,7 +1490,7 @@ const BuilderWorkspaceContent = ({
         {proposalPanel}
       </div>
     : undefined;
-  const { sourceCandidate, sourceReviewColumnLabels, rootCandidate, candidatePreview, generatedOutputRevision, proposalResponse, proposalPresentationTable, inspectedOccurrenceId, selectTraversalScope, editTraversalColumn, traversalTable, traversalNetwork, traversalRowIdentity, resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices, catalogOutputsForStep, pivotOutputsForStep, traversalOperationLabels, editTraversalRows, projectedFieldsForStep, occurrenceForStep, removeProjectedField, canRemoveProjectedField, editProjectedField, renameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason } = traversalActionsFor({
+  const { sourceCandidate, sourceReviewColumnLabels, rootCandidate, candidatePreview, generatedOutputRevision, proposalResponse, proposalPresentationTable, inspectedOccurrenceId, selectTraversalScope, editTraversalColumn, traversalTable, traversalNetwork, traversalRowIdentity, resourceTypeChoices, sourcePathChoices, fieldPathChoices, fieldKindChoices, catalogOutputsForStep, pivotOutputsForStep, traversalOperationLabels, editTraversalRows, projectedFieldsForStep, occurrenceForStep, removeProjectedField, canRemoveProjectedField, editProjectedField, renameProjectedField, editableProjectedFieldIds, projectedFieldRemovalDisabledReason } = createTraversalActions(traversalState, {
     state, table, sourceProposal, relationshipOwner, recipeOwner, constructionLifecycle,
     lastAcceptedOutputPreview, pendingRelationship, cancelRecipeRelationship, dispatch,
     savedNetwork, recipeMutationAllowed, rememberRecipeFocus, recipeEditToken,

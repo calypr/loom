@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { createRecipeFocusActions, type RecipeFocusContext } from '../session/recipeFocusActions';
+import { createRecipeFocusActions, type RecipeFocusContext } from './recipeFocusActions';
 
 export const useRecipeFocus = ({
   recipeOwner,
