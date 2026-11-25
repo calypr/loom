@@ -12,7 +12,7 @@ import { constructionAppendStageFor } from '../model/constructionStages';
 import { relatedSourceOutputLabel } from '../constructionWorkspace/relatedSourceOutputLabel';
 import { sameConstructionRoute } from '../model/populationRoutes';
 import { hasPairedPreviewRows } from '../model/workspaceGuards';
-import type { ConceptCatalogView } from '../components/ConceptCatalog';
+import type { ConceptCatalogView } from '../model/conceptCatalogView';
 import type { ConstructionHistorySelection, ConstructionOperationFamily } from '../constructionWorkspace/ConstructionWorkspace';
 import type { useConstructionLifecycle } from './useConstructionLifecycle';
 import type { useCommandQueueActions } from './useCommandQueueActions';

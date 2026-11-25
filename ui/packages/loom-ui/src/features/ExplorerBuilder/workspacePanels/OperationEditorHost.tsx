@@ -1,3 +1,4 @@
+import { ConceptCatalogSessionProvider } from '../session/ConceptCatalogSession';
 import { useOperationEditorSession } from '../session/OperationEditorSession';
 import { useBuilderSession } from '../session/BuilderSessionProvider';
 import { useWorkspaceUi, useWorkspaceUiActions } from '../session/useWorkspaceUi';
@@ -401,39 +402,41 @@ export const OperationEditorHost = ({ configuredAdvancedColumns, renderColumnRul
                         />
                       ) : (
                         <>
-                          <ConceptCatalog
-                            key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${graphSource?.occurrenceId ?? ''}:${advanced}`}
-                            project={projectId}
-                            explorerId={state.explorerId}
-                            authResourcePath={authResourcePath}
-                            snapshotToken={state.catalog.snapshotToken}
-                            outputId={table.outputId}
-                            tableContextKey={`${state.draftVersion}:${state.draftDigest}`}
-                            rowRoot={table.document.rootResourceType}
-                            resourceType={graphSource?.resourceType}
-                            sourceNodeId={graphSource?.nodeId}
-                            scopeToSource
-                            routeContext={addSourceRouteContext}
-                            layout="panel"
-                            dense
-                            view={catalogView}
-                            viewRevision={addColumnsViewRevision}
-                            presentationContext={fieldPresentationContext}
-                            onSwitchView={selectColumnKind}
-                            semanticSelectionMode="SYSTEM_VERSION_CATEGORY"
-                            existingSourceKeys={existingSourceKeys}
-                            nodeOccurrences={capabilityNodeOccurrences}
-                            catalog={state.catalog}
-                            sourceProjectionAvailability={sourceAvailability}
-                            relatedSourceAvailability={relatedSourceAvailability}
-                            suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
-                            disabledReason={sourceSelectionDisabledReason}
-                            disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                            groupedRowValuePolicy={groupedRowValuePolicy}
-                            onAddSelected={addSelectedFeatures}
-                            onPreviewSelected={previewRelatedSourceColumns}
-                            onInspectRouteCoverage={inspectRelatedRouteCoverage}
-                          />
+                          <ConceptCatalogSessionProvider key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${graphSource?.occurrenceId ?? ''}:${advanced}`} value={{
+                            project: projectId,
+                            explorerId: state.explorerId,
+                            authResourcePath,
+                            snapshotToken: state.catalog.snapshotToken,
+                            outputId: table.outputId,
+                            tableContextKey: `${state.draftVersion}:${state.draftDigest}`,
+                            rowRoot: table.document.rootResourceType,
+                            resourceType: graphSource?.resourceType,
+                            sourceNodeId: graphSource?.nodeId,
+                            scopeToSource: true,
+                            routeContext: addSourceRouteContext,
+                            view: catalogView,
+                            viewRevision: addColumnsViewRevision,
+                            presentationContext: fieldPresentationContext,
+                            onSwitchView: selectColumnKind,
+                            semanticSelectionMode: "SYSTEM_VERSION_CATEGORY",
+                            existingSourceKeys,
+                            nodeOccurrences: capabilityNodeOccurrences,
+                            catalog: state.catalog,
+                            sourceProjectionAvailability: sourceAvailability,
+                            relatedSourceAvailability,
+                            disabledReason: sourceSelectionDisabledReason,
+                            disabled: pendingCommands > 0 || state.reconciliation === 'pending',
+                            groupedRowValuePolicy,
+                            onAddSelected: addSelectedFeatures,
+                            onPreviewSelected: previewRelatedSourceColumns,
+                            onInspectRouteCoverage: inspectRelatedRouteCoverage,
+                          }}>
+                            <ConceptCatalog
+                              layout="panel"
+                              dense
+                              suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
+                            />
+                          </ConceptCatalogSessionProvider>
                         </>
                       )}
                     </>

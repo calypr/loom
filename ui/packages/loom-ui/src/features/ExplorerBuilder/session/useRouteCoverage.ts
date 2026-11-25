@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import type { ConstructionChoice, ConstructionChoiceForm } from '../../../contracts/types';
+import type { ConstructionChoice, ConstructionChoiceForm, ConstructionChoiceSelection } from '../../../contracts/types';
 import { RequestOwner } from '../../../data/requests';
 import { catalogChoiceIntent, isRelatedFieldCatalogItem, type CatalogChoiceGroup, type CatalogChoiceIntent } from '../model/catalogItems';
 
@@ -98,3 +98,10 @@ export function useRouteCoverage(
 
   return { routeCoverage, inspectRouteCoverage, cancelCoverage };
 }
+
+type ConstructionRowValuePolicy = NonNullable<ConstructionChoiceSelection['rowValuePolicy']>;
+
+export type GroupedRowValuePolicyControl = Readonly<{
+  value: ConstructionRowValuePolicy;
+  onChange: (value: ConstructionRowValuePolicy) => void;
+}>;

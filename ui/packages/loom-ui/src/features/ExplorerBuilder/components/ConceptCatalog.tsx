@@ -1,3 +1,4 @@
+import { useConceptCatalogSession, type CatalogRelatedSourceAvailability } from '../session/ConceptCatalogSession';
 import { fieldPickerList, fieldPickerMetadata, fieldPickerRow, fieldPickerSelected } from './fieldPickerStyles';
 import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { CATALOG_PAGE_SIZE, semanticBrowseReadinessKey, useCatalogRequests, type FieldPresentationCacheEntry } from '../session/useCatalogRequests';
@@ -38,29 +39,9 @@ import {
 } from '../model/catalogItems';
 import {
   CatalogSelectionOptions,
-  type CatalogInitialSelection,
-  type GroupedRowValuePolicyControl,
-  type RouteCoverage,
 } from './CatalogSelectionOptions';
 
 const MAX_SELECTIONS = 100;
-
-interface CatalogRouteContext {
-  readonly occurrenceId: string;
-  readonly nodeId: string;
-}
-
-interface CatalogSourceProjectionAvailability {
-  readonly available: boolean;
-  readonly reason: string;
-}
-
-interface CatalogRelatedSourceAvailability {
-  readonly supported: boolean;
-  readonly reason?: string;
-}
-
-export type ConceptCatalogView = 'all' | 'coded' | 'fields';
 
 type ChoiceDetailsState =
   | { readonly status: 'loading' }
@@ -707,81 +688,51 @@ const CatalogItemRow = ({
   );
 };
 
-const ConceptCatalogContent = ({
-  project,
-  explorerId,
-  authResourcePath,
-  snapshotToken,
-  outputId,
-  tableContextKey = '',
-  rowRoot,
-  resourceType,
-  sourceNodeId,
-  routeContext,
-  scopeToSource = false,
-  structuredOnly = false,
-  layout = 'workspace',
-  dense = false,
-  catalog,
-  disabled = false,
-  disabledReason,
-  sourceProjectionAvailability,
-  relatedSourceAvailability,
-  view = 'all',
-  viewRevision = 0,
-  presentationContext,
-  onSwitchView,
-  sourceControls,
-  suppressUnavailableNotices = false,
-  semanticSelectionMode,
-  existingSourceKeys,
-  nodeOccurrences,
-  initialSelection,
-  initialFieldSource,
-  groupedRowValuePolicy,
-  onAddSelected,
-  onPreviewSelected,
-  onInspectRouteCoverage,
-}: {
-  readonly project: string;
-  readonly explorerId: string;
-  readonly authResourcePath?: string;
-  readonly snapshotToken: string;
-  readonly outputId: string;
-  readonly tableContextKey?: string;
-  readonly rowRoot: string;
-  readonly resourceType?: string;
-  readonly sourceNodeId?: string;
-  readonly routeContext?: CatalogRouteContext;
-  readonly scopeToSource?: boolean;
-  readonly structuredOnly?: boolean;
+interface ConceptCatalogPresentation {
   readonly layout?: 'workspace' | 'panel';
   readonly dense?: boolean;
-  readonly catalog: ExplorerBuilderCatalog;
-  readonly disabled?: boolean;
-  readonly disabledReason?: string;
-  readonly sourceProjectionAvailability?: CatalogSourceProjectionAvailability;
-  readonly relatedSourceAvailability?: CatalogRelatedSourceAvailability;
-  readonly view?: ConceptCatalogView;
-  readonly viewRevision?: number;
-  readonly presentationContext?: Omit<FieldPresentationRequest, 'candidateIds'>;
-  readonly onSwitchView?: (view: 'coded') => void;
   readonly sourceControls?: React.ReactNode;
   readonly suppressUnavailableNotices?: boolean;
-  readonly semanticSelectionMode?: SemanticInventorySelectionMode;
-  readonly existingSourceKeys?: ReadonlySet<string>;
-  readonly nodeOccurrences?: Readonly<Record<string, string>>;
-  readonly initialSelection?: CatalogInitialSelection;
-  readonly initialFieldSource?: Pick<FieldChoiceSource, 'candidateId' | 'nodeId' | 'path'>;
-  readonly groupedRowValuePolicy?: GroupedRowValuePolicyControl;
-  readonly onAddSelected?: (
-    selections: ReadonlyArray<CatalogChoiceIntent>,
-  ) => Promise<'preview-ready' | 'preview-pending' | void>;
-  readonly onPreviewSelected?: (
-    selections: ReadonlyArray<CatalogChoiceIntent>,
-  ) => Promise<'preview-ready' | 'preview-pending' | void>;
-  readonly onInspectRouteCoverage?: (selection: CatalogChoiceIntent, signal: AbortSignal) => Promise<RouteCoverage>;
-}) => {
+}
+
+const ConceptCatalogContent = ({
+  layout = 'workspace',
+  dense = false,
+  sourceControls,
+  suppressUnavailableNotices = false,
+}: ConceptCatalogPresentation) => {
+  const {
+    project,
+    explorerId,
+    authResourcePath,
+    snapshotToken,
+    outputId,
+    tableContextKey = '',
+    rowRoot,
+    resourceType,
+    sourceNodeId,
+    routeContext,
+    scopeToSource = false,
+    structuredOnly = false,
+    catalog,
+    disabled = false,
+    disabledReason,
+    sourceProjectionAvailability,
+    relatedSourceAvailability,
+    view = 'all',
+    viewRevision = 0,
+    presentationContext,
+    onSwitchView,
+    semanticSelectionMode,
+    existingSourceKeys,
+    nodeOccurrences,
+    initialSelection,
+    initialFieldSource,
+    groupedRowValuePolicy,
+    onAddSelected,
+    onPreviewSelected,
+    onInspectRouteCoverage,
+  } = useConceptCatalogSession(session => session);
   const queryStateScopeKey = JSON.stringify([
     tableContextKey,
     view,
@@ -2012,15 +1963,16 @@ const ConceptCatalogContent = ({
   );
 };
 
-export const ConceptCatalog = (props: React.ComponentProps<typeof ConceptCatalogContent>) => (
-  <ConceptCatalogContent
+export const ConceptCatalog = (props: ConceptCatalogPresentation) => {
+  const { project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot, tableContextKey, initialFieldSource } = useConceptCatalogSession(session => session);
+  return <ConceptCatalogContent
     key={JSON.stringify([
-      props.project, props.explorerId, props.authResourcePath ?? '', props.snapshotToken,
-      props.outputId, props.rowRoot, props.tableContextKey ?? '',
-      props.initialFieldSource?.candidateId ?? '',
-      props.initialFieldSource?.nodeId ?? '',
-      props.initialFieldSource?.path ?? '',
+      project, explorerId, authResourcePath ?? '', snapshotToken,
+      outputId, rowRoot, tableContextKey ?? '',
+      initialFieldSource?.candidateId ?? '',
+      initialFieldSource?.nodeId ?? '',
+      initialFieldSource?.path ?? '',
     ])}
     {...props}
-  />
-);
+  />;
+};

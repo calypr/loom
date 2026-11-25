@@ -8,9 +8,8 @@ import type {
   FieldChoiceSource,
 } from '../../../contracts/types';
 import type { CatalogChoiceGroup, CatalogChoiceIntent, CatalogItem } from '../model/catalogItems';
-import { CatalogSelectionOptions,
-  type GroupedRowValuePolicyControl,
-  type RouteCoverage, } from './CatalogSelectionOptions';
+import { CatalogSelectionOptions } from './CatalogSelectionOptions';
+import type { GroupedRowValuePolicyControl, RouteCoverage } from '../session/useRouteCoverage';
 type CatalogSelectionOptionsFixtureProps = import('react').ComponentProps<typeof import('./CatalogSelectionOptions').CatalogSelectionOptions>;
 type RouteMatchCoverage = Exclude<Awaited<ReturnType<NonNullable<CatalogSelectionOptionsFixtureProps['onInspectRouteCoverage']>>>, { readonly kind: 'VALUES' }>;
 

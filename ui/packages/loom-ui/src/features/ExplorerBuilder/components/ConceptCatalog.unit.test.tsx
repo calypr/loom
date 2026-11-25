@@ -18,9 +18,17 @@ import type {
   SemanticInventoryBrowseResponse,
   SemanticInventoryItem,
 } from '../../../contracts/types';
-import type { CatalogInitialSelection } from './CatalogSelectionOptions';
-import { ConceptCatalog, } from './ConceptCatalog';
-type ConceptCatalogFixtureProps = import('react').ComponentProps<typeof import('./ConceptCatalog').ConceptCatalog>;
+import type { CatalogInitialSelection } from '../session/useRouteCoverage';
+import { ConceptCatalog as ConnectedConceptCatalog } from './ConceptCatalog';
+import { ConceptCatalogSessionProvider, type ConceptCatalogSession } from '../session/ConceptCatalogSession';
+
+const ConceptCatalog = (props: import('react').ComponentProps<typeof ConnectedConceptCatalog> & ConceptCatalogSession) => (
+  <ConceptCatalogSessionProvider value={props}>
+    <ConnectedConceptCatalog {...props} />
+  </ConceptCatalogSessionProvider>
+);
+
+type ConceptCatalogFixtureProps = import('react').ComponentProps<typeof ConceptCatalog>;
 type CatalogRelatedSourceAvailability = NonNullable<ConceptCatalogFixtureProps['relatedSourceAvailability']>;
 type CatalogRouteContext = NonNullable<ConceptCatalogFixtureProps['routeContext']>;
 type CatalogSourceProjectionAvailability = NonNullable<ConceptCatalogFixtureProps['sourceProjectionAvailability']>;

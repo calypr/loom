@@ -1,10 +1,8 @@
-import { routeCoverageForm, useRouteCoverage, type CatalogInitialSelection, type ConditionDraft, type RouteCoverage } from '../session/useRouteCoverage';
-export type { CatalogInitialSelection, RouteCoverage } from '../session/useRouteCoverage';
+import { routeCoverageForm, useRouteCoverage, type CatalogInitialSelection, type ConditionDraft, type GroupedRowValuePolicyControl, type RouteCoverage } from '../session/useRouteCoverage';
 import React, { useCallback, useState } from 'react';
 import type {
   ConstructionChoice,
   ConstructionChoiceForm,
-  ConstructionChoiceSelection,
   SemanticInventorySelectionMode,
 } from '../../../contracts/types';
 import {
@@ -53,13 +51,6 @@ const routeTechnicalDetails = (route: ConstructionChoice['route']): string => ro
   : route.map((step) =>
       `${step.fromResourceType} to ${step.toResourceType} via ${step.relationship}; storage ${step.storageDirection.toLowerCase()}; match ${step.matchMode.toLowerCase()}`,
     ).join(' · ');
-
-type ConstructionRowValuePolicy = NonNullable<ConstructionChoiceSelection['rowValuePolicy']>;
-
-export type GroupedRowValuePolicyControl = Readonly<{
-  value: ConstructionRowValuePolicy;
-  onChange: (value: ConstructionRowValuePolicy) => void;
-}>;
 
 export const CatalogSelectionOptions = ({
   groups,

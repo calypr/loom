@@ -1,3 +1,4 @@
+import { ConceptCatalogSessionProvider } from '../session/ConceptCatalogSession';
 import React, { useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type {
@@ -431,30 +432,32 @@ export const RelatedSourceStepEditor = ({
             ))}
           </select>
         </label>
-        <ConceptCatalog
-          key={`${snapshotToken}:${outputId}:${step.id}:${activeSource?.key ?? ''}`}
-          project={project}
-          explorerId={explorerId}
-          authResourcePath={authResourcePath}
-          snapshotToken={snapshotToken}
-          outputId={outputId}
-          rowRoot={rowRoot}
-          resourceType={activeSource?.resourceType}
-          sourceNodeId={activeSource?.sourceNodeId}
-          layout="panel"
-          catalog={catalog}
-          disabled={disabled || !support.supported}
-          disabledReason={support.supported ? undefined : support.reason}
-          sourceProjectionAvailability={{
+        <ConceptCatalogSessionProvider key={`${snapshotToken}:${outputId}:${step.id}:${activeSource?.key ?? ''}`} value={{
+          project,
+          explorerId,
+          authResourcePath,
+          snapshotToken,
+          outputId,
+          rowRoot,
+          resourceType: activeSource?.resourceType,
+          sourceNodeId: activeSource?.sourceNodeId,
+          catalog,
+          disabled: disabled || !support.supported,
+          disabledReason: support.supported ? undefined : support.reason,
+          sourceProjectionAvailability: {
             available: false,
             reason: 'This saved step uses a related source, not source-projection fields.',
-          }}
-          relatedSourceAvailability={support}
-          suppressUnavailableNotices
-          initialSelection={initialSelection}
-          initialFieldSource={relatedSource.source}
-          onAddSelected={useSelectedField}
-        />
+          },
+          relatedSourceAvailability: support,
+          initialSelection,
+          initialFieldSource: relatedSource.source,
+          onAddSelected: useSelectedField,
+        }}>
+          <ConceptCatalog
+            layout="panel"
+            suppressUnavailableNotices
+          />
+        </ConceptCatalogSessionProvider>
       </div>
 
       <div className="flex justify-end border-t border-slate-200 pt-3">

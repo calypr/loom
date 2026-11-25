@@ -1,3 +1,4 @@
+import { useConceptCatalogSession } from '../session/ConceptCatalogSession';
 import { useAuthoredTraversalSession } from '../session/AuthoredTraversalSession';
 import { useBuilderToolbarSession } from '../session/BuilderToolbarSession';
 // @vitest-environment jsdom
@@ -230,7 +231,9 @@ vi.mock('../components/GuidedGraphWorkspace', () => {
 });
 
 vi.mock('../components/ConceptCatalog', () => ({
-  ConceptCatalog: ({
+  ConceptCatalog: (presentation: object) => {
+    const scope = useConceptCatalogSession(session => session);
+    const renderMockCatalog = ({
     onAddSelected,
     disabled,
     disabledReason,
@@ -285,6 +288,8 @@ vi.mock('../components/ConceptCatalog', () => ({
         {actionError ? <p role="alert">{actionError}</p> : null}
       </section>
     );
+  };
+    return renderMockCatalog({ ...presentation, ...scope } as unknown as Parameters<typeof renderMockCatalog>[0]);
   },
 }));
 

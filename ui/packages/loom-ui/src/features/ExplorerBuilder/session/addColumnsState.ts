@@ -1,6 +1,6 @@
 import { createStore } from '../../../data/createStore';
 import { RequestOwner } from '../../../data/requests';
-import type { ConceptCatalogView } from '../components/ConceptCatalog';
+import type { ConceptCatalogView } from '../model/conceptCatalogView';
 
 export type AddColumnsView = ConceptCatalogView | 'advanced';
 
