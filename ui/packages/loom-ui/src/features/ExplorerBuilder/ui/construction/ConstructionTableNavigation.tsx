@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { useDismissibleLayer } from '../../hooks/useDismissibleLayer';
-import { useBrowserSubscription } from '../../hooks/useBrowserSubscription';
+import { useAnchoredPosition } from '../../dom/useAnchoredPosition';
 
 import type { ConstructionWorkspaceTable } from '../../model/constructionWorkspaceTable';
 
@@ -38,36 +38,7 @@ export const ConstructionTableNavigation = ({
   const [tableActionsOpen, setTableActionsOpen] = useState(false);
   const tableActionsRef = useDismissibleLayer<HTMLDivElement>(tableActionsOpen, setTableActionsOpen);
   const tableActionsButtonRef = useRef<HTMLButtonElement>(null);
-  const [tableActionsPosition, setTableActionsPosition] = useState<{
-    readonly top: number;
-    readonly right: number;
-  }>();
-  useBrowserSubscription((_onStoreChange) => {
-    if (!tableActionsOpen) {
-      setTableActionsPosition(undefined);
-      return () => {};
-    }
-    const updatePosition = () => {
-      const button = tableActionsButtonRef.current;
-      if (!button) return;
-      const bounds = button.getBoundingClientRect();
-      const below = bounds.bottom + 4;
-      const top = below + 120 <= window.innerHeight - 8
-        ? below
-        : Math.max(8, bounds.top - 124);
-      setTableActionsPosition({
-        top,
-        right: Math.max(8, window.innerWidth - bounds.right),
-      });
-    };
-    updatePosition();
-    window.addEventListener('resize', updatePosition);
-    window.addEventListener('scroll', updatePosition, true);
-    return () => {
-      window.removeEventListener('resize', updatePosition);
-      window.removeEventListener('scroll', updatePosition, true);
-    };
-  }, [tableActionsOpen], tableActionsOpen);
+  const tableActionsPosition = useAnchoredPosition(tableActionsButtonRef, tableActionsOpen);
   return (
   <nav aria-label="Tables" className={`construction-table-tabs flex min-w-0 items-center py-1 ${compact ? 'gap-1' : 'flex-wrap gap-3'}`}>
     <h2 className="sr-only">Tables</h2>
