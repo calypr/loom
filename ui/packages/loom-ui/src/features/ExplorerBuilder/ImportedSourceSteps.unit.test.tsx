@@ -3,7 +3,8 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ExplorerBuilderCommand, ExplorerBuilderDocument } from '../../contracts/types';
-import { groupSourceSteps, ImportedSourceSteps } from './ImportedSourceSteps';
+import { ImportedSourceSteps } from './ImportedSourceSteps';
+import { groupSourceSteps } from './model/groupSourceSteps';
 
 afterEach(cleanup);
 

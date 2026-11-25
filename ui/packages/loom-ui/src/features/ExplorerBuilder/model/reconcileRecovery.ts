@@ -1,4 +1,4 @@
-import type { ExplorerAuthoringApiError } from '../../../client/api';
+import type { ExplorerAuthoringApiError } from '../../../contracts/errors';
 import type { ExplorerBuilderCompileResult } from '../../../contracts/types';
 
 const staleSnapshotCodes = new Set([

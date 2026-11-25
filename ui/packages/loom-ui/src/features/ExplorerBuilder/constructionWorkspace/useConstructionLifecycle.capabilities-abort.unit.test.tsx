@@ -6,8 +6,9 @@ import type { GetConstructionCapabilitiesArgs } from '../../../client/api';
 import type { ConstructionCapabilitiesResponse } from '../../../contracts/types';
 import {
   useConstructionLifecycle,
-  type ConstructionLifecycleClient,
 } from './useConstructionLifecycle';
+
+type ConstructionLifecycleClient = Parameters<typeof import('./useConstructionLifecycle').useConstructionLifecycle>[0]['client'];
 
 const capabilitiesFor = (args: GetConstructionCapabilitiesArgs): ConstructionCapabilitiesResponse => {
   const stage = {

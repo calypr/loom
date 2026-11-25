@@ -6,7 +6,7 @@ import type {
 } from '../../../contracts/types';
 import { formatPreviewCell } from '../components/PreviewTable';
 import { PreviewValueCoverage } from './PreviewValueCoverage';
-import { constructionHistorySteps } from './constructionHistory';
+import { constructionHistorySteps } from '../model/constructionHistory';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 
 export type ConstructionProposalViewState =

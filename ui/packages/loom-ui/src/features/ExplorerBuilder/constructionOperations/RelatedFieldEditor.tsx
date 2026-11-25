@@ -10,8 +10,8 @@ import type {
   ConstructionStep,
   RelatedFieldChoiceSearchResponse,
 } from '../../../contracts/types';
-import { constructionWithStep } from './editorShared';
-import { constructionInputForStage } from '../constructionWorkspace/constructionStages';
+import { constructionWithStep } from '../model/editorShared';
+import { constructionInputForStage } from '../model/constructionStages';
 
 type RelatedFieldOperation = Extract<ConstructionOperation, { readonly kind: 'RELATED_FIELD' }>;
 export type RelatedFieldStep = Omit<ConstructionStep, 'operation'> & { readonly operation: RelatedFieldOperation };

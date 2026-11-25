@@ -136,18 +136,3 @@ export const canUseViewColumnPresentation = (column: {
   filterable: column.filterable,
   chartable: column.chartable,
 });
-
-export const moveArrayItem = <T>(
-  values: ReadonlyArray<T>,
-  index: number,
-  offset: -1 | 1,
-): T[] => {
-  const nextIndex = index + offset;
-  if (index < 0 || nextIndex < 0 || nextIndex >= values.length) {
-    return [...values];
-  }
-  const next = [...values];
-  const [selected] = next.splice(index, 1);
-  next.splice(nextIndex, 0, selected);
-  return next;
-};

@@ -3,12 +3,12 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ExplorerBuilderCatalog } from '../../../contracts/types';
-import type { DraftTable } from '../authoring/model';
+import type { DraftTable } from '../model/authoring';
 import type {
   RootChangePickerState,
   RootChangeRequestIdentity,
   RootChangeSelection,
-} from '../authoring/rootChangeSelection';
+} from '../model/rootChangeSelection';
 import { RowDefinitionPanel } from './RowDefinitionPanel';
 
 const catalog: ExplorerBuilderCatalog = {

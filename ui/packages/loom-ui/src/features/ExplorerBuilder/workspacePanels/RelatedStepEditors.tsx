@@ -1,9 +1,9 @@
 import React from 'react';
 import type { Construction } from '../../../contracts/types';
-import type { BuilderAuthoringState } from '../authoring/model';
+import type { BuilderAuthoringState } from '../model/authoring';
 import { RelatedSourceStepEditor, type RelatedSourceStep } from '../constructionOperations/RelatedSourceStepEditor';
 import { RelatedFieldEditor, type RelatedFieldStep } from '../constructionOperations/RelatedFieldEditor';
-import { sanitizeReasonText } from '../catalogItems';
+import { sanitizeReasonText } from '../model/catalogItems';
 import { useConstructionLifecycle } from '../constructionWorkspace/useConstructionLifecycle';
 
 type ConstructionLifecycle = ReturnType<typeof useConstructionLifecycle>;

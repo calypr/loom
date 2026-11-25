@@ -1,4 +1,4 @@
-import type { DraftTable } from '../authoring/model';
+import type { DraftTable } from './authoring';
 import { authoredStages } from './authoredTraversal';
 import { columnPolicy, operationExpression } from './rowRecipeProjection';
 const table: DraftTable = { outputId:'subjects',tabId:'subjects',title:'Subjects',document:{kind:'ExplorerBuilderDocument',output:{id:'subjects',title:'Subjects'},rootResourceType:'ResearchSubject',route:{occurrenceId:'base',resourceType:'ResearchSubject'},rows:{kind:'RECORDS',records:{}},columns:[{columnId:'gender_id',column:'subject_gender',label:'Gender',occurrenceId:'base',source:{kind:'field',field:{path:'gender',projectionMode:'VALUE'}}}],construction:{version:1,steps:[{id:'g',inputs:[{kind:'SOURCE_PROJECTION'}],operation:{kind:'GROUP',group:{constructionId:'g',keys:[{inputColumnId:'gender_id',outputColumnId:'g_gender'}]}},outputs:[{id:'g_gender',name:'gender',label:'Gender'}]}]}}};

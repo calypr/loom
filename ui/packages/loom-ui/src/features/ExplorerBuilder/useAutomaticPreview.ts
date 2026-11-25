@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { useKeyedQuery, type QueryRefetchOptions } from '../../react';
 import type { ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult } from '../../contracts/types';
-import type { PreviewLimit } from './authoring/previewRecovery';
+import type { PreviewLimit } from './model/previewRecovery';
 
 export type AutomaticPreviewIdentity = {
   readonly key: string;

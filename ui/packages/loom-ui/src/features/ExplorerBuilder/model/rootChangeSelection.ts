@@ -3,8 +3,8 @@ import type {
   RowChangeAssessment,
   RowChangeUnresolvedReference,
 } from '../../../contracts/types';
-import { relationshipLabel } from '../constructionWorkspace/routeDisplay';
-import { derivedOccurrences, type DraftTable } from './model';
+import { relationshipLabel } from './routeDisplay';
+import { derivedOccurrences, type DraftTable } from './authoring';
 
 export type RootChangeSelection =
   | {

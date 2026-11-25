@@ -9,7 +9,7 @@ import type {
   ExplorerBuilderColumn,
   ExplorerRowDefinition,
 } from '../../../contracts/types';
-import type { DraftTable } from '../authoring/model';
+import type { DraftTable } from '../model/authoring';
 import {
   formatPreviewCell,
   PreviewTable,

@@ -2,7 +2,7 @@
 import React from 'react';
 import { vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import type { DraftTable } from '../authoring/model';
+import type { DraftTable } from '../model/authoring';
 import { BuilderToolbar } from './BuilderToolbar';
 
 const draftTable = (outputId: string, title: string): DraftTable => ({

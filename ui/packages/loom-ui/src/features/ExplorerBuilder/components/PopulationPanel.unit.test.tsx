@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { SelectionRevision } from '../../../contracts/selection';
 import type { PopulationRouteChoice } from '../../../contracts/types';
-import type { DraftTable } from '../authoring/model';
+import type { DraftTable } from '../model/authoring';
 import { PopulationPanel } from './PopulationPanel';
 
 const triggerPopulation = vi.hoisted(() => vi.fn());

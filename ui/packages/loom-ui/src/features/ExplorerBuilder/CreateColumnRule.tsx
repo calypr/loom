@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import type { ImportedSourceParameters, SourceRuleCreate } from '../../contracts/types';
 import { fieldPickerList, fieldPickerToggleRow } from './components/fieldPickerStyles';
 import { SourceStepParameterEditor } from './SourceStepParameterEditor';
-import { isCategoryCodingRule, isIdentifierColumnRule, type ColumnRuleOccurrence, type ColumnRulePreset } from './sourceColumnRule';
+import { isCategoryCodingRule, isIdentifierColumnRule, type ColumnRuleOccurrence, type ColumnRulePreset } from './model/sourceColumnRule';
 
 const defaultColumnLimit = 128;
 const ruleNamePattern = /^[A-Za-z_][A-Za-z0-9_]*$/;

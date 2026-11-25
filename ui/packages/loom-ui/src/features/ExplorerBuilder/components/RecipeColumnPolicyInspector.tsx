@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type { ExplorerBuilderCandidate, ExplorerBuilderColumn } from '../../../contracts/types';
-import { rowValuePolicyLabel } from './rowRecipeProjection';
+import { rowValuePolicyLabel } from '../model/rowRecipeProjection';
 
 type FieldSource = Extract<ExplorerBuilderColumn['source'], { kind: 'field' }>;
 type ProjectionMode = NonNullable<FieldSource['field']['projectionMode']>;

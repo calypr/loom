@@ -1,4 +1,4 @@
-import type { ReshapeColumn } from './reshapeForms';
+import type { ReshapeColumn } from '../model/reshapeForms';
 
 export const ListColumnExpandChoices = (props: {
   readonly columns: ReadonlyArray<ReshapeColumn>;

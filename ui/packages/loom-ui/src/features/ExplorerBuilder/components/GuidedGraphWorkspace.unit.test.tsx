@@ -3,9 +3,10 @@ import React from 'react';
 import { vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ExplorerBuilderCatalog } from '../../../contracts/types';
-import type { DraftTable } from '../authoring/model';
-import { legalOutgoingEdges } from '../authoring/routeActions';
-import { graphEdgeOverviewLabels, GuidedGraphWorkspace, layoutDiscoveryRail, layoutTraversalTree } from './GuidedGraphWorkspace';
+import type { DraftTable } from '../model/authoring';
+import { legalOutgoingEdges } from '../model/routeActions';
+import { GuidedGraphWorkspace } from './GuidedGraphWorkspace';
+import { graphEdgeOverviewLabels, layoutDiscoveryRail, layoutTraversalTree } from '../model/traversalLayout';
 
 const mockFitView = vi.fn();
 const mockFitBounds = vi.fn();
@@ -111,7 +112,7 @@ vi.mock('@xyflow/react', () => {
   };
 });
 
-vi.mock('../graphLayout', () => ({
+vi.mock('../model/graphLayout', () => ({
   layoutDatasetGraph: (...args: unknown[]) => mockLayoutDatasetGraph(...args),
 }));
 

@@ -1,4 +1,4 @@
-import { constructionHistorySteps } from '../constructionWorkspace/constructionHistory';
+import { constructionHistorySteps } from './constructionHistory';
 import type { AuthoringNetworkResponse, ConstructionStep, ExplorerBuilderColumn, ExplorerBuilderDocument, ExplorerBuilderRouteNode } from '../../../contracts/types';
 
 interface RowConnectionTerm {

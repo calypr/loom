@@ -2,7 +2,7 @@ import type {
   ConstructionRouteStep,
   ExplorerBuilderWorkspace,
   PopulationRouteChoice,
-} from '../../contracts/types';
+} from '../../../contracts/types';
 
 type SavedPopulationRoute = NonNullable<
   ExplorerBuilderWorkspace['documents'][number]['population']
@@ -63,7 +63,7 @@ export const populationRouteOptions = ({
   });
 };
 
-export { sameConstructionRoute } from '../../contracts/identity';
+export { sameConstructionRoute } from '../../../contracts/identity';
 
 export const matchesSavedPopulationRoute = (
   route: ReadonlyArray<ConstructionRouteStep>,

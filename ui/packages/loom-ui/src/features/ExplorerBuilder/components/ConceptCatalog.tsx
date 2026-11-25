@@ -37,7 +37,7 @@ import {
   type CatalogChoiceGroup,
   type CatalogChoiceIntent,
   type CatalogItem,
-} from '../catalogItems';
+} from '../model/catalogItems';
 import {
   CatalogSelectionOptions,
   type CatalogInitialSelection,
@@ -49,17 +49,17 @@ const PAGE_SIZE = 50;
 const ROUTE_PAGE_SIZE = 10;
 const MAX_SELECTIONS = 100;
 
-export interface CatalogRouteContext {
+interface CatalogRouteContext {
   readonly occurrenceId: string;
   readonly nodeId: string;
 }
 
-export interface CatalogSourceProjectionAvailability {
+interface CatalogSourceProjectionAvailability {
   readonly available: boolean;
   readonly reason: string;
 }
 
-export interface CatalogRelatedSourceAvailability {
+interface CatalogRelatedSourceAvailability {
   readonly supported: boolean;
   readonly reason?: string;
 }

@@ -4,7 +4,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ComponentProps } from 'react';
 import { CreateColumnRule } from './CreateColumnRule';
-import { columnRuleDefaults, columnRulePresets } from './sourceColumnRule';
+import { columnRuleDefaults, columnRulePresets } from './model/sourceColumnRule';
 
 function reviewButton(
   onClick: () => void,

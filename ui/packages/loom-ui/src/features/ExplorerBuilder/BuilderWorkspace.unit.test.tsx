@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { REASON_DISPLAY_LIMIT, unavailableOperationReason } from './catalogItems';
+import { REASON_DISPLAY_LIMIT, unavailableOperationReason } from './model/catalogItems';
 
 const RESHAPE_COPY = {
   errorMessage: 'Loom could not check this table’s row operations.',

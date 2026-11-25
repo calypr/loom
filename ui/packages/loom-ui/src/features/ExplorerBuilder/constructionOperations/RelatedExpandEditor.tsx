@@ -10,10 +10,10 @@ import type {
   ExplorerBuilderCatalog,
   RelatedExpandChoiceSearchResponse,
 } from '../../../contracts/types';
-import { constructionWithStep, createOpaqueId } from './editorShared';
-import { constructionInputForStage } from '../constructionWorkspace/constructionStages';
+import { constructionWithStep, createOpaqueId } from '../model/editorShared';
+import { constructionInputForStage } from '../model/constructionStages';
 import { RelatedExpandContributorEditor, type ContributorChoice, type ContributorCondition } from './RelatedExpandContributorEditor';
-import { relationshipLabel, routePath } from '../constructionWorkspace/routeDisplay';
+import { relationshipLabel, routePath } from '../model/routeDisplay';
 import { useDismissibleLayer } from '../hooks/useDismissibleLayer';
 
 type RelatedExpandOperation = Extract<ConstructionOperation, { readonly kind: 'RELATED_EXPAND' }>;

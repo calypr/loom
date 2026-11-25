@@ -9,10 +9,10 @@ import type {
   ExplorerBuilderCatalog,
   RelatedExpandChoiceSearchResponse,
 } from '../../../contracts/types';
-import { constructionWithStep } from './editorShared';
-import { constructionInputForStage } from '../constructionWorkspace/constructionStages';
+import { constructionWithStep } from '../model/editorShared';
+import { constructionInputForStage } from '../model/constructionStages';
 import { RelatedExpandContributorEditor, type ContributorChoice, type ContributorCondition } from './RelatedExpandContributorEditor';
-import { routePath } from '../constructionWorkspace/routeDisplay';
+import { routePath } from '../model/routeDisplay';
 import { TraversalPath } from '../constructionWorkspace/TraversalPath';
 
 type EligibilityOperation = Extract<ConstructionOperation, { readonly kind: 'RELATED_ELIGIBILITY' }>;

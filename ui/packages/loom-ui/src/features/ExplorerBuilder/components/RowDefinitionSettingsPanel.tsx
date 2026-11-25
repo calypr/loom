@@ -1,3 +1,4 @@
+import { replacementConsumerPresentations } from '../model/replacementConsumers';
 import { createPortal } from 'react-dom';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import React, { useRef, useState, type ReactNode } from 'react';
@@ -11,13 +12,13 @@ import type {
   RowDefinitionSelection,
   RowChangeAssessment,
 } from '../../../contracts/types';
-import { routeNode, type DraftTable } from '../authoring/model';
+import { routeNode, type DraftTable } from '../model/authoring';
 import type {
   RootChangePickerState,
   RootChangeSelection,
-} from '../authoring/rootChangeSelection';
+} from '../model/rootChangeSelection';
 import type { SelectionRevision } from '../../../contracts/selection';
-import type { ConstructionHistoryStep } from '../constructionWorkspace/ConstructionWorkspace';
+import type { ConstructionHistoryStep } from '../model/constructionHistory';
 import { ExplicitGroupAuthoring } from './ExplicitGroupAuthoring';
 import { useBrowserSubscription } from '../hooks/useBrowserSubscription';
 import { TraversalPath } from '../constructionWorkspace/TraversalPath';
@@ -99,7 +100,7 @@ type ProposalState =
   | { readonly kind: 'failed'; readonly selection: RowDefinitionSelection; readonly message: string }
   | { readonly kind: 'applying'; readonly selection: RowDefinitionSelection };
 
-export type ReadyReplacementAssessment = Extract<RowChangeAssessment, { readonly status: 'READY' }> & {
+type ReadyReplacementAssessment = Extract<RowChangeAssessment, { readonly status: 'READY' }> & {
   readonly mode: 'REPLACE';
   readonly proposal: Extract<RowChangeAssessment, { readonly status: 'READY' }>['proposal'] & { readonly mode: 'REPLACE' };
 };
@@ -151,59 +152,6 @@ const isCurrentReplacement = (
 ): boolean => assessment.mode === 'REPLACE' && assessment.proposal.mode === 'REPLACE' &&
   assessment.proposal.outputId === table.outputId && assessment.snapshotToken === snapshotToken &&
   assessment.draftVersion === draftVersion && assessment.draftDigest === draftDigest;
-
-const columnLabel = (table: DraftTable | undefined, columnId: string): string =>
-  table?.document.columns.find((column) => column.columnId === columnId)?.label ??
-  table?.document.columns.find((column) => column.column === columnId)?.label ?? columnId;
-
-type ReplacementConsumerPresentation = {
-  readonly key: string;
-  readonly title: string;
-  readonly detail: string;
-};
-
-export const replacementConsumerPresentations = (
-  workspaceTables: ReadonlyArray<DraftTable>,
-  replacementOutputId: string,
-  references: NonNullable<RowChangeAssessment['workspaceOutputConsumers']>,
-): ReadonlyArray<ReplacementConsumerPresentation> => references.map((reference) => {
-  const consumer = workspaceTables.find((candidate) => candidate.outputId === reference.outputId);
-  const step = consumer?.document.construction?.steps.find((candidate) => candidate.id === reference.stepId);
-  const input = step?.inputs[reference.inputIndex];
-  const targetInput = input?.kind === 'WORKSPACE_OUTPUT' && input.outputId === replacementOutputId;
-  const title = consumer?.title ?? 'Another table';
-  const fallbackDetail = step?.operation.kind === 'COMBINE'
-    ? step.operation.combine.kind === 'KEY_JOIN' ? 'Uses this table in a join'
-      : step.operation.combine.kind === 'APPEND' ? 'Uses this table in an append'
-        : 'Uses this table in a membership check'
-    : 'Uses this table in a construction step';
-  if (!targetInput || !step || step.operation.kind !== 'COMBINE') {
-    return { key: `${reference.outputId}:${reference.stepId}:${reference.inputIndex}`, title, detail: fallbackDetail };
-  }
-
-  const columnIds = new Set<string>();
-  for (const projection of step.operation.combine.projections) {
-    if (projection.inputIndex === reference.inputIndex) columnIds.add(projection.inputColumnId);
-  }
-  for (const key of step.operation.combine.keys ?? []) {
-    const keyColumnId = reference.inputIndex === 0
-      ? key.leftColumnId
-      : reference.inputIndex === 1 ? key.rightColumnId : undefined;
-    if (keyColumnId) columnIds.add(keyColumnId);
-  }
-  if (columnIds.size === 0) return { key: `${reference.outputId}:${reference.stepId}:${reference.inputIndex}`, title, detail: fallbackDetail };
-  const labels = [...columnIds].map((columnId) => columnLabel(
-    workspaceTables.find((candidate) => candidate.outputId === replacementOutputId), columnId,
-  ));
-  const operationLabel = step.operation.combine.kind === 'KEY_JOIN'
-    ? 'Join fields'
-    : step.operation.combine.kind === 'APPEND' ? 'Append fields' : 'Membership fields';
-  return {
-    key: `${reference.outputId}:${reference.stepId}:${reference.inputIndex}`,
-    title,
-    detail: `${operationLabel}: ${labels.join(', ')}`,
-  };
-});
 
 const sharedFilterPresentation = (
   workspaceTables: ReadonlyArray<DraftTable>,

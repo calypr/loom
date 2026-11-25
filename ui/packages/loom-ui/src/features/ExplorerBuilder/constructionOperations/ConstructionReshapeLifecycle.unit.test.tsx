@@ -11,14 +11,13 @@ import {
   type ConstructionProposalResponse,
   type ExplorerBuilderPreviewResult,
 } from '../../../contracts/types';
-import {
-  ConstructionReshapeEditor,
-  type ConstructionReshapePivotCategory,
-} from './ConstructionReshapeEditor';
+import { ConstructionReshapeEditor } from './ConstructionReshapeEditor';
+import type { ConstructionReshapePivotCategory } from '../model/reshapeForms';
 import {
   useConstructionLifecycle,
-  type ConstructionLifecycleClient,
 } from '../constructionWorkspace/useConstructionLifecycle';
+
+type ConstructionLifecycleClient = Parameters<typeof import('../constructionWorkspace/useConstructionLifecycle').useConstructionLifecycle>[0]['client'];
 
 const priorStep: Construction['steps'][number] = {
   id: 'filter-specimens',

@@ -2,7 +2,10 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { ConstructionReshapeEditor, type ConstructionReshapeEditorProps, type ConstructionReshapeStep } from './ConstructionReshapeEditor';
+import { ConstructionReshapeEditor } from './ConstructionReshapeEditor';
+import type { ConstructionReshapeStep } from '../model/reshapeForms';
+type ConstructionReshapeEditorFixtureProps = import('react').ComponentProps<typeof import('./ConstructionReshapeEditor').ConstructionReshapeEditor>;
+type ConstructionReshapeEditorProps = ConstructionReshapeEditorFixtureProps;
 import { constructionSchema } from '../../../contracts/types';
 
 type Capabilities = ConstructionReshapeEditorProps['capabilities'];

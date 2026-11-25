@@ -10,7 +10,7 @@ import {
   nextRouteOccurrenceId,
   stateFromBuilder,
   workspaceFromState,
-} from './model';
+} from './authoring';
 import { builderAuthoringReducer } from './reducer';
 
 const ready: ExplorerBuilderState = {

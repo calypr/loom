@@ -1,8 +1,8 @@
 import type { MutableRefObject } from 'react';
 import type { LoomClient } from '../../../client/api';
 import type { AuthoringNetworkResponse } from '../../../contracts/types';
-import type { BuilderAuthoringState, DraftTable } from './model';
-import type { RecipeFocusActions } from './useRecipeFocus';
+import type { BuilderAuthoringState, DraftTable } from '../model/authoring';
+import type { RecipeFocusActions } from './recipeFocusActions';
 
 export type RecipeNetworkIdentity = Pick<AuthoringNetworkResponse, 'draftVersion' | 'draftDigest' | 'snapshotToken'> & {
   readonly network: Pick<AuthoringNetworkResponse['network'], 'outputId'>;

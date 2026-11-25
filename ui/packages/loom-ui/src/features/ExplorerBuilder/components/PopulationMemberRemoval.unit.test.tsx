@@ -5,7 +5,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import type { SelectionPage, SelectionRevision } from '../../../contracts/selection';
 import { EXPLORER_AUTHORING_API_VERSION, type PopulationRouteChoice } from '../../../contracts/types';
 import type { PopulationMemberRemovalProposalResponse } from '../../../client/api';
-import type { DraftTable } from '../authoring/model';
+import type { DraftTable } from '../model/authoring';
 import { PopulationPanel } from './PopulationPanel';
 
 const loomClient = vi.hoisted(() => ({

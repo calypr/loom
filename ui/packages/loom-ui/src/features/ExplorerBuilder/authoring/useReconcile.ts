@@ -2,11 +2,11 @@ import { useCallback, useRef, type Dispatch, type MutableRefObject, type SetStat
 import { useReconcileExplorerBuilderV2Mutation, usePreviewExplorerAuthoringV2Mutation, type useGetExplorerBuilderStateV2Query } from '../../../react';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
 import type { ExplorerAuthoringDiagnostic, ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult, ExplorerBuilderState } from '../../../contracts/types';
-import { intentFingerprint, workspaceFromState, type BuilderAuthoringState } from './model';
-import { builderAuthoringReducer } from './reducer';
-import { reconcileAcceptance } from './reconcileAcceptance';
-import { reconcileRecoveryAction, reconcileResultIsCurrent } from './reconcileRecovery';
-import { isPreviewResponseSizeError, previewRecoveryAction } from './previewRecovery';
+import { intentFingerprint, workspaceFromState, type BuilderAuthoringState } from '../model/authoring';
+import { builderAuthoringReducer } from '../model/reducer';
+import { reconcileAcceptance } from '../model/reconcileAcceptance';
+import { reconcileRecoveryAction, reconcileResultIsCurrent } from '../model/reconcileRecovery';
+import { isPreviewResponseSizeError, previewRecoveryAction } from '../model/previewRecovery';
 import type { AutomaticPreviewExecution, PreviewRequest } from './useAutomaticPreviewOwner';
 
 type UseReconcileOptions = {

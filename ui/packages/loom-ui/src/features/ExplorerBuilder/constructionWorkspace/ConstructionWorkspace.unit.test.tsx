@@ -2,17 +2,15 @@
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  ConstructionActionBar,
-  ConstructionHistory,
-  ConstructionTableNavigation,
+import { ConstructionHistory } from './ConstructionHistory';
+import { ConstructionTableNavigation } from './ConstructionTableNavigation';
+import { ConstructionActionBar,
   ConstructionWorkspace,
-  type ConstructionOperationFamily,
-} from './ConstructionWorkspace';
-import { constructionHistorySteps, constructionRowMeaning } from './constructionHistory';
+  type ConstructionOperationFamily } from './ConstructionWorkspace';
+import { constructionHistorySteps, constructionRowMeaning } from '../model/constructionHistory';
 import { ConstructionColumnSelection } from './ConstructionColumnSelection';
 import { constructionProposalIsApplicable } from './ConstructionProposalPanel';
-import { sourceProjectionAvailability } from './sourceProjectionAvailability';
+import { sourceProjectionAvailability } from '../model/sourceProjectionAvailability';
 import type { Construction, ConstructionProposalResponse, ExplorerBuilderPreviewResult } from '../../../contracts/types';
 
 describe('ConstructionWorkspace', () => {

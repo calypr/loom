@@ -1,4 +1,4 @@
-import { createOpaqueId, normalizedLogicalType, isNumericColumn, normalizedName, uniqueName as uniqueFilterSourceName, sourceLabel as filterSourceLabel, editorContextKey, stageWithSourceInputs, constructionWithStep } from './editorShared';
+import { createOpaqueId, normalizedLogicalType, isNumericColumn, normalizedName, uniqueName as uniqueFilterSourceName, sourceLabel as filterSourceLabel, editorContextKey, stageWithSourceInputs, constructionWithStep } from '../model/editorShared';
 import React, { useId, useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type {
@@ -9,9 +9,9 @@ import type {
   ConstructionStageDescriptor,
   ConstructionStep,
 } from '../../../contracts/types';
-import { constructionInputForStage } from '../constructionWorkspace/constructionStages';
-import { classifySourcePickerEmptiness, sourcePickerBoundSet, type SourcePickerEmptiness } from './sourcePickerExplanations';
-import { existingColumnForFieldPath, type PublicFieldCarrier } from './existingFieldReuse';
+import { constructionInputForStage } from '../model/constructionStages';
+import { classifySourcePickerEmptiness, sourcePickerBoundSet, type SourcePickerEmptiness } from '../model/sourcePickerExplanations';
+import { existingColumnForFieldPath, type PublicFieldCarrier } from '../model/existingFieldReuse';
 import { SourcePickerExplanation } from '../components/SourcePickerExplanation';
 
 type CandidateIntent = Pick<
@@ -97,7 +97,7 @@ interface CalculationForm {
   readonly deriveSources?: ReadonlyArray<DeriveSourceSelection>;
 }
 
-export interface ConstructionOperationEditorProps {
+interface ConstructionOperationEditorProps {
   readonly family: 'KEEP_ROWS' | 'CALCULATE';
   readonly construction: Construction;
   readonly capabilities: ConstructionCapabilitiesResponse;

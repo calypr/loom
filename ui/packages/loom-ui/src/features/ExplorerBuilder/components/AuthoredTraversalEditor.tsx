@@ -1,8 +1,8 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { GuidedGraphWorkspace } from './GuidedGraphWorkspace';
-import { replaceableIncomingEdges } from '../authoring/routeActions';
-import { authoredTraversal } from './authoredTraversal';
+import { replaceableIncomingEdges } from '../model/routeActions';
+import { authoredTraversal } from '../model/authoredTraversal';
 
 type GraphProps = React.ComponentProps<typeof GuidedGraphWorkspace>;
 type AuthoredTraversalEditorProps = GraphProps & {

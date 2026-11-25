@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { createLoomClient, type LoomOutputFilter } from '../../client/api';
 import type { ExplorerRuntimeV1 } from '../../contracts/types';
 import { createViewerReducerState, viewerReducer } from './reducer';
-import { outputFiltersFor, outputRequestFor } from './serialization';
+import { outputFiltersFor } from './outputFilters';
+import { outputRequestFor } from './serialization';
 import { missingSelection, valuesSelection, type ViewerFieldSelection } from './model';
 
 const runtime: ExplorerRuntimeV1 = {

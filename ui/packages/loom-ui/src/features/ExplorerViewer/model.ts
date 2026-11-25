@@ -1,3 +1,30 @@
+export const isMissingValue = (value: string): boolean => value === 'No value (null or missing)';
+
+import type { LoomFacetResult } from '../../client/api';
+import { displayValue } from '../../display/valueDisplay';
+
+const textForFacet = (value: unknown): string => displayValue(value);
+
+export const facetValues = (
+  facet: LoomFacetResult | undefined,
+  column: string,
+): Array<{ readonly value: string; readonly count?: string }> => {
+  if (!facet) return [];
+  const values = new Map<string, number | undefined>();
+  for (const row of facet.rows) {
+    const raw = row.key ?? row[column];
+    if (raw === undefined || raw === null) continue;
+    const value = textForFacet(raw);
+    const count = Number(row.doc_count);
+    const previous = values.get(value);
+    values.set(value, Number.isFinite(count) ? (previous ?? 0) + count : previous);
+  }
+  return [...values].map(([value, count]) => ({
+    value,
+    ...(count === undefined ? {} : { count: String(count) }),
+  }));
+};
+
 import type {
   ExplorerRuntimeBindingV1,
   ExplorerRuntimeOutputV1,

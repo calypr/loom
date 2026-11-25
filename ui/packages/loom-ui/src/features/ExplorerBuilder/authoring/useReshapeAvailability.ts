@@ -1,11 +1,11 @@
 import type { Dispatch, SetStateAction } from 'react';
 import type { GetConstructionCapabilitiesArgs } from '../../../client/api';
 import type { ConstructionCapabilitiesResponse, ConstructionChoiceSelection, ConstructionStep } from '../../../contracts/types';
-import type { BuilderAuthoringState, DraftTable } from './model';
+import type { BuilderAuthoringState, DraftTable } from '../model/authoring';
 import type { useConstructionLifecycle } from '../constructionWorkspace/useConstructionLifecycle';
-import { sanitizeReasonText, unavailableOperationReason } from '../catalogItems';
-import { sourceProjectionAvailability } from '../constructionWorkspace/sourceProjectionAvailability';
-import { constructionAppendStageFor } from '../constructionWorkspace/constructionStages';
+import { sanitizeReasonText, unavailableOperationReason } from '../model/catalogItems';
+import { sourceProjectionAvailability } from '../model/sourceProjectionAvailability';
+import { constructionAppendStageFor } from '../model/constructionStages';
 
 type UseReshapeAvailabilityOptions = {
   readonly constructionLifecycle: Pick<ReturnType<typeof useConstructionLifecycle>, 'capabilities'>;

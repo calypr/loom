@@ -19,12 +19,11 @@ import type {
   SemanticInventoryItem,
 } from '../../../contracts/types';
 import type { CatalogInitialSelection } from './CatalogSelectionOptions';
-import {
-  ConceptCatalog,
-  type CatalogRelatedSourceAvailability,
-  type CatalogRouteContext,
-  type CatalogSourceProjectionAvailability,
-} from './ConceptCatalog';
+import { ConceptCatalog, } from './ConceptCatalog';
+type ConceptCatalogFixtureProps = import('react').ComponentProps<typeof import('./ConceptCatalog').ConceptCatalog>;
+type CatalogRelatedSourceAvailability = NonNullable<ConceptCatalogFixtureProps['relatedSourceAvailability']>;
+type CatalogRouteContext = NonNullable<ConceptCatalogFixtureProps['routeContext']>;
+type CatalogSourceProjectionAvailability = NonNullable<ConceptCatalogFixtureProps['sourceProjectionAvailability']>;
 
 const choiceOption = (
   form: 'VALUE' | 'ALL' | 'OWNER_RECORDS',

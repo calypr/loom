@@ -1,5 +1,5 @@
 import type { ExplorerBuilderCommand } from '../../../contracts/types';
-import type { DraftTable } from './model';
+import type { DraftTable } from './authoring';
 
 type AdmissionRefusal = {
   readonly kind: 'imported-recipe-immutable';

@@ -25,9 +25,9 @@ import {
   type ConstructionProposalViewState,
 } from './ConstructionProposalPanel';
 
-import { beginConstructionApply, type ConstructionApplyAttempt } from './constructionApplyOwnership';
+import { beginConstructionApply, type ConstructionApplyAttempt } from '../session/constructionApplyOwnership';
 
-export type ConstructionLifecycleClient = Pick<
+type ConstructionLifecycleClient = Pick<
   LoomClient,
   'getConstructionCapabilities' | 'discoverConstructionCategories' | 'proposeConstruction' | 'preview'
 >;
@@ -37,18 +37,18 @@ export type ConstructionCandidateIntent = Pick<
   'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource' | 'groupSources' | 'pivotSources' | 'filterSources' | 'deriveSources' | 'unpivotSources'
 >;
 
-export interface ConstructionEditingAttempt {
+interface ConstructionEditingAttempt {
   ready(response: ConstructionProposalResponse, preview: ExplorerBuilderPreviewResult): boolean;
   failed(message: string): void;
   cancel(): boolean;
   beginApply(): boolean;
   finishApply(applied: boolean): void;
 }
-export interface ConstructionEditingOwner {
+interface ConstructionEditingOwner {
   onStart(intent: ConstructionCandidateIntent, request: GetConstructionCapabilitiesArgs): ConstructionEditingAttempt | undefined;
 }
 
-export type ConstructionCapabilitiesViewState =
+type ConstructionCapabilitiesViewState =
   | { readonly status: 'idle' }
   | { readonly status: 'loading' }
   | { readonly status: 'ready'; readonly response: ConstructionCapabilitiesResponse }

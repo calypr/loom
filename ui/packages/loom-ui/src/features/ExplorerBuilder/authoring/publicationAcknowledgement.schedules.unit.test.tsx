@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoomProvider } from '../../../react';
 import { createLoomClient } from '../../../client/api';
 import BuilderWorkspace from '../BuilderWorkspace';
-import { reconcileResultIsCurrent } from './reconcileRecovery';
+import { reconcileResultIsCurrent } from '../model/reconcileRecovery';
 import { EXPLORER_AUTHORING_API_VERSION } from '../../../contracts/types';
 import { publication_acknowledgement as cases, publication_identity_guards as identityGuards } from '../../../../testdata/schedules/publication_acknowledgement';
 

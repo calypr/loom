@@ -4,7 +4,7 @@ import {
   layoutDatasetGraph,
   type GraphLayoutEdge,
   type GraphLayoutNode,
-} from '../graphLayout';
+} from '../model/graphLayout';
 
 interface GraphLayoutState {
   readonly identity?: string;

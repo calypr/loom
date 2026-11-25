@@ -1,8 +1,8 @@
 import { useCallback, useRef, useState, type Dispatch, type MutableRefObject } from 'react';
 import type { useGetExplorerCandidateSuggestionsV2Mutation } from '../../../react';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
-import { derivedOccurrences, selectedTable, type BuilderAuthoringState } from './model';
-import type { BuilderAction } from './reducer';
+import { derivedOccurrences, selectedTable, type BuilderAuthoringState } from '../model/authoring';
+import type { BuilderAction } from '../model/reducer';
 
 type UseSuggestionsOptions = {
   readonly state: BuilderAuthoringState;

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createLoomClient } from '../../../client/api';
 import type { ExplorerBuilderCatalog, RowChangeAssessment } from '../../../contracts/types';
 import { useRootChange } from './useRootChange';
-import type { BuilderAuthoringState, DraftTable } from './model';
+import type { BuilderAuthoringState, DraftTable } from '../model/authoring';
 
 describe('useRootChange identity changes', () => {
   it.each(['same-output', 'different-output'] as const)(

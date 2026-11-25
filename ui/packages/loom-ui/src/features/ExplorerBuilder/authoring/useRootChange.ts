@@ -1,12 +1,12 @@
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import { isCompilerNavigationSelection } from './workspaceGuards';
+import { isCompilerNavigationSelection } from '../model/workspaceGuards';
 import {
   sameRootChangeRequestIdentity,
   type RootChangePickerState,
   type RootChangeRequestIdentity,
   type RootChangeResolution,
   type RootChangeSelection,
-} from './rootChangeSelection';
+} from '../model/rootChangeSelection';
 import type {
   ExplorerBuilderCommand,
   ExplorerBuilderPreviewResult,
@@ -19,8 +19,8 @@ import type {
   useLoomClient,
 } from '../../../react';
 import { isDraftRestoreError } from './draftRestore';
-import { type BuilderAuthoringState, type DraftTable, selectedTable } from './model';
-import { type PreviewLimit } from './previewRecovery';
+import { type BuilderAuthoringState, type DraftTable, selectedTable } from '../model/authoring';
+import { type PreviewLimit } from '../model/previewRecovery';
 
 type ReadyRootChangeAssessment = Extract<RowChangeAssessment, { readonly status: 'READY' }>;
 

@@ -13,9 +13,9 @@ import type {
   ExplorerBuilderCatalog,
 } from '../../../contracts/types';
 import { ConceptCatalog } from '../components/ConceptCatalog';
-import { catalogSourceOptions, type CatalogChoiceIntent } from '../catalogItems';
+import { catalogSourceOptions, type CatalogChoiceIntent } from '../model/catalogItems';
 import { relatedSourceOutputLabel } from '../constructionWorkspace/relatedSourceOutputLabel';
-import { routePath } from '../constructionWorkspace/routeDisplay';
+import { routePath } from '../model/routeDisplay';
 
 type RelatedSourceOperation = Extract<ConstructionOperation, { readonly kind: 'RELATED_SOURCE' }>;
 type RelatedSourceForm = RelatedSourceOperation['relatedSource']['form'];

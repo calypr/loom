@@ -7,8 +7,8 @@ import type {
   ConstructionRouteStep,
   PopulationRouteChoice,
 } from '../../../contracts/types';
-import type { DraftTable } from '../authoring/model';
-import { matchesSavedPopulationRoute, populationRouteOptions } from '../populationRoutes';
+import type { DraftTable } from '../model/authoring';
+import { matchesSavedPopulationRoute, populationRouteOptions } from '../model/populationRoutes';
 import { PopulationMemberRemoval } from './PopulationMemberRemoval';
 
 type RouteLoadState =

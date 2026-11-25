@@ -3,7 +3,7 @@ import {
   EXPLORER_AUTHORING_API_VERSION,
   type ExplorerBuilderPreviewResult,
 } from '../../../contracts/types';
-import { previewResultMultiplicity, previewValueCoverage } from './PreviewValueCoverage';
+import { previewResultMultiplicity, previewValueCoverage } from '../model/previewCoverage';
 
 const preview = (
   values: ReadonlyArray<unknown>,

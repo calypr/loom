@@ -1,6 +1,6 @@
 
 
-import type { SourcePickerEmptiness } from '../constructionOperations/sourcePickerExplanations';
+import type { SourcePickerEmptiness } from '../model/sourcePickerExplanations';
 
 const sourcePickerExplanationText = (emptiness: SourcePickerEmptiness): string => {
   switch (emptiness.emptyClass) {

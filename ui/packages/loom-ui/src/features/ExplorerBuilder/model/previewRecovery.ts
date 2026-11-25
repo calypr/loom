@@ -1,4 +1,4 @@
-import type { ExplorerAuthoringApiError } from '../../../client/api';
+import type { ExplorerAuthoringApiError } from '../../../contracts/errors';
 
 export type PreviewLimit = 25 | 50 | 100 | 500 | 1000;
 type PreviewRecoveryAction =

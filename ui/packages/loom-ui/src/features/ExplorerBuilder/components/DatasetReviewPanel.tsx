@@ -9,9 +9,9 @@ import {
   derivedOccurrences,
   type BuilderAuthoringState,
   type DraftTable,
-} from '../authoring/model';
+} from '../model/authoring';
 import { lossLabel } from './DataframeContractPanel';
-import { hasSingleScopedRowTable } from './datasetReviewSelection';
+import { hasSingleScopedRowTable } from '../model/datasetReviewSelection';
 
 type ResultShape =
   | { readonly kind: 'scalar' }

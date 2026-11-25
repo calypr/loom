@@ -13,7 +13,6 @@ import {
 import {
   useConstructionLifecycle,
   type ConstructionCandidateIntent,
-  type ConstructionLifecycleClient,
 } from './useConstructionLifecycle';
 
 import { resourceFor } from '../../../react';
@@ -21,8 +20,10 @@ import {
   reconcileReceiptMatchesRequest,
   reconcileRecoveryAction,
   reconcileResultIsCurrent,
-} from '../authoring/reconcileRecovery';
+} from '../model/reconcileRecovery';
 import { capabilitiesFor as makeCapabilities, sourceStage } from '../../../../testSupport/constructionFixtures';
+
+type ConstructionLifecycleClient = Parameters<typeof import('./useConstructionLifecycle').useConstructionLifecycle>[0]['client'];
 
 type Lifecycle = ReturnType<typeof useConstructionLifecycle>;
 type ReadyProposal = Awaited<ReturnType<Lifecycle['proposeCandidateAndWait']>>;

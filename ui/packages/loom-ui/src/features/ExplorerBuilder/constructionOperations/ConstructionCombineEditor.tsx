@@ -1,4 +1,4 @@
-import { createOpaqueId } from './editorShared';
+import { createOpaqueId } from '../model/editorShared';
 import React, { useMemo, useState } from 'react';
 import type {
   ConstructionCombineCatalog,
@@ -40,7 +40,7 @@ interface CombineDraft {
   readonly outputs: ReadonlyArray<OutputDraft>;
 }
 
-export interface ConstructionCombineEditorProps {
+interface ConstructionCombineEditorProps {
   readonly catalog: ConstructionCombineCatalog;
   readonly workspaceInputs?: ReadonlyArray<ConstructionCombineWorkspaceOutput>;
   readonly constructionVersion: number;

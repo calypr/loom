@@ -12,7 +12,7 @@
   "widestPropBag": 57,
   "widestOptionBag": 25,
   "abortControllersOutsideClientData": 27,
-  "enforceTestOnlyExportLayers": false,
+  "enforceTestOnlyExportLayers": true,
   "enforceDomSubscriptionAllowlist": false,
   "domSubscriptionAllowlist": []
 }

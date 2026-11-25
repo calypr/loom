@@ -4,12 +4,12 @@ import { dirname } from 'node:path';
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  type CompletePivotDiscovery,
-  type ConstructionReshapeEditorProps,
-  type ConstructionReshapeStep,
-} from './ConstructionReshapeEditor';
-import { ConstructionHistory, type ConstructionHistorySelection } from '../constructionWorkspace/ConstructionWorkspace';
+import { type CompletePivotDiscovery } from './ConstructionReshapeEditor';
+import type { ConstructionReshapeStep } from '../model/reshapeForms';
+type ConstructionReshapeEditorFixtureProps = import('react').ComponentProps<typeof import('./ConstructionReshapeEditor').ConstructionReshapeEditor>;
+type ConstructionReshapeEditorProps = ConstructionReshapeEditorFixtureProps;
+import { ConstructionHistory } from '../constructionWorkspace/ConstructionHistory';
+import { type ConstructionHistorySelection } from '../constructionWorkspace/ConstructionWorkspace';
 import { constructionCapabilitiesResponseSchema, constructionProposalRequestSchema, constructionSchema } from '../../../contracts/types';
 import { ConstructionReshapeEditor, createReshapeEditorEntry, publicScalarListColumnIds } from './ConstructionReshapeEditor';
 import { capabilitiesFor as makeCapabilities, sourceStage as makeSourceStage } from '../../../../testSupport/constructionFixtures';

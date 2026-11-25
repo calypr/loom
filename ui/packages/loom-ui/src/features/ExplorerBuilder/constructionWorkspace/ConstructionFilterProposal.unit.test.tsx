@@ -15,7 +15,9 @@ import {
 } from '../../../contracts/types';
 import { ConstructionOperationEditor } from '../constructionOperations/ConstructionOperationEditor';
 import { ConstructionProposalPanel } from './ConstructionProposalPanel';
-import { useConstructionLifecycle, type ConstructionLifecycleClient } from './useConstructionLifecycle';
+import { useConstructionLifecycle } from './useConstructionLifecycle';
+
+type ConstructionLifecycleClient = Parameters<typeof useConstructionLifecycle>[0]['client'];
 
 const capabilitiesRequest: GetConstructionCapabilitiesArgs = {
   project: 'org/project',

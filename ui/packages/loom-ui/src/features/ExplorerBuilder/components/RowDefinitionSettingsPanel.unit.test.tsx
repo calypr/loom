@@ -5,10 +5,12 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ExplicitGroupRevisionSummary, ExplorerBuilderPreviewResult, RowChangeAssessment, RowDefinitionChoicesResponse, RowDefinitionProposal } from '../../../contracts/types';
 import type { SelectionRevision } from '../../../contracts/selection';
-import type { DraftTable } from '../authoring/model';
-import type { RootChangePickerState, RootChangeSelection } from '../authoring/rootChangeSelection';
-import type { ConstructionHistoryStep } from '../constructionWorkspace/ConstructionWorkspace';
-import { RowDefinitionSettingsPanel, type ReadyReplacementAssessment } from './RowDefinitionSettingsPanel';
+import type { DraftTable } from '../model/authoring';
+import type { RootChangePickerState, RootChangeSelection } from '../model/rootChangeSelection';
+import type { ConstructionHistoryStep } from '../model/constructionHistory';
+import { RowDefinitionSettingsPanel } from './RowDefinitionSettingsPanel';
+type RowDefinitionSettingsPanelFixtureProps = import('react').ComponentProps<typeof import('./RowDefinitionSettingsPanel').RowDefinitionSettingsPanel>;
+type ReadyReplacementAssessment = Parameters<RowDefinitionSettingsPanelFixtureProps['onApplyRootReplacement']>[0];
 
 const choices: RowDefinitionChoicesResponse = {
   snapshotToken: 'snapshot-1',

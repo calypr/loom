@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { afterEach, it, vi } from 'vitest';
-import { createRecipeFocusActions, type RecipeFocusRefs } from './authoring/useRecipeFocus';
-import { createRecipeNetworkLoader, type RecipeNetworkIdentity } from './authoring/recipeNetwork';
+import { createRecipeFocusActions, type RecipeFocusRefs } from './session/recipeFocusActions';
+import { createRecipeNetworkLoader, type RecipeNetworkIdentity } from './session/recipeNetwork';
 
 afterEach(() => vi.unstubAllGlobals());
 

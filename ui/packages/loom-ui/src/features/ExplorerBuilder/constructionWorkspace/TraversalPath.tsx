@@ -1,6 +1,6 @@
 import React from 'react';
 import type { ConstructionRouteStep } from '../../../contracts/types';
-import { relationshipField } from './routeDisplay';
+import { relationshipField } from '../model/routeDisplay';
 
 const stepKey = (edge: ConstructionRouteStep) => JSON.stringify([
   edge.fromResourceType, edge.toResourceType, edge.relationship, edge.storageDirection, edge.matchMode,

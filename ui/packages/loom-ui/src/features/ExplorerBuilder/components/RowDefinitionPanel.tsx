@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import type { ExplorerBuilderCatalog } from '../../../contracts/types';
-import { derivedOccurrences, type DraftTable } from '../authoring/model';
+import { derivedOccurrences, type DraftTable } from '../model/authoring';
 import {
   compilerRootSelectionLabel,
   compilerRootRepairChoices,
@@ -10,7 +10,7 @@ import {
   type RootChangePickerState,
   type RootChangeRequestIdentity,
   type RootChangeSelection,
-} from '../authoring/rootChangeSelection';
+} from '../model/rootChangeSelection';
 
 type RootPickerChoice =
   | {

@@ -1,5 +1,5 @@
 import type { ConstructionCapabilitiesResponse, ConstructionStageDescriptor } from '../../../contracts/types';
-import { copyForReasonCode } from '../catalogItems';
+import { copyForReasonCode } from './catalogItems';
 
 type SourceProjectionAvailability = {
   readonly available: boolean;

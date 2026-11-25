@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import type { ExplorerBuilderCatalog } from '../../../contracts/types';
-import { derivedOccurrences, type DraftTable } from '../authoring/model';
-import { legalEdgesToNode } from '../authoring/routeActions';
+import { derivedOccurrences, type DraftTable } from '../model/authoring';
+import { legalEdgesToNode } from '../model/routeActions';
 
 const titleForNode = (
   catalog: ExplorerBuilderCatalog,

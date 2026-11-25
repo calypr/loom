@@ -3,10 +3,10 @@ import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { vi } from 'vitest';
 import type { ExplorerBuilderCatalog } from '../../../contracts/types';
-import type { DraftTable } from '../authoring/model';
+import type { DraftTable } from '../model/authoring';
 import { AuthoredTraversalEditor } from './AuthoredTraversalEditor';
-import { authoredStages, authoredTraversal } from './authoredTraversal';
-import { traversalScopeModel } from './traversalScopeModel';
+import { authoredStages, authoredTraversal } from '../model/authoredTraversal';
+import { traversalScopeModel } from '../model/traversalScopeModel';
 import { TraversalScopeNavigator } from './TraversalScopeNavigator';
 
 vi.mock('@xyflow/react', () => ({

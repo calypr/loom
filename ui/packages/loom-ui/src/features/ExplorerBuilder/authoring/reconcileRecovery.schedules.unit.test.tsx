@@ -5,8 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoomProvider } from '../../../react';
 import { createLoomClient } from '../../../client/api';
 import BuilderWorkspace from '../BuilderWorkspace';
-import { reconcileAcceptance } from './reconcileAcceptance';
-import { reconcileRecoveryAction } from './reconcileRecovery';
+import { reconcileAcceptance } from '../model/reconcileAcceptance';
+import { reconcileRecoveryAction } from '../model/reconcileRecovery';
 import { EXPLORER_AUTHORING_API_VERSION, explorerBuilderCompileResultSchema, type ExplorerBuilderCompileResult } from '../../../contracts/types';
 import { reconcile_recovery as cases, reconcile_callback_schedules as callbackSchedules } from '../../../../testdata/schedules/reconcile_recovery';
 

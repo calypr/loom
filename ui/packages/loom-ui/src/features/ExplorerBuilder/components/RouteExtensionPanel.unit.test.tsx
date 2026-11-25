@@ -3,7 +3,7 @@ import React from 'react';
 import { vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ExplorerBuilderCatalog } from '../../../contracts/types';
-import type { DraftTable } from '../authoring/model';
+import type { DraftTable } from '../model/authoring';
 import { RouteExtensionPanel } from './RouteExtensionPanel';
 
 const catalog: ExplorerBuilderCatalog = {

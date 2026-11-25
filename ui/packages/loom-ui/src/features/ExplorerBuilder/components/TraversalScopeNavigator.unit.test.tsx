@@ -2,8 +2,10 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { DraftTable } from '../authoring/model';
-import { TraversalScopeNavigator, type TraversalScopeNavigatorProps } from './TraversalScopeNavigator';
+import type { DraftTable } from '../model/authoring';
+import { TraversalScopeNavigator } from './TraversalScopeNavigator';
+type TraversalScopeNavigatorFixtureProps = import('react').ComponentProps<typeof import('./TraversalScopeNavigator').TraversalScopeNavigator>;
+type TraversalScopeNavigatorProps = TraversalScopeNavigatorFixtureProps;
 afterEach(cleanup);
 const table: DraftTable = { outputId: 'subjects', tabId: 'subjects', title: 'Subjects', document: {
   kind: 'ExplorerBuilderDocument', output: { id: 'subjects', title: 'Subjects' }, rootResourceType: 'ResearchSubject',

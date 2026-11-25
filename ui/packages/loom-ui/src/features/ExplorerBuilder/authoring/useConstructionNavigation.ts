@@ -1,14 +1,14 @@
 import { useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { Construction, ConstructionOperation, ConstructionStep } from '../../../contracts/types';
-import { derivedOccurrences, selectedTable, type BuilderAuthoringState, type DraftTable } from './model';
+import { derivedOccurrences, selectedTable, type BuilderAuthoringState, type DraftTable } from '../model/authoring';
 import { constructionOperationFamilies, type ConstructionHistorySelection, type ConstructionOperationFamily } from '../constructionWorkspace/ConstructionWorkspace';
 import { createReshapeEditorEntry, publicScalarListColumnIds, type ConstructionReshapeEditorEntry, type ReshapeEntryKind, type ReshapeForm } from '../constructionOperations/ConstructionReshapeEditor';
-import { constructionAppendStageFor } from '../constructionWorkspace/constructionStages';
-import { admitAuthoringRequest } from './admission';
+import { constructionAppendStageFor } from '../model/constructionStages';
+import { admitAuthoringRequest } from '../model/admission';
 import type { useConstructionLifecycle } from '../constructionWorkspace/useConstructionLifecycle';
 import type { useCombineCatalog } from './useCombineCatalog';
 import type { useCommandQueue } from './useCommandQueue';
-import type { useRecipeEditingOwner } from '../recipeEditing/recipeEditingOwner';
+import type { useRecipeEditingOwner } from '../session/recipeEditingOwner';
 import type { AddColumnsView } from './useAddColumns';
 
 type UseConstructionNavigationOptions = {

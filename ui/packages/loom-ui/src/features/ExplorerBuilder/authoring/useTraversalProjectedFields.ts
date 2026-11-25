@@ -1,10 +1,10 @@
 import { useRef, useState, type Dispatch } from 'react';
 import type { ExplorerBuilderColumn, ExplorerBuilderCommand, ProjectedField, SourceRelationshipChange } from '../../../contracts/types';
-import { routeNode, type BuilderAuthoringState, type DraftTable } from './model';
-import { fieldCatalogItems } from '../catalogItems';
-import type { BuilderAction } from './reducer';
+import { routeNode, type BuilderAuthoringState, type DraftTable } from '../model/authoring';
+import { fieldCatalogItems } from '../model/catalogItems';
+import type { BuilderAction } from '../model/reducer';
 import type { useSourceRecipe } from './useSourceRecipe';
-import type { useRecipeEditingOwner } from '../recipeEditing/recipeEditingOwner';
+import type { useRecipeEditingOwner } from '../session/recipeEditingOwner';
 import type { useConstructionLifecycle } from '../constructionWorkspace/useConstructionLifecycle';
 import type { useRecipeFocus } from './useRecipeFocus';
 

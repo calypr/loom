@@ -1,6 +1,6 @@
 import { useId, useRef, useState } from 'react';
 import type { ImportedSourceParameters, ProjectedField, SourceRecipeExpression } from '../../contracts/types';
-import { isCategoryCodingRule, isIdentifierColumnRule } from './sourceColumnRule';
+import { isCategoryCodingRule, isIdentifierColumnRule } from './model/sourceColumnRule';
 import { moveExpressionItem, SourceExpressionEditor } from './SourceExpressionEditor';
 
 const controlClass = 'min-w-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs';

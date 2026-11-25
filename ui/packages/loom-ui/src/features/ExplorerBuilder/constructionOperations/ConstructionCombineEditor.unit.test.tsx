@@ -2,7 +2,9 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ConstructionCombineEditor, type ConstructionCombineEditorProps } from './ConstructionCombineEditor';
+import { ConstructionCombineEditor } from './ConstructionCombineEditor';
+type ConstructionCombineEditorFixtureProps = import('react').ComponentProps<typeof import('./ConstructionCombineEditor').ConstructionCombineEditor>;
+type ConstructionCombineEditorProps = ConstructionCombineEditorFixtureProps;
 import type {
   ConstructionCombineCandidateIntent,
   ConstructionCombineCatalog,

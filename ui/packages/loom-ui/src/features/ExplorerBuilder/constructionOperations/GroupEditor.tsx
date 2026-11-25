@@ -1,9 +1,10 @@
+import type { CodedPivotContext } from './codedPivotContext';
 import { fieldPickerList, fieldPickerToggleRow } from '../components/fieldPickerStyles';
 import { useId, useState } from 'react';
-import { createOpaqueId, normalizedName, uniqueName, type CodedPivotContext } from './editorShared';
+import { createOpaqueId, normalizedName, uniqueName } from '../model/editorShared';
 import { GroupCodedValuePicker } from './GroupCodedValuePicker';
 import { ListColumnExpandChoices } from './ListColumnExpandChoices';
-import { isSourceProjectionStage } from '../constructionWorkspace/constructionStages';
+import { isSourceProjectionStage } from '../model/constructionStages';
 import {
   addGroupKey, aggregateInputColumnsFor, aggregateNameFor, ensureGroupCodedPassthroughs,
   fieldChoiceIdentity, getUsedGroupNames, groupFieldChoiceForKey, groupFieldKeyForChoice,
@@ -14,7 +15,7 @@ import {
   type GroupAggregate, type GroupAggregateKind, type GroupFieldChoice, type GroupFieldKey,
   type GroupFieldSourceChoice, type GroupForm, type GroupRowValue, type GroupRowValueChoice,
   type ReshapeColumn, type ReshapeStage, type SemanticGroupChoice,
-} from './reshapeForms';
+} from '../model/reshapeForms';
 
 const readableFieldCombination = (labels: ReadonlyArray<string>): string => {
   if (labels.length < 2) return labels[0] ?? '';

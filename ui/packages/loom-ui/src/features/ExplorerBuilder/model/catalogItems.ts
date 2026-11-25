@@ -10,7 +10,7 @@ import type {
   FieldPresentationRequest,
   SemanticInventoryItem,
   SemanticInventorySelectionMode,
-} from '../../contracts/types';
+} from '../../../contracts/types';
 
 export type CatalogItem =
   | {
@@ -60,7 +60,7 @@ export type SemanticSourceFieldLink = {
   readonly requestKey: string;
 };
 
-export { semanticInventoryIdentityKey, semanticIdentityForItem, semanticItemMatchesIdentity } from '../../contracts/identity';
+export { semanticInventoryIdentityKey, semanticIdentityForItem, semanticItemMatchesIdentity } from '../../../contracts/identity';
 
 export const fieldPresentationMatchesRequest = ({
   presentation,

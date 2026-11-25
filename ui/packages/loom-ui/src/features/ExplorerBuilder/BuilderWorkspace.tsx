@@ -1,11 +1,11 @@
-import { admitAuthoringRequest } from './authoring/admission';
+import { admitAuthoringRequest } from './model/admission';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAutomaticPreview } from './useAutomaticPreview';
 import { useAutomaticPreviewOwner } from './authoring/useAutomaticPreviewOwner';
 import { useReconcile } from './authoring/useReconcile';
-import { constructionAppendStageFor, constructionInputStageFor } from './constructionWorkspace/constructionStages';
-import { effectiveOutputAvailability } from './constructionWorkspace/outputEligibility';
+import { constructionAppendStageFor, constructionInputStageFor } from './model/constructionStages';
+import { effectiveOutputAvailability } from './model/outputEligibility';
 import {
   useApplyExplorerBuilderCommandsV2Mutation,
   useAssessExplorerRowChangeMutation,
@@ -42,12 +42,12 @@ import {
   DatasetReviewPanel,
   type DatasetReviewTarget,
 } from './components/DatasetReviewPanel';
-import { sameRecipeEditingIdentity, useRecipeEditingOwner, projectRecipeCandidate, type RecipeEditToken } from './recipeEditing/recipeEditingOwner';
+import { sameRecipeEditingIdentity, useRecipeEditingOwner, projectRecipeCandidate, type RecipeEditToken } from './session/recipeEditingOwner';
 import { CreateColumnRule } from './CreateColumnRule';
-import { columnRuleDefaults, type ColumnRuleOccurrence } from './sourceColumnRule';
+import { columnRuleDefaults, type ColumnRuleOccurrence } from './model/sourceColumnRule';
 import { SourceRelationshipReview } from './components/SourceRelationshipReview';
 import { AuthoredTraversalEditor } from './components/AuthoredTraversalEditor';
-import { authoredTraversal } from './components/authoredTraversal';
+import { authoredTraversal } from './model/authoredTraversal';
 import { TraversalScopeNavigator } from './components/TraversalScopeNavigator';
 import { RecipeColumnPolicyInspector } from './components/RecipeColumnPolicyInspector';
 import { ConceptCatalog } from './components/ConceptCatalog';
@@ -69,14 +69,14 @@ import {
   selectedTable,
   workspaceFromState,
   type BuilderAuthoringState,
-} from './authoring/model';
+} from './model/authoring';
 import {
   isCompilerNavigationSelection,
-} from './authoring/workspaceGuards';
+} from './model/workspaceGuards';
 import {
   sameRootChangeRequestIdentity,
-} from './authoring/rootChangeSelection';
-import type { PreviewLimit } from './authoring/previewRecovery';
+} from './model/rootChangeSelection';
+import type { PreviewLimit } from './model/previewRecovery';
 import { useCommandQueue } from './authoring/useCommandQueue';
 import { usePublish } from './authoring/usePublish';
 import { shouldShowBuilderLoadError } from './authoring/builderLoadError';
@@ -95,7 +95,7 @@ import { useRootChange } from './authoring/useRootChange';
 import { useCombineCatalog } from './authoring/useCombineCatalog';
 import { useDirtyBeforeUnload } from './hooks/useDirtyBeforeUnload';
 import { usePortalHost } from './hooks/usePortalHost';
-import { fieldCatalogItems, sanitizeReasonText, unavailableOperationReason } from './catalogItems';
+import { fieldCatalogItems, sanitizeReasonText, unavailableOperationReason } from './model/catalogItems';
 
 import {
   ConstructionWorkspace,
@@ -113,10 +113,10 @@ import { ImportedSourceSteps } from './ImportedSourceSteps';
 import {
   constructionHistorySteps,
   constructionRowMeaning,
-} from './constructionWorkspace/constructionHistory';
+} from './model/constructionHistory';
 import {
   sourceProjectionAvailability,
-} from './constructionWorkspace/sourceProjectionAvailability';
+} from './model/sourceProjectionAvailability';
 import {
   useConstructionLifecycle,
   type ConstructionCandidateIntent,

@@ -16,8 +16,8 @@ import {
   isRelatedFieldCatalogItem,
   type CatalogChoiceIntent,
   type CatalogChoiceGroup,
-} from '../catalogItems';
-import { routePath } from '../constructionWorkspace/routeDisplay';
+} from '../model/catalogItems';
+import { routePath } from '../model/routeDisplay';
 import { TraversalPath } from '../constructionWorkspace/TraversalPath';
 
 const optionLabel = (option: ConstructionChoice['options'][number]): string => {
@@ -74,7 +74,7 @@ const routeCoverageForm = (
 };
 
 type ConditionDraft = { readonly mode: 'ALL' | 'EXISTS' | 'EQUALS'; readonly value: string };
-export type RouteMatchCoverage = {
+type RouteMatchCoverage = {
   readonly zero: number;
   readonly one: number;
   readonly many: number;

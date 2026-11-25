@@ -1,5 +1,5 @@
 import type { ExplorerBuilderCatalog } from '../../../contracts/types';
-import type { DraftTable } from './model';
+import type { DraftTable } from './authoring';
 import {
   isLegalRouteExtension,
   legalEdgesToNode,

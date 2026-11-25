@@ -41,7 +41,6 @@ import type {
   ApplyExplorerBuilderCommandsArgs,
   PreviewExplorerBuilderArgs,
   ProposeConstructionArgs,
-  ProposeConstructionChoicesArgs,
   ReconcileExplorerBuilderArgs,
 } from '../../client/api';
 
@@ -861,7 +860,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       explicitGroups: [],
     });
     mockLoomClient.proposeConstructionChoices.mockReset();
-    mockLoomClient.proposeConstructionChoices.mockImplementation(async (args: ProposeConstructionChoicesArgs) => ({
+    mockLoomClient.proposeConstructionChoices.mockImplementation(async (args: Parameters<LoomClient['proposeConstructionChoices']>[0]) => ({
       commandId: args.commandId,
       snapshotToken: args.snapshotToken,
       draftVersion: args.expectedDraftVersion,
@@ -1296,7 +1295,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       ...appliedReceipt,
       snapshotToken: args.snapshotToken,
     }));
-    mockLoomClient.proposeConstructionChoices.mockImplementation(async (args: ProposeConstructionChoicesArgs) => ({
+    mockLoomClient.proposeConstructionChoices.mockImplementation(async (args: Parameters<LoomClient['proposeConstructionChoices']>[0]) => ({
       commandId: args.commandId,
       snapshotToken: args.snapshotToken,
       draftVersion: args.expectedDraftVersion,

@@ -1,7 +1,8 @@
+import { groupSourceSteps, type SourceStepEntry } from './model/groupSourceSteps';
 import { useRef, useState, type ReactNode } from 'react';
 import { useEscapeToClose } from './hooks/useEscapeToClose';
 import { createPortal } from 'react-dom';
-import { isIdentifierColumnRule } from './sourceColumnRule';
+import { isIdentifierColumnRule } from './model/sourceColumnRule';
 import { SourceStepParameterEditor } from './SourceStepParameterEditor';
 import type { ImportedSourceParameters, ExplorerBuilderCommand, ExplorerBuilderDocument, ProjectedField } from '../../contracts/types';
 
@@ -48,24 +49,6 @@ const sourceStepLabel = (step: ImportedSourceStep): string => {
   const target = /^Traversal to (.+?)(?: via .+)?$/.exec(step.title)?.[1];
 
   return target ? `Related ${target.replace(/([a-z])([A-Z])/g, '$1 $2')} records` : step.title;
-};
-
-type SourceStepEntry = { readonly step: ImportedSourceStep; readonly number: number };
-type SourceStepGroup = { readonly id: string; readonly columns: boolean; readonly entries: SourceStepEntry[] };
-
-export const groupSourceSteps = (steps: ReadonlyArray<ImportedSourceStep>): SourceStepGroup[] => {
-  const groups: SourceStepGroup[] = [];
-  const columnKinds = new Set(['FIELD_GROUP', 'CATALOG_PROJECTION', 'DYNAMIC_COLUMN', 'EXTENSION_COLUMN', 'PIVOT']);
-  for (const [index, step] of steps.entries()) {
-    const columns = columnKinds.has(step.kind);
-    const previous = groups.at(-1);
-    if (columns && previous?.columns && previous.entries[0]?.step.parentId === step.parentId) {
-      previous.entries.push({ step, number: index + 1 });
-    } else {
-      groups.push({ id: step.id, columns, entries: [{ step, number: index + 1 }] });
-    }
-  }
-  return groups;
 };
 
 interface ImportedSourceStepEditorValues {

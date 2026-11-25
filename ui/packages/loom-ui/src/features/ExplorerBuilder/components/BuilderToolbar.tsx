@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { ExplorerSummary } from '../../../client/api';
-import type { DraftTable } from '../authoring/model';
+import type { DraftTable } from '../model/authoring';
 import { IconCopy, IconTrash } from './icons';
 import { useDismissibleLayer } from '../hooks/useDismissibleLayer';
 
@@ -31,7 +31,7 @@ interface BuilderToolbarProps {
   tableToolbarHost?: HTMLElement | null;
 }
 
-export type NewExplorerCreationMode = 'blank-only' | 'blank-or-copy' | 'copy-only';
+type NewExplorerCreationMode = 'blank-only' | 'blank-or-copy' | 'copy-only';
 
 export function NewExplorerControl({
   onCreateExplorer,

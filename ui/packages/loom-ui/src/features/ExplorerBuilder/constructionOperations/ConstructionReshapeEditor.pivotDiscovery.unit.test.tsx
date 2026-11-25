@@ -2,12 +2,10 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  ConstructionReshapeEditor,
-  type CandidateIntent,
-  type ConstructionReshapeEditorProps,
-  type ConstructionReshapeStep,
-} from './ConstructionReshapeEditor';
+import { ConstructionReshapeEditor } from './ConstructionReshapeEditor';
+import type { CandidateIntent, ConstructionReshapeStep } from '../model/reshapeForms';
+type ConstructionReshapeEditorFixtureProps = import('react').ComponentProps<typeof import('./ConstructionReshapeEditor').ConstructionReshapeEditor>;
+type ConstructionReshapeEditorProps = ConstructionReshapeEditorFixtureProps;
 
 const sourceColumns: ConstructionReshapeEditorProps['capabilities']['selectedStage']['columns'] = [
   { id: 'site-id', name: 'site', label: 'Site', type: 'string', cardinality: 'required_one' },

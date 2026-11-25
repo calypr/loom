@@ -1,4 +1,4 @@
-import type { ImportedSourceParameters, SourceRuleCreate } from '../../contracts/types';
+import type { ImportedSourceParameters, SourceRuleCreate } from '../../../contracts/types';
 
 type DynamicParameters = NonNullable<ImportedSourceParameters['dynamic']>;
 

@@ -1,7 +1,7 @@
 import { fieldPickerList, fieldPickerMetadata, fieldPickerToggleRow } from '../components/fieldPickerStyles';
 import { useId, useState } from 'react';
 import { FieldPickerDropdown } from '../components/FieldPickerDropdown';
-import { createOpaqueId, isNumericColumn, sourceLabel as pivotSourceLabel } from './editorShared';
+import { createOpaqueId, isNumericColumn, sourceLabel as pivotSourceLabel } from '../model/editorShared';
 import type { ConstructionTableScalar } from '../../../contracts/types';
 import {
   allDiscoveredPivotCategoriesSelected, createPivotCategoryForm, outputNamesAreValid,
@@ -9,7 +9,7 @@ import {
   isScalarColumn, listColumnsFor, scalarColumnsFor, scalarIdentity, scalarLabel,
   type ConstructionReshapePivotCategory, type ConstructionReshapePivotDiscovery,
   type PivotCategoryForm, type PivotForm, type ReshapeColumn, type ReshapeStage, type SourceInputChoice,
-} from './reshapeForms';
+} from '../model/reshapeForms';
 
 export type PivotListSelection = { readonly role: 'category' | 'value'; readonly columnId: string };
 

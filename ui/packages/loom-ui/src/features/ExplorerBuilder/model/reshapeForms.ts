@@ -1,5 +1,5 @@
 import { createOpaqueId, isNumericColumn, normalizedLogicalType, normalizedName, uniqueName } from './editorShared';
-import { constructionInputForStage, isSourceProjectionStage } from '../constructionWorkspace/constructionStages';
+import { constructionInputForStage, isSourceProjectionStage } from './constructionStages';
 import { constructionSchema } from '../../../contracts/types';
 import type {
   Construction,
@@ -315,7 +315,6 @@ export interface ConstructionReshapeEditorEntry {
 
 export type ReshapeEntryKind = 'choose' | 'group' | 'source-group' | 'coded-group' | 'expand' | 'pivot' | 'coded-pivot' | 'categories' | 'related-expand' | 'unpivot';
 
-export const CONSTRUCTION_RESHAPE_EDITABLE_KINDS = ['PIVOT', 'CODED_PIVOT', 'UNPIVOT', 'GROUP', 'CODED_GROUP', 'EXPAND', 'RELATED_EXPAND'] as const;
 
 export const capabilityFor = (
   stage: ReshapeStage,
@@ -401,8 +400,6 @@ export const listColumnsFor = (stage: ReshapeStage): ReadonlyArray<ReshapeColumn
 export const publicScalarListColumnIds = (stage: ConstructionStageDescriptor | undefined): ReadonlyArray<string> =>
   stage ? listColumnsFor(stage).map((column) => column.id) : [];
 
-export const hasPublicScalarListColumn = (stage: ConstructionStageDescriptor | undefined): boolean =>
-  publicScalarListColumnIds(stage).length > 0;
 
 export const codingPathLabel = (path: string): string => path.split('.').map((segment) => {
   const words = segment.replaceAll('[]', '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^_+/, '').trim();

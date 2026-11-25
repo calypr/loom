@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
 import type { AuthoringNetworkResponse, ConstructionStageDescriptor } from '../../../contracts/types';
-import type { DraftTable } from '../authoring/model';
-import { rowValuePolicyLabel } from './rowRecipeProjection';
-import { traversalScopeModel, type ScopedOperation } from './traversalScopeModel';
+import type { DraftTable } from '../model/authoring';
+import { rowValuePolicyLabel } from '../model/rowRecipeProjection';
+import { traversalScopeModel, type ScopedOperation } from '../model/traversalScopeModel';
 
-export interface TraversalScopeNavigatorProps {
+interface TraversalScopeNavigatorProps {
   readonly table: DraftTable;
   readonly network?: AuthoringNetworkResponse['network'];
   readonly rowIdentity?: AuthoringNetworkResponse['rowIdentity'];

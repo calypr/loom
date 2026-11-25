@@ -1,5 +1,5 @@
 import type { ExplorerBuilderCatalog } from '../../../contracts/types';
-import { derivedOccurrences, type DraftTable } from './model';
+import { derivedOccurrences, type DraftTable } from './authoring';
 
 export const legalOutgoingEdges = (
   catalog: ExplorerBuilderCatalog,

@@ -2,12 +2,12 @@ import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, ty
 import { usePublishExplorerAuthoringV2Mutation, type useGetExplorerBuilderStateV2Query } from '../../../react';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
 import type { ExplorerBuilderCompileResult, ExplorerBuilderState } from '../../../contracts/types';
-import { intentFingerprint, workspaceFromState, type BuilderAuthoringState } from './model';
-import { builderAuthoringReducer } from './reducer';
-import { isStaleSnapshot, reconcileResultIsCurrent } from './reconcileRecovery';
-import { effectiveOutputAvailability } from '../constructionWorkspace/outputEligibility';
+import { intentFingerprint, workspaceFromState, type BuilderAuthoringState } from '../model/authoring';
+import { builderAuthoringReducer } from '../model/reducer';
+import { isStaleSnapshot, reconcileResultIsCurrent } from '../model/reconcileRecovery';
+import { effectiveOutputAvailability } from '../model/outputEligibility';
 import type { useConstructionLifecycle } from '../constructionWorkspace/useConstructionLifecycle';
-import type { useRecipeEditingOwner } from '../recipeEditing/recipeEditingOwner';
+import type { useRecipeEditingOwner } from '../session/recipeEditingOwner';
 
 type PublicationAcknowledgementIdentity = {
   readonly ownerKey: string;

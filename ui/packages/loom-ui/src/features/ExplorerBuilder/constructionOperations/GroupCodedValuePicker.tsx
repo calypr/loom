@@ -1,8 +1,9 @@
+import type { CodedPivotContext } from './codedPivotContext';
 import React, { useMemo, useRef, useState } from 'react';
 import { useQuery } from '../../../react';
-import { semanticConceptLabel } from '../catalogItems';
-import { createOpaqueId, uniqueName, type CodedPivotContext } from './editorShared';
-import { codedCategoryKey, codedFamilyKey, ensureGroupCodedPassthroughs, getUsedGroupNames, type GroupCodedCategory, type GroupForm, type GroupKey, type ReshapeStage } from './reshapeForms';
+import { semanticConceptLabel } from '../model/catalogItems';
+import { createOpaqueId, uniqueName } from '../model/editorShared';
+import { codedCategoryKey, codedFamilyKey, ensureGroupCodedPassthroughs, getUsedGroupNames, type GroupCodedCategory, type GroupForm, type GroupKey, type ReshapeStage } from '../model/reshapeForms';
 import type { FrameSourceOption, SemanticInventoryBrowseResponse, SemanticInventoryItem } from '../../../contracts/types';
 
 const INITIAL_VISIBLE_CODED_CHOICES = 10;

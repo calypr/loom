@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { useLoomClient, useQuery } from '../../../react';
 import type { FrameDefinition, FrameSourceOption, SemanticInventoryItem } from '../../../contracts/types';
-import { catalogChoiceIntent, catalogItemAvailability, type CatalogChoiceIntent, type CatalogItem } from '../catalogItems';
+import { catalogChoiceIntent, catalogItemAvailability, type CatalogChoiceIntent, type CatalogItem } from '../model/catalogItems';
 
 type LoadState<T> =
   | { readonly kind: 'loading' }

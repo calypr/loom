@@ -2,7 +2,7 @@ import type {
   ExplorerBuilderCompileResult,
   ExplorerBuilderPreviewResult,
 } from '../../../contracts/types';
-import type { PreviewLimit } from '../authoring/previewRecovery';
+import type { PreviewLimit } from '../model/previewRecovery';
 
 export type AppliedPreviewHandoff = {
   readonly ownerKey: string;

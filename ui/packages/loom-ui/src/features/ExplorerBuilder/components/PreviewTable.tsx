@@ -1,3 +1,5 @@
+import { formatPreviewCell } from '../model/previewCellFormat';
+export { formatPreviewCell } from '../model/previewCellFormat';
 import React, { useRef, useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { useBrowserSubscription } from '../hooks/useBrowserSubscription';
@@ -9,11 +11,12 @@ import type {
   ExplorerBuilderRowLineageResponse,
   ConstructionStageColumn,
 } from '../../../contracts/types';
-import type { DraftTable } from '../authoring/model';
-import { effectiveOutputAvailability } from '../constructionWorkspace/outputEligibility';
-import { displayValue, losslessText } from '../../../display/valueDisplay';
+import type { DraftTable } from '../model/authoring';
+import { effectiveOutputAvailability } from '../model/outputEligibility';
+import { losslessText } from '../../../display/valueDisplay';
 import { resultUnitTitle } from '../../../display/resultUnitDisplay';
-import { BoundedCache, useVirtualViewport, virtualRange } from './virtualization';
+import { useVirtualViewport } from './virtualization';
+import { BoundedCache, virtualRange } from '../model/virtualization';
 
 const PREVIEW_ROW_HEIGHT = 44;
 const PREVIEW_HEADER_HEIGHT = 30;
@@ -36,7 +39,7 @@ type RowLineageState = {
   readonly error?: string;
 };
 
-export type PreviewTablePresentationChange =
+type PreviewTablePresentationChange =
   | { readonly kind: 'AUTHORED_COLUMN'; readonly column: ExplorerBuilderColumn }
   | {
       readonly kind: 'CONSTRUCTION_OUTPUT';
@@ -73,9 +76,6 @@ const formatOwnerRecordCodings = (value: unknown): string => {
   });
   return labels.length > 0 ? labels.join('; ') : formatPreviewCell(value);
 };
-
-export const formatPreviewCell = (value: unknown, depth = 0): string =>
-  displayValue(value, { unknownRecord: 'parts', maxDepth: 3 }, depth);
 
 export const previewCellTitle = (value: unknown): string => {
   return losslessText(value);

@@ -2,7 +2,7 @@
 import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { classifySourcePickerEmptiness, sourcePickerBoundSet, type SourcePickerChoice } from './sourcePickerExplanations';
+import { classifySourcePickerEmptiness, sourcePickerBoundSet, type SourcePickerChoice } from '../model/sourcePickerExplanations';
 import { SourcePickerExplanation } from '../components/SourcePickerExplanation';
 
 const choice = (id: string, fieldPath: string, populated: boolean): SourcePickerChoice => ({

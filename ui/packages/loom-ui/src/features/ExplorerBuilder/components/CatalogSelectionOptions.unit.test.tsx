@@ -7,13 +7,12 @@ import type {
   ExplorerBuilderCandidate,
   FieldChoiceSource,
 } from '../../../contracts/types';
-import type { CatalogChoiceGroup, CatalogChoiceIntent, CatalogItem } from '../catalogItems';
-import {
-  CatalogSelectionOptions,
+import type { CatalogChoiceGroup, CatalogChoiceIntent, CatalogItem } from '../model/catalogItems';
+import { CatalogSelectionOptions,
   type GroupedRowValuePolicyControl,
-  type RouteMatchCoverage,
-  type RouteCoverage,
-} from './CatalogSelectionOptions';
+  type RouteCoverage, } from './CatalogSelectionOptions';
+type CatalogSelectionOptionsFixtureProps = import('react').ComponentProps<typeof import('./CatalogSelectionOptions').CatalogSelectionOptions>;
+type RouteMatchCoverage = Exclude<Awaited<ReturnType<NonNullable<CatalogSelectionOptionsFixtureProps['onInspectRouteCoverage']>>>, { readonly kind: 'VALUES' }>;
 
 type FieldChoice = ConstructionChoice & { readonly source: FieldChoiceSource };
 

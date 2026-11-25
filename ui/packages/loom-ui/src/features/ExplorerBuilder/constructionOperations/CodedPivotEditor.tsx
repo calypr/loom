@@ -11,8 +11,8 @@ import type {
   SemanticInventoryBrowseResponse,
   SemanticInventoryItem,
 } from '../../../contracts/types';
-import { constructionWithStep, createOpaqueId } from './editorShared';
-import { semanticConceptLabel } from '../catalogItems';
+import { constructionWithStep, createOpaqueId } from '../model/editorShared';
+import { semanticConceptLabel } from '../model/catalogItems';
 
 type CandidateIntent = Pick<ConstructionProposalRequest, 'candidateConstruction' | 'changedStepId'>;
 type CodedValuePage = {

@@ -1,6 +1,6 @@
 import React from 'react';
 import type { ExplorerBuilderPreviewResult } from '../../../contracts/types';
-import type { DraftTable } from '../authoring/model';
+import type { DraftTable } from '../model/authoring';
 import { formatPreviewCell, previewCellTitle, sortByPresentationOrder } from '../components/PreviewTable';
 
 const formatCount = (count: number, noun: string) =>

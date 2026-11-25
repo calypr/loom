@@ -1,5 +1,6 @@
+import type { CodedPivotContext } from './codedPivotContext';
 import { fieldPickerList, fieldPickerToggleRow } from '../components/fieldPickerStyles';
-import { createOpaqueId, normalizedName, uniqueName, editorContextKey, stageWithSourceInputs, type CodedPivotContext } from './editorShared';
+import { createOpaqueId, normalizedName, uniqueName, editorContextKey, stageWithSourceInputs } from '../model/editorShared';
 import React, { useCallback, useId, useReducer, useRef, useState } from 'react';
 import { useQuery } from '../../../react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
@@ -15,14 +16,14 @@ import { CodedPivotEditor } from './CodedPivotEditor';
 import { GroupEditor } from './GroupEditor';
 import { PivotEditor, type PivotListSelection } from './PivotEditor';
 import { ListColumnExpandChoices } from './ListColumnExpandChoices';
-import { classifySourcePickerEmptiness, sourcePickerBoundSet } from './sourcePickerExplanations';
-import { existingColumnForFieldPath } from './existingFieldReuse';
+import { classifySourcePickerEmptiness, sourcePickerBoundSet } from '../model/sourcePickerExplanations';
+import { existingColumnForFieldPath } from '../model/existingFieldReuse';
 import { SourcePickerExplanation } from '../components/SourcePickerExplanation';
 import {
   constructionInputStageFor,
   isSourceProjectionStage,
   sourceInputMatchesStage,
-} from '../constructionWorkspace/constructionStages';
+} from '../model/constructionStages';
 import {
   allDiscoveredPivotCategoriesSelected,
   candidateIntentFor,
@@ -84,7 +85,7 @@ import {
   type SourceInputChoice,
   type UnpivotForm,
   type UnpivotInputForm,
-} from './reshapeForms';
+} from '../model/reshapeForms';
 import {
   initialPivotDiscoveryState,
   pivotDiscoveryReducer,
@@ -92,24 +93,19 @@ import {
   type PendingPivotDiscovery,
   type PivotDiscoverySnapshot,
   type ScheduledPivotDiscovery,
-} from './pivotDiscoveryReducer';
+} from '../model/pivotDiscoveryReducer';
 
 export {
-  CONSTRUCTION_RESHAPE_EDITABLE_KINDS,
-  hasPublicScalarListColumn,
   publicScalarListColumnIds,
-} from './reshapeForms';
+} from '../model/reshapeForms';
 export type {
-  CandidateIntent,
   CompletePivotDiscovery,
   ConstructionReshapeEditorEntry,
-  ConstructionReshapePivotCategory,
   ConstructionReshapePivotDiscovery,
   ConstructionReshapePivotDiscoveryRequest,
-  ConstructionReshapeStep,
   ReshapeEntryKind,
   ReshapeForm,
-} from './reshapeForms';
+} from '../model/reshapeForms';
 
 const reshapeFormLabels = {
   group: 'Group rows',
@@ -122,7 +118,7 @@ const reshapeFormLabels = {
   unpivot: 'Unpivot columns into rows',
 } satisfies Record<Exclude<ReshapeForm['kind'], 'choose' | 'unsupported'>, string>;
 
-export interface ConstructionReshapeEditorProps {
+interface ConstructionReshapeEditorProps {
   readonly construction: Construction;
   readonly capabilities: ReshapeCapabilities;
   readonly editingStep?: ConstructionReshapeStep;

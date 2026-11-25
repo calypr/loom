@@ -1,7 +1,7 @@
 import { useRef, useState, type MutableRefObject } from 'react';
 import type { useLoomClient } from '../../../react';
 import type { ConstructionCombineCatalog, ConstructionCombinePublishedRevision } from '../constructionOperations/combineEditorTypes';
-import { selectedTable, type BuilderAuthoringState } from './model';
+import { selectedTable, type BuilderAuthoringState } from '../model/authoring';
 
 type ConstructionCombineCatalogLoad = {
   readonly identity: string;

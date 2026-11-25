@@ -1,12 +1,13 @@
 import React, { useId, useState } from 'react';
-import { observedCategorySystems, observedExtensionPaths, observedIdentifierSystems, useColumnRuleInventory, type ColumnRuleInventoryScope } from '../columnRuleInventory';
-import { columnRulePresets, type ColumnRulePreset } from '../sourceColumnRule';
+import { useColumnRuleInventory, type ColumnRuleInventoryScope } from '../columnRuleInventory';
+import { observedCategorySystems, observedExtensionPaths, observedIdentifierSystems } from '../model/columnRuleInventory';
+import { columnRulePresets, type ColumnRulePreset } from '../model/sourceColumnRule';
 import type { AddColumnsGraphSource, AddColumnsView } from '../authoring/useAddColumns';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type { Construction, ConstructionCapabilitiesResponse, ConstructionChoiceSelection, ConstructionStep } from '../../../contracts/types';
 import type { LoomClient } from '../../../client/api';
-import type { BuilderAuthoringState } from '../authoring/model';
-import { sanitizeReasonText } from '../catalogItems';
+import type { BuilderAuthoringState } from '../model/authoring';
+import { sanitizeReasonText } from '../model/catalogItems';
 import type { ConstructionOperationFamily } from '../constructionWorkspace/ConstructionWorkspace';
 import type { ConstructionSelectableColumn } from '../constructionWorkspace/ConstructionColumnSelection';
 import type { ConstructionCombineStep } from '../constructionOperations/combineEditorTypes';

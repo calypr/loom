@@ -1,3 +1,4 @@
+import type { ExplorerAuthoringApiError } from '../contracts/errors';
 import { sameConstructionRoute, sameSemanticItemIdentity, semanticIdentityForItem, semanticItemMatchesIdentity } from '../contracts/identity';
 import { isRecord } from '../contracts/guards';
 import { viewBuilderStateSchema, type ProjectViewBuilderState, type SaveProjectViewConfigRequest, type SaveProjectViewDefaultsRequest } from '../contracts/projectViewBuilder';
@@ -135,15 +136,7 @@ export interface ExplorerSummary {
   readonly updatedAt: string;
 }
 
-export interface ExplorerAuthoringApiError {
-  readonly status: number | 'FETCH_ERROR' | 'CUSTOM_ERROR';
-  readonly code?: string;
-  readonly message: string;
-  readonly diagnostics?: ReadonlyArray<ExplorerAuthoringDiagnostic>;
-  readonly requestId?: string;
-  readonly details?: Readonly<Record<string, unknown>>;
-  readonly retryable?: boolean;
-}
+export type { ExplorerAuthoringApiError } from '../contracts/errors';
 
 export interface ExplorerAuthoringStateArgs {
   readonly project: string;
@@ -287,7 +280,7 @@ const populationMappingBindingSchema = z.object({
   membershipDigest: z.string().min(1),
   resourceType: z.string().min(1),
 }).strict();
-export const populationMappingResponseSchema = z.object({
+const populationMappingResponseSchema = z.object({
   binding: populationMappingBindingSchema,
   status: z.enum(['COMPLETE', 'INCOMPLETE']),
   counts: populationMappingCountsSchema.nullable().optional(),
@@ -472,7 +465,7 @@ interface GetConstructionInputsArgs extends ExplorerAuthoringStateArgs {
   readonly requestId?: string;
 }
 
-export type DescribeAuthoringNetworkArgs = ExplorerAuthoringStateArgs & AuthoringNetworkRequest;
+type DescribeAuthoringNetworkArgs = ExplorerAuthoringStateArgs & AuthoringNetworkRequest;
 
 type ProposeColumnPolicyArgs = ExplorerAuthoringStateArgs & ColumnPolicyProposalRequest & { readonly requestId?: string };
 
@@ -481,7 +474,7 @@ type ProposeSourceRelationshipArgs = ExplorerAuthoringStateArgs & SourceRelation
 export type ProposeConstructionArgs = ExplorerAuthoringStateArgs &
   ConstructionProposalRequest & { readonly requestId?: string };
 
-export type ProposeConstructionChoicesArgs = ExplorerAuthoringStateArgs &
+type ProposeConstructionChoicesArgs = ExplorerAuthoringStateArgs &
   ConstructionChoiceProposalRequest & { readonly requestId?: string };
 
 interface CreateExplicitGroupRevisionArgs extends ExplorerAuthoringStateArgs {

@@ -4,8 +4,17 @@ import type {
   ConstructionTableScalar,
   ContributorPredicate,
 } from '../../../contracts/types';
-import type { ConstructionHistoryStep } from './ConstructionWorkspace';
 import { relationshipLabel } from './routeDisplay';
+
+export interface ConstructionHistoryStep {
+  readonly id: string;
+  readonly title: string;
+  readonly summary: string;
+  readonly removeActionLabel?: string;
+  readonly editable?: boolean;
+  readonly hierarchy?: 'COLUMN_ADJUSTMENT';
+  readonly scopeKey?: string;
+}
 
 const scalarLabel = (value: ConstructionTableScalar): string => {
   switch (value.kind) {

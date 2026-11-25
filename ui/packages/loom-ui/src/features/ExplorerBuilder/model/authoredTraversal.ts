@@ -1,7 +1,7 @@
 import type { AuthoringNetworkResponse, ExplorerBuilderCatalog, ExplorerBuilderDocument } from '../../../contracts/types';
-import type { DraftTable } from '../authoring/model';
-import { routePath } from '../constructionWorkspace/routeDisplay';
-import { constructionHistorySteps, constructionRowMeaning } from '../constructionWorkspace/constructionHistory';
+import type { DraftTable } from './authoring';
+import { routePath } from './routeDisplay';
+import { constructionHistorySteps, constructionRowMeaning } from './constructionHistory';
 
 export function authoredTraversal(table: DraftTable, catalog: ExplorerBuilderCatalog) {
   const occurrences: Array<{

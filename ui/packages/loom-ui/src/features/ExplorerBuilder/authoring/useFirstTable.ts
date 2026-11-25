@@ -1,8 +1,8 @@
 import { useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { useGetExplorerCandidateSuggestionsV2Mutation } from '../../../react';
-import type { BuilderAuthoringState } from './model';
+import type { BuilderAuthoringState } from '../model/authoring';
 import type { useCommandQueue } from './useCommandQueue';
-import { planInitialTable, type InitialTableCandidateEvidence, type InitialTablePlan } from './initialTablePlan';
+import { planInitialTable, type InitialTableCandidateEvidence, type InitialTablePlan } from '../model/initialTablePlan';
 
 type FirstTableProgress =
   | { readonly kind: 'idle' }

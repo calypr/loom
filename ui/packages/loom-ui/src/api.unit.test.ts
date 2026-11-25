@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import fieldPresentationReadyFixture from '../../../../tests/fixtures/semantic-field-presentation-ready.json?raw';
-import { canonicalProject, createLoomClient, LoomRequestError, populationMappingResponseSchema } from './client/api';
+import { canonicalProject, createLoomClient, LoomRequestError } from './client/api';
 import { cellTraceResponseSchema } from './contracts/cellTrace';
 import {
   EXPLORER_AUTHORING_API_VERSION,
@@ -1685,14 +1685,20 @@ describe('Loom project paths', () => {
     );
   });
 
-  it('parses a bounded population coverage report', () => {
-    expect(populationMappingResponseSchema.parse({
-      binding: { receiptId: 'receipt-1', outputId: 'patients', project: 'NCPI_ACCEPTANCE', explorerId: 'default', generation: 'generation-1', scopeDigest: 'scope-1', selectionRevisionId: 'selection-1', membershipDigest: 'members-1', resourceType: 'DocumentReference' },
-      status: 'COMPLETE',
-      counts: { selected: 3, mapped: 2, unmapped: 1, emittedRows: 1 },
-      unmapped: [{ project: 'NCPI_ACCEPTANCE', generation: 'generation-1', resourceType: 'DocumentReference', id: 'dev-file-004' }],
-      diagnostics: [],
-    })).toEqual({
+  it('parses a bounded population coverage report', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify({
+        binding: { receiptId: 'receipt-1', outputId: 'patients', project: 'NCPI_ACCEPTANCE', explorerId: 'default', generation: 'generation-1', scopeDigest: 'scope-1', selectionRevisionId: 'selection-1', membershipDigest: 'members-1', resourceType: 'DocumentReference' },
+        status: 'COMPLETE',
+        counts: { selected: 3, mapped: 2, unmapped: 1, emittedRows: 1 },
+        unmapped: [{ project: 'NCPI_ACCEPTANCE', generation: 'generation-1', resourceType: 'DocumentReference', id: 'dev-file-004' }],
+        diagnostics: [],
+      }), { headers: { 'content-type': 'application/json' } }),
+    );
+    const client = createLoomClient({ fetch });
+    await expect(client.populationMapping({
+      project: 'NCPI_ACCEPTANCE', explorerId: 'default', receiptId: 'receipt-1', outputId: 'patients',
+    })).resolves.toEqual({
       binding: { receiptId: 'receipt-1', outputId: 'patients', project: 'NCPI_ACCEPTANCE', explorerId: 'default', generation: 'generation-1', scopeDigest: 'scope-1', selectionRevisionId: 'selection-1', membershipDigest: 'members-1', resourceType: 'DocumentReference' },
       status: 'COMPLETE',
       counts: { selected: 3, mapped: 2, unmapped: 1, emittedRows: 1 },

@@ -17,7 +17,7 @@ import {
   stateFromCommands,
   type BuilderAuthoringState,
   type DraftTable,
-} from './model';
+} from './authoring';
 
 export type BuilderAction =
   | {

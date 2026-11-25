@@ -2,7 +2,8 @@
 
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { BoundedCache, useVirtualViewport, virtualRange } from './virtualization';
+import { BoundedCache, virtualRange } from '../model/virtualization';
+import { useVirtualViewport } from './virtualization';
 
 describe('virtualization helpers', () => {
   it('keeps a large grid window bounded', () => {

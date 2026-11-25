@@ -4,7 +4,7 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { ExplorerBuilderPreviewResult } from '../../../contracts/types';
-import type { DraftTable } from '../authoring/model';
+import type { DraftTable } from '../model/authoring';
 import { ConstructionProposalPreview } from './ConstructionProposalPreview';
 
 const preview = (sampled: boolean, partialValidation = false): ExplorerBuilderPreviewResult => ({

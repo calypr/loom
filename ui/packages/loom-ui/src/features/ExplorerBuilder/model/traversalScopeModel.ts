@@ -1,5 +1,5 @@
 import type { AuthoringNetworkResponse, ExplorerBuilderDocument, ConstructionStep, ConstructionStageDescriptor, ConstructionRouteStep } from '../../../contracts/types';
-import { constructionHistorySteps } from '../constructionWorkspace/constructionHistory';
+import { constructionHistorySteps } from './constructionHistory';
 
 export type NavigatorSourceStep = NonNullable<ExplorerBuilderDocument['importedSource']>['steps'][number];
 interface TraversalScope {

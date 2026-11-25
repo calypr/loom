@@ -1,9 +1,9 @@
 import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { ExplorerAuthoringApiError } from '../../../client/api';
 import type { ExplorerBuilderCompileResult, ExplorerBuilderPreviewResult } from '../../../contracts/types';
-import { selectedTable, type BuilderAuthoringState } from './model';
-import type { builderAuthoringReducer } from './reducer';
-import type { PreviewLimit } from './previewRecovery';
+import { selectedTable, type BuilderAuthoringState } from '../model/authoring';
+import type { builderAuthoringReducer } from '../model/reducer';
+import type { PreviewLimit } from '../model/previewRecovery';
 import type { useAutomaticPreview, AutomaticPreviewIdentity, AutomaticPreviewRun } from '../useAutomaticPreview';
 import { matchesAcceptedPreviewHandoff, type AppliedPreviewHandoff } from '../constructionWorkspace/appliedChoicePreview';
 

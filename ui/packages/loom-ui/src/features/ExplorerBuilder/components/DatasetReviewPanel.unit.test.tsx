@@ -9,7 +9,7 @@ import {
   type ExplorerBuilderContractColumn,
   type ExplorerBuilderPreviewResult,
 } from '../../../contracts/types';
-import type { DraftTable } from '../authoring/model';
+import type { DraftTable } from '../model/authoring';
 import { DatasetReviewPanel, type DatasetReviewTarget } from './DatasetReviewPanel';
 
 const catalog: ExplorerBuilderCatalog = {

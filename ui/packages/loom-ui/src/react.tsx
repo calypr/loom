@@ -59,7 +59,7 @@ export const useResolveConfiguredColumnContextsQuery = (
   );
 };
 
-export interface ResolvePopulationSelectionQueryArgs {
+interface ResolvePopulationSelectionQueryArgs {
   readonly project: string;
   readonly explorerId: string;
   readonly authResourcePath?: string;
@@ -222,5 +222,3 @@ export const useLoomRows = (
   );
   return enabled ? query : { data: undefined, error: undefined, isLoading: false, isFetching: false, refetch: async () => ({}) };
 };
-
-export type { QueryResult };
