@@ -1,3 +1,4 @@
+import { RowDefinitionEditorSessionProvider } from './session/RowDefinitionEditorSession';
 import { sameCatalogSnapshot, sameDraftVersion, sameDraftDigest } from '../../contracts/identity';
 import { OperationEditorSessionProvider } from './session/OperationEditorSession';
 import { columnRuleDefaults } from './model/sourceColumnRule';
@@ -22,7 +23,6 @@ import { RowDefinitionSettingsPanel } from './components/RowDefinitionSettingsPa
 import { useBrowserSubscription } from './hooks/useBrowserSubscription';
 import { FrameSourcePanel } from './constructionWorkspace/FrameSourcePanel';
 import { derivedOccurrences, routeNode, routeSubtreeOccurrenceIds } from './model/authoring';
-import { sameRootChangeRequestIdentity } from './model/rootChangeSelection';
 import { shouldShowBuilderLoadError } from './authoring/builderLoadError';
 import { BuilderSessionProvider } from './session/BuilderSessionProvider';
 import { useBuilderSessionDraft } from './session/useBuilderSessionDraft';
@@ -33,7 +33,6 @@ import { ConstructionWorkspace, ConstructionActionBar } from './constructionWork
 import { ConstructionProposalPanel } from './constructionWorkspace/ConstructionProposalPanel';
 import { ConstructionProposalPreview } from './constructionWorkspace/ConstructionProposalPreview';
 import { ImportedSourceSteps } from './ImportedSourceSteps';
-import { constructionHistorySteps, constructionRowMeaning } from './model/constructionHistory';
 import type { RelatedSourceStep } from './constructionOperations/RelatedSourceStepEditor';
 import { type RelatedFieldStep } from './constructionOperations/RelatedFieldEditor';
 import { TableCreatorPanel } from './workspacePanels/TableCreatorPanel';
@@ -56,7 +55,7 @@ const isRelatedFieldStep = (step: ConstructionStep): step is RelatedFieldStep =>
 
 
 
-const constructionSourceStageId = 'source_projection';
+
 
 type BuilderWorkspaceProps = {
   readonly organization?: string;
@@ -116,45 +115,43 @@ const BuilderWorkspaceContent = ({
     setRowIntentSession, applyCommandsWithResult, recipeMutationAllowed, selectAddColumnsView,
     canStartCombine, recipeOwner, setRecipeNotice, rowIntentSession, setSourceRowsOpen,
     editingConstructionStepId, previousDraftRevisionId, setColumnSelection, applyCommands,
-    editingConstructionStep, setRelatedGraphSelection, sourceStageDescriptors,
-    hasUnsupportedSavedSourceColumns, previewIsCurrent, pendingCommands, sourceRowMeaning,
-    builderDataKey, firstTableProgress, loomClient, projectId, authResourcePath, rememberRecipeFocus,
-    restoreRecipeFocus, activePopulationSelection, cancelingConstructionProposal, graphSource,
-    savedNetwork, selectedRelatedGraphSource, activeConstructionFamily, sourceStepEditAction,
-    advancedRuleEditorReturn, pendingSavedRuleRemoval, setPendingSavedRuleRemoval,
-    addSelectedFeatures, sourceRelationshipRequest, recipeEditToken, setReshapeFormKind,
-    relatedExpandQueryOwnerRef, ownerKey, setActiveConstructionFamily, tablePreview,
-    applyConstructionProposal, beginConstructionCancellation, finishConstructionCancellation,
-    traversalState, sourceProposal, lastAcceptedOutputPreview, dispatch, sourceStepEditDirty,
-    sourceStepEditCancelAction, candidateForPreviewColumn, occurrencePanelsFor, addColumnsPanel,
-    reshapeEntryKind, reshapeFormKind, columnSelection, restoreAddColumnsPanel, setReshapeEntryKind,
-    relatedGraphSource, connectingRelationship, setRootReplacementInspectorHost, rootChangeState,
-    rootRecipeAssessment, applyRowChangePreview, cancelRootChange, editingRecipeColumn,
-    setSourceStepInspectorHost, setSourceProposal, sourceRowsOpen, setOccurrenceInspectorHost,
-    recipeNotice, occurrenceInspectorHost, rowSettingsOpenAction, setTableToolbarHost,
-    selectRootChoice, setSourceRowsInspectorHost, automaticPreviewQuery, currentPreviewStatus,
-    firstTableName, setFirstTableName, createFirstTableFromRoot, setTableCreatorOpen,
-    pendingRowChangePreview, currentRootChangeIdentity, focusDatasetReviewTarget,
+    editingConstructionStep, setRelatedGraphSelection, hasUnsupportedSavedSourceColumns,
+    previewIsCurrent, pendingCommands, builderDataKey, firstTableProgress, loomClient, projectId,
+    authResourcePath, rememberRecipeFocus, activePopulationSelection, cancelingConstructionProposal,
+    graphSource, savedNetwork, selectedRelatedGraphSource, activeConstructionFamily,
+    sourceStepEditAction, advancedRuleEditorReturn, pendingSavedRuleRemoval,
+    setPendingSavedRuleRemoval, addSelectedFeatures, sourceRelationshipRequest, recipeEditToken,
+    setReshapeFormKind, relatedExpandQueryOwnerRef, ownerKey, setActiveConstructionFamily,
+    tablePreview, applyConstructionProposal, beginConstructionCancellation,
+    finishConstructionCancellation, traversalState, sourceProposal, lastAcceptedOutputPreview,
+    dispatch, sourceStepEditDirty, sourceStepEditCancelAction, candidateForPreviewColumn,
+    occurrencePanelsFor, addColumnsPanel, reshapeEntryKind, reshapeFormKind, columnSelection,
+    restoreAddColumnsPanel, setReshapeEntryKind, relatedGraphSource, connectingRelationship,
+    setRootReplacementInspectorHost, rootChangeState, rootRecipeAssessment, applyRowChangePreview,
+    cancelRootChange, editingRecipeColumn, setSourceStepInspectorHost, setSourceProposal,
+    sourceRowsOpen, setOccurrenceInspectorHost, recipeNotice, occurrenceInspectorHost,
+    rowSettingsOpenAction, setTableToolbarHost, selectRootChoice, setSourceRowsInspectorHost,
+    automaticPreviewQuery, currentPreviewStatus, firstTableName, setFirstTableName,
+    createFirstTableFromRoot, setTableCreatorOpen, pendingRowChangePreview, focusDatasetReviewTarget,
     blockingDiagnostics, primaryDiagnostic, unsupportedColumns,
     unsupportedSourceProjectionDiagnostic, incomplete, suggestionsFailure, suggestionIdentity,
     suggestionRequestKey, setSuggestionsFailure, ensureSuggestions, suggestionHostRef,
     setActiveSourceStepId, tableCreatorOpen, activeSourceStepId, addColumnsReason, renameTableById,
-    sourceRowsInspectorHost, rowSettingsCloseAction, rootReplacementInspectorHost, rootRecipeActions,
+    sourceRowsInspectorHost, rowSettingsCloseAction, rootReplacementInspectorHost,
     rootChangeIdentityForTable, refreshRootChange, activePopulationSelectionLoading,
     activePopulationSelectionError, populationVariantPending, setClearedPopulationSelection,
-    populationSelectionContextKey, excludePopulationMember, resolveRootChange,
-    constructionHistorySelection, sourceStepInspectorHost, sourceChangeReviewHost,
-    sourceFieldEditAction, sourceOutputEditAction, sourceStepSwitchOccurrenceAction,
-    automaticPreviewFailureMessage, previewLimit, setPreviewLimit, setSourceChangeReviewHost,
-    reviewFocusTarget, selectConstructionFamily, chooseRelatedRows, chooseReshapeRows,
-    selectConstructionHistory, editConstructionStep, closeConstructionWorkspace, switchRowIntent,
-    closeRowIntentSession, removeConstructionStep, restorePreviousDraft, capabilityStage,
-    constructionCapabilitiesResponse, capabilityIsForAppendStage, calculateUnavailableReason,
-    reshapeRowsAvailability, relatedRowsAvailability, relationshipOwner, loadRecipeNetwork,
+    populationSelectionContextKey, excludePopulationMember, constructionHistorySelection,
+    sourceStepInspectorHost, sourceChangeReviewHost, sourceFieldEditAction, sourceOutputEditAction,
+    sourceStepSwitchOccurrenceAction, automaticPreviewFailureMessage, previewLimit, setPreviewLimit,
+    setSourceChangeReviewHost, reviewFocusTarget, selectConstructionFamily, chooseRelatedRows,
+    chooseReshapeRows, selectConstructionHistory, editConstructionStep, closeConstructionWorkspace,
+    removeConstructionStep, restorePreviousDraft, capabilityStage, constructionCapabilitiesResponse,
+    capabilityIsForAppendStage, calculateUnavailableReason, relationshipOwner, loadRecipeNetwork,
     pendingRelationship, proposeRelationship, cancelRecipeRelationship, sourceReviewStatus,
-    beginSourceReview, proposeColumnPolicy, beginSourceRowsReview, applySourceRecipe,
-    activeRuleReview, reviewingAdvancedColumns, ruleOccurrence, ruleFieldPaths, advancedOccurrenceId,
-    advancedRules, unassignedFrameIds, savedFramesForNode, operationEditorSession,
+    beginSourceReview, proposeColumnPolicy, applySourceRecipe, activeRuleReview,
+    reviewingAdvancedColumns, ruleOccurrence, ruleFieldPaths, advancedOccurrenceId, advancedRules,
+    unassignedFrameIds, savedFramesForNode, operationEditorSession, persistedConstructionHistory,
+    rowDefinitionEditorSession,
   } = useBuilderWorkspaceActions({
     populationSelection, populationSelectionLoading, populationSelectionError, onExplorerChange,
     featureFocus, scope, focusFirstTableName,
@@ -299,31 +296,6 @@ const BuilderWorkspaceContent = ({
   const editingRelatedFieldStep = editingConstructionStep && isRelatedFieldStep(editingConstructionStep)
     ? editingConstructionStep
     : undefined;
-  const sourceColumns = sourceStageDescriptors?.find(
-    (stage) => stage.id === constructionSourceStageId,
-  )?.columns ?? (table?.document.columns ?? []).map((column) => ({
-    id: column.column,
-    name: column.column,
-    label: column.label,
-    type: column.logicalType,
-  }));
-  const rowMeaning = constructionRowMeaning(sourceRowMeaning, table?.document.construction, sourceColumns);
-  const attachedPopulationSelection = table?.document.population?.selectionRevisionId === activePopulationSelection?.id
-    ? activePopulationSelection
-    : undefined;
-  const startingCollectionSummary = table?.document.population
-    ? attachedPopulationSelection
-      ? `Starting collection: ${attachedPopulationSelection.memberCount.toLocaleString()} ${attachedPopulationSelection.resourceType} resources attached`
-      : 'Starting collection: Attached selection details are loading'
-    : activePopulationSelection
-      ? `Starting collection: ${activePopulationSelection.memberCount.toLocaleString()} ${activePopulationSelection.resourceType} selected, not attached`
-      : table?.document.rootResourceType
-        ? `Starting collection: All authorized ${table.document.rootResourceType} records`
-        : 'Starting collection: Choose a starting record type first';
-  const persistedConstructionHistory = constructionHistorySteps(
-    table?.document.construction,
-    sourceColumns,
-  );
   const canApplyConstructionProposal = constructionLifecycle.canApply &&
     !cancelingConstructionProposal &&
     pendingCommands === 0 &&
@@ -711,10 +683,6 @@ const BuilderWorkspaceContent = ({
     />
   );
 
-  const rootChangePreviewReady = pendingRowChangePreview?.status === 'ready' &&
-    currentRootChangeIdentity !== undefined &&
-    sameRootChangeRequestIdentity(pendingRowChangePreview.identity, currentRootChangeIdentity);
-
   return (
     <main ref={workspaceHostRef} className="min-h-full bg-slate-50 p-2 text-slate-900 sm:p-3">
       {toolbarHost ? createPortal(toolbar, toolbarHost) : toolbar}
@@ -921,112 +889,77 @@ const BuilderWorkspaceContent = ({
                 onDeleteTable={deleteSelectedTable}
                 onRenameTable={renameTableById}
                 rowSetup={(
-                  <RowDefinitionSettingsPanel
-                    key={`${table.outputId}:${state.catalog.snapshotToken}:${builder.data?.draftVersion ?? ''}:${builder.data?.draftDigest ?? ''}`}
-                    inspectorHost={sourceRowsInspectorHost}
-                    onOpenChange={setSourceRowsOpen}
-                    operationInspectorPresentation="workspace"
-                    openActionRef={rowSettingsOpenAction}
-                    closeActionRef={rowSettingsCloseAction}
-                    replacementPresentation="shared" replacementInspectorHost={rootReplacementInspectorHost}
-                    onBeginRootProposal={(nodeId) => rootRecipeActions.current?.begin(nodeId, 'REPLACE')}
-                    onCancelRootProposal={cancelRootChange}
-                    onBeginProposal={beginSourceRowsReview}
-                    onCancelProposal={() => { if (recipeOwner.state.target?.kind === 'sourceRows') cancelRecipeRelationship(); else if (recipeOwner.state.status === 'saved') restoreRecipeFocus(); }}
-                    presentation="compact"
-                    triggerPresentation="hidden"
-                    triggerLabel={table.document.rootResourceType || 'Choose records'}
-                    client={loomClient}
-                    project={projectId}
-                    explorerId={state.explorerId}
-                    authResourcePath={authResourcePath}
-                    snapshotToken={state.catalog.snapshotToken}
-                    draftVersion={state.draftVersion}
-                    draftDigest={state.draftDigest}
-                    table={table}
-                    workspaceTables={state.tables}
-                    currentRowMeaning={rowMeaning}
-                    startingCollectionSummary={startingCollectionSummary}
-                    renderRootSettings={(onRootChange, onResolveRootChange, onReplaceRoot) => (
-                      <RowDefinitionPanel
-                        catalog={state.catalog}
-                        table={table}
-                        disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                        rootChangeState={rootChangeState}
-                        currentIdentity={rootChangeIdentityForTable(table.outputId)}
-                        onChange={onRootChange}
-                        onResolve={onResolveRootChange}
-                        onRefresh={refreshRootChange}
-                        onKeepCurrent={cancelRootChange}
-                        onReplace={onReplaceRoot}
-                      />
-                    )}
-                    startingCollectionSettings={(
-                      activePopulationSelection ||
-                      table.document.population ||
-                      activePopulationSelectionLoading ||
-                      activePopulationSelectionError
-                    ) ? (
-                      <PopulationPanel
-                        table={table}
-                        selection={activePopulationSelection}
-                        loading={activePopulationSelectionLoading}
-                        error={activePopulationSelectionError}
-                        project={projectId}
-                        explorerId={state.explorerId}
-                        authResourcePath={authResourcePath}
-                        snapshotToken={state.catalog.snapshotToken}
-                        draftVersion={state.draftVersion}
-                        draftDigest={state.draftDigest}
-                        receiptId={state.receipt?.receiptId}
-                        disabled={activePopulationSelectionLoading || populationVariantPending || pendingCommands > 0 || state.reconciliation === 'pending'}
-                        onAttach={(routeChoiceId) => void applyCommands([{
-                          type: 'SET_TABLE_POPULATION',
-                          outputId: table.outputId,
-                          selectionRevisionId: activePopulationSelection?.id,
-                          routeChoiceId,
-                        }])}
-                        onClear={() => {
-                          if (activePopulationSelection) setClearedPopulationSelection({
-                            contextKey: populationSelectionContextKey,
-                            client: loomClient,
-                            selectionID: activePopulationSelection.id,
-                          });
-                          void applyCommands([{
-                            type: 'CLEAR_TABLE_POPULATION',
+                  <RowDefinitionEditorSessionProvider key={`${table.outputId}:${state.catalog.snapshotToken}:${builder.data?.draftVersion ?? ''}:${builder.data?.draftDigest ?? ''}`} value={rowDefinitionEditorSession!}>
+                    <RowDefinitionSettingsPanel
+                      inspectorHost={sourceRowsInspectorHost}
+                      operationInspectorPresentation="workspace"
+                      openActionRef={rowSettingsOpenAction}
+                      closeActionRef={rowSettingsCloseAction}
+                      replacementPresentation="shared" replacementInspectorHost={rootReplacementInspectorHost}
+                      presentation="compact"
+                      triggerPresentation="hidden"
+                      triggerLabel={table.document.rootResourceType || 'Choose records'}
+                      renderRootSettings={(onRootChange, onResolveRootChange, onReplaceRoot) => (
+                        <RowDefinitionPanel
+                          catalog={state.catalog}
+                          table={table}
+                          disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                          rootChangeState={rootChangeState}
+                          currentIdentity={rootChangeIdentityForTable(table.outputId)}
+                          onChange={onRootChange}
+                          onResolve={onResolveRootChange}
+                          onRefresh={refreshRootChange}
+                          onKeepCurrent={cancelRootChange}
+                          onReplace={onReplaceRoot}
+                        />
+                      )}
+                      startingCollectionSettings={(
+                        activePopulationSelection ||
+                        table.document.population ||
+                        activePopulationSelectionLoading ||
+                        activePopulationSelectionError
+                      ) ? (
+                        <PopulationPanel
+                          table={table}
+                          selection={activePopulationSelection}
+                          loading={activePopulationSelectionLoading}
+                          error={activePopulationSelectionError}
+                          project={projectId}
+                          explorerId={state.explorerId}
+                          authResourcePath={authResourcePath}
+                          snapshotToken={state.catalog.snapshotToken}
+                          draftVersion={state.draftVersion}
+                          draftDigest={state.draftDigest}
+                          receiptId={state.receipt?.receiptId}
+                          disabled={activePopulationSelectionLoading || populationVariantPending || pendingCommands > 0 || state.reconciliation === 'pending'}
+                          onAttach={(routeChoiceId) => void applyCommands([{
+                            type: 'SET_TABLE_POPULATION',
                             outputId: table.outputId,
-                          }]);
-                        }}
-                        onExclude={(ref, route) => void excludePopulationMember(ref, route)}
-                        onApplyMemberRemoval={(proposalId) => applyCommands([{
-                          type: 'APPLY_POPULATION_MEMBER_PROPOSAL',
-                          outputId: table.outputId,
-                          proposalId,
-                        }])}
-                      />
-                    ) : null}
-                    selection={activePopulationSelection}
-                    constructionHistory={persistedConstructionHistory}
-                    disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                    relatedRows={relatedRowsAvailability}
-                    reshapeRows={reshapeRowsAvailability}
-                    onChooseRelatedRows={chooseRelatedRows}
-                    onChooseReshape={chooseReshapeRows}
-                    rowOperationEditor={undefined}
-                    onSwitchRowIntent={switchRowIntent}
-                    onCloseRowIntentSession={closeRowIntentSession}
-                    onChangeRootSelection={selectRootChoice}
-                    onResolveRootSelection={resolveRootChange}
-                    rootChangeState={rootChangeState}
-                    rootChangePreviewOpen={rootChangePreviewReady}
-                    onCancelRootChange={cancelRootChange}
-                    onEditConstructionStep={editConstructionStep}
-                    onRemoveConstructionStep={removeConstructionStep}
-                    onApply={(proposalId) => applySourceRecipe([{
-                      type: 'APPLY_ROW_DEFINITION_PROPOSAL', outputId: table.outputId, proposalId,
-                    }])}
-                    onApplyRootReplacement={(assessment) => rootRecipeActions.current?.apply(assessment) ?? Promise.resolve(false)}
-                  />
+                            selectionRevisionId: activePopulationSelection?.id,
+                            routeChoiceId,
+                          }])}
+                          onClear={() => {
+                            if (activePopulationSelection) setClearedPopulationSelection({
+                              contextKey: populationSelectionContextKey,
+                              client: loomClient,
+                              selectionID: activePopulationSelection.id,
+                            });
+                            void applyCommands([{
+                              type: 'CLEAR_TABLE_POPULATION',
+                              outputId: table.outputId,
+                            }]);
+                          }}
+                          onExclude={(ref, route) => void excludePopulationMember(ref, route)}
+                          onApplyMemberRemoval={(proposalId) => applyCommands([{
+                            type: 'APPLY_POPULATION_MEMBER_PROPOSAL',
+                            outputId: table.outputId,
+                            proposalId,
+                          }])}
+                        />
+                      ) : null}
+                      rowOperationEditor={undefined}
+                    />
+                  </RowDefinitionEditorSessionProvider>
                 )}
                 history={{
                   resourceType: table.document.rootResourceType,

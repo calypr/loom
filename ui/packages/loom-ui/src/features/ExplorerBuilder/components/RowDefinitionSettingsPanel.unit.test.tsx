@@ -8,8 +8,16 @@ import type { SelectionRevision } from '../../../contracts/selection';
 import type { DraftTable } from '../model/authoring';
 import type { RootChangePickerState, RootChangeSelection } from '../model/rootChangeSelection';
 import type { ConstructionHistoryStep } from '../model/constructionHistory';
-import { RowDefinitionSettingsPanel } from './RowDefinitionSettingsPanel';
-type RowDefinitionSettingsPanelFixtureProps = import('react').ComponentProps<typeof import('./RowDefinitionSettingsPanel').RowDefinitionSettingsPanel>;
+import { RowDefinitionSettingsPanel as ConnectedRowDefinitionSettingsPanel } from './RowDefinitionSettingsPanel';
+import { RowDefinitionEditorSessionProvider } from '../session/RowDefinitionEditorSession';
+type RowDefinitionSettingsPanelFixtureProps =
+  React.ComponentProps<typeof ConnectedRowDefinitionSettingsPanel> &
+  React.ComponentProps<typeof RowDefinitionEditorSessionProvider>['value'];
+const RowDefinitionSettingsPanel = (props: RowDefinitionSettingsPanelFixtureProps) => (
+  <RowDefinitionEditorSessionProvider value={props}>
+    <ConnectedRowDefinitionSettingsPanel {...props} />
+  </RowDefinitionEditorSessionProvider>
+);
 type ReadyReplacementAssessment = Parameters<RowDefinitionSettingsPanelFixtureProps['onApplyRootReplacement']>[0];
 
 const choices: RowDefinitionChoicesResponse = {

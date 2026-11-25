@@ -1,10 +1,11 @@
+import { useRowDefinitionEditorSession, type ReadyReplacementAssessment } from '../session/RowDefinitionEditorSession';
 import { sameCatalogSnapshot, sameDraftVersion, sameDraftDigest } from '../../../contracts/identity';
 import { rowScopeLabel } from '../model/rowScopeLabel';
 import { replacementConsumerPresentations } from '../model/replacementConsumers';
 import { createPortal } from 'react-dom';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import React, { useRef, useState, type ReactNode } from 'react';
-import { useRowDefinitionRequests, type RowDefinitionTransport, type SelectionOption } from '../session/useRowDefinitionRequests';
+import { useRowDefinitionRequests, type SelectionOption } from '../session/useRowDefinitionRequests';
 import type {
   ConstructionStep,
   ExplorerBuilderPreviewResult,
@@ -74,10 +75,6 @@ type ProposalState =
   | { readonly kind: 'failed'; readonly selection: RowDefinitionSelection; readonly message: string }
   | { readonly kind: 'applying'; readonly selection: RowDefinitionSelection };
 
-type ReadyReplacementAssessment = Extract<RowChangeAssessment, { readonly status: 'READY' }> & {
-  readonly mode: 'REPLACE';
-  readonly proposal: Extract<RowChangeAssessment, { readonly status: 'READY' }>['proposal'] & { readonly mode: 'REPLACE' };
-};
 type ReplacementState =
   | { readonly kind: 'idle' }
   | { readonly kind: 'assessing'; readonly rootNodeId: string }
@@ -295,110 +292,77 @@ const requestFailureMessage = (error: unknown, fallback: string): string => {
   return fallback;
 };
 
-export const RowDefinitionSettingsPanel = ({
-  presentation = 'fullscreen',
-  triggerPresentation,
-  inspectorHost, onOpenChange,
-  triggerLabel,
-  openActionRef, closeActionRef,
-  onBeginProposal, onCancelProposal, onBeginRootProposal, onCancelRootProposal,
-  replacementPresentation = 'dialog', replacementInspectorHost, operationInspectorPresentation = 'dialog',
-  client,
-  project,
-  explorerId,
-  authResourcePath,
-  snapshotToken,
-  draftVersion,
-  draftDigest,
-  table,
-  currentRowMeaning,
-  startingCollectionSummary,
-  renderRootSettings,
-  startingCollectionSettings,
-  selection,
-  constructionHistory = [],
-  workspaceTables,
-  rowOperationEditor,
-  disabled,
-  onApply,
-  relatedRows,
-  reshapeRows,
-  onChooseRelatedRows,
-  onChooseReshape,
-  onSwitchRowIntent,
-  onCloseRowIntentSession,
-  sourceCollectionAction,
-  onChangeRootSelection,
-  onResolveRootSelection,
-  rootChangeState,
-  rootChangePreviewOpen,
-  onCancelRootChange,
-  onApplyRootReplacement,
-  onEditConstructionStep,
-  onRemoveConstructionStep,
-}: {
+interface RowDefinitionEditorPresentation {
   readonly presentation?: 'fullscreen' | 'compact';
   readonly triggerPresentation?: 'source-chip' | 'hidden';
   readonly inspectorHost?: HTMLElement | null;
-  readonly onOpenChange?: (open: boolean) => void;
   readonly triggerLabel?: string;
   readonly operationInspectorPresentation?: 'dialog' | 'workspace';
-  readonly onBeginRootProposal?: (nodeId: string) => {ready: (assessment: ReadyReplacementAssessment, preview: ExplorerBuilderPreviewResult) => boolean; failed: (message: string, stale?: boolean) => void} | undefined;
-  readonly onCancelRootProposal?: () => void;
   readonly replacementPresentation?: 'dialog' | 'shared';
   readonly replacementInspectorHost?: HTMLElement | null;
-  readonly onBeginProposal?: () => { ready: (proposal: RowDefinitionProposal, preview: import('../../../contracts/types').ExplorerBuilderPreviewResult) => boolean; failed: (message: string) => void } | undefined;
-  readonly onCancelProposal?: () => void;
   readonly openActionRef?: { current: (() => void) | undefined };
   readonly closeActionRef?: { current: (() => void) | undefined };
-  readonly client: RowDefinitionTransport;
-  readonly project: string;
-  readonly explorerId: string;
-  readonly authResourcePath?: string;
-  readonly snapshotToken: string;
-  readonly draftVersion: number;
-  readonly draftDigest: string;
-  readonly table: DraftTable;
-  readonly workspaceTables: ReadonlyArray<DraftTable>;
-  readonly currentRowMeaning: string;
-  readonly startingCollectionSummary: string;
   readonly renderRootSettings: (
     onRootChange: (selection: RootChangeSelection) => void,
     onResolveRootChange: (referenceId: string, alternative: string) => void,
     onReplaceRoot: (rootNodeId: string) => void,
   ) => ReactNode;
   readonly startingCollectionSettings: ReactNode;
-  readonly selection?: SelectionRevision;
-  readonly constructionHistory?: ReadonlyArray<ConstructionHistoryStep>;
-  readonly disabled: boolean;
   readonly rowOperationEditor?: ReactNode;
-  readonly onApply: (proposalId: string) => Promise<boolean>;
-  readonly relatedRows: { readonly supported: boolean; readonly reason?: string };
-  readonly reshapeRows: Record<'group' | 'pivot', { readonly supported: boolean; readonly reason?: string }> & {
-    readonly pivotPending?: boolean;
-    readonly groupEntry: 'group';
-    readonly groupAlternatives: ReadonlyArray<{
-      readonly kind: 'source-group' | 'coded-group';
-      readonly label: string;
-    }>;
-    readonly pivotEntry?: 'pivot' | 'coded-pivot';
-    readonly pivotAlternative?: 'pivot';
-    readonly expandSigned?: { readonly supported: boolean };
-  };
-  readonly onChooseRelatedRows: () => void;
-  readonly onChooseReshape: (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot' | 'expand-signed') => void;
-  readonly onSwitchRowIntent?: (intent: 'records' | 'reshape') => void;
-  readonly onCloseRowIntentSession?: () => void;
   readonly sourceCollectionAction?: ReactNode;
-  readonly onChangeRootSelection: (selection: RootChangeSelection) => void;
-  readonly onResolveRootSelection: (referenceId: string, alternative: string) => void;
-  readonly rootChangeState: RootChangePickerState;
-  readonly rootChangePreviewOpen: boolean;
-  readonly onCancelRootChange: () => void;
-  readonly onApplyRootReplacement: (assessment: ReadyReplacementAssessment) => Promise<boolean>;
-  readonly onEditConstructionStep?: (stepId: string) => void;
-  readonly onRemoveConstructionStep?: (stepId: string) => void;
-}) => {
+}
+
+export const RowDefinitionSettingsPanel = ({
+    presentation = 'fullscreen',
+    triggerPresentation,
+    inspectorHost,
+    triggerLabel,
+    openActionRef,
+    closeActionRef,
+    replacementPresentation = 'dialog',
+    replacementInspectorHost,
+    operationInspectorPresentation = 'dialog',
+    renderRootSettings,
+    startingCollectionSettings,
+    rowOperationEditor,
+    sourceCollectionAction,
+}: RowDefinitionEditorPresentation) => {
+  const {
+    onOpenChange,
+    onBeginProposal,
+    onCancelProposal,
+    onBeginRootProposal,
+    onCancelRootProposal,
+    client,
+    project,
+    explorerId,
+    authResourcePath,
+    snapshotToken,
+    draftVersion,
+    draftDigest,
+    table,
+    currentRowMeaning,
+    startingCollectionSummary,
+    selection,
+    constructionHistory = [],
+    workspaceTables,
+    disabled,
+    onApply,
+    relatedRows,
+    reshapeRows,
+    onChooseRelatedRows,
+    onChooseReshape,
+    onSwitchRowIntent,
+    onCloseRowIntentSession,
+    onChangeRootSelection,
+    onResolveRootSelection,
+    rootChangeState,
+    rootChangePreviewOpen,
+    onCancelRootChange,
+    onApplyRootReplacement,
+    onEditConstructionStep,
+    onRemoveConstructionStep,
+  } = useRowDefinitionEditorSession(session => session);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const compact = presentation === 'compact';
   const [panelPosition, setPanelPosition] = useState({ top: 80, left: 16 });
