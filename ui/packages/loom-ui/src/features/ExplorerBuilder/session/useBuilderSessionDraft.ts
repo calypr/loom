@@ -1,24 +1,24 @@
-import { builderDataKeyFor, hydrateDraft } from '../session/draftHydration';
-import { useGetExplorerBuilderStateV2Query } from '../session/useBuilderLoad';
+import { builderDataKeyFor, hydrateDraft } from './draftHydration';
+import { useGetExplorerBuilderStateV2Query } from './useBuilderLoad';
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { ExplorerBuilderState } from '../../../contracts/types';
 import { builderAuthoringReducer } from '../model/reducer';
 import { shouldSyncServerDraft } from '../model/serverDraftSync';
-import { createBuilderDraftAccess, createLocalDraftStore, createRememberedTable } from '../session/draftAccess';
+import { createBuilderDraftAccess, createLocalDraftStore, createRememberedTable } from './draftAccess';
 
-type UseBuilderDraftOptions = {
+type BuilderDraftScope = {
   readonly projectId: string;
   readonly authResourcePath?: string;
   readonly effectiveExplorerId: string;
   readonly ownerKey: string;
 };
 
-export const useBuilderDraft = ({
+export const useBuilderSessionDraft = ({
   projectId,
   authResourcePath,
   effectiveExplorerId,
   ownerKey,
-}: UseBuilderDraftOptions) => {
+}: BuilderDraftScope) => {
   const rememberedTable = useMemo(
     () => createRememberedTable(ownerKey, () => window.sessionStorage),
     [ownerKey],
@@ -73,7 +73,10 @@ export const useBuilderDraft = ({
   const [draftAccess] = useState(() => createBuilderDraftAccess(state));
   draftAccess.setCurrentDraft(state);
   const serverDraftKey = useRef('');
-  if (shouldSyncServerDraft(builder.data, serverDraftKey.current, builderDataKey)) {
+  const observedBuilderDataKey = useRef('');
+  const builderDataChanged = observedBuilderDataKey.current !== builderDataKey;
+  observedBuilderDataKey.current = builderDataKey;
+  if (builderDataChanged && shouldSyncServerDraft(builder.data, serverDraftKey.current, builderDataKey)) {
     serverDraft.current = {
       version: builder.data.draftVersion,
       digest: builder.data.draftDigest,

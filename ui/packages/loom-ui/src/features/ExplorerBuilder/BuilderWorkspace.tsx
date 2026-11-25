@@ -80,7 +80,8 @@ import type { PreviewLimit } from './model/previewRecovery';
 import { useCommandQueue } from './authoring/useCommandQueue';
 import { usePublish } from './authoring/usePublish';
 import { shouldShowBuilderLoadError } from './authoring/builderLoadError';
-import { useBuilderDraft } from './authoring/useBuilderDraft';
+import { BuilderSessionProvider, useBuilderActions, useBuilderSession } from './session/BuilderSessionProvider';
+import { useBuilderSessionDraft } from './session/useBuilderSessionDraft';
 import { useRecipeFocus } from './authoring/useRecipeFocus';
 import { useReshapeAvailability } from './authoring/useReshapeAvailability';
 import { useConstructionNavigation } from './authoring/useConstructionNavigation';
@@ -247,17 +248,7 @@ const builderOwnerKeyFor = (
   explorerId,
 ]);
 
-const BuilderWorkspaceContent = ({
-  organization,
-  project,
-  explorerId,
-  populationSelection,
-  populationSelectionLoading = false,
-  populationSelectionError,
-  onExplorerChange,
-  featureFocus,
-  workspaceComposition,
-}: {
+type BuilderWorkspaceProps = {
   readonly organization?: string;
   readonly project: string;
   readonly explorerId?: string;
@@ -271,7 +262,9 @@ const BuilderWorkspaceContent = ({
     readonly column: string;
     readonly label?: string;
   };
-}) => {
+};
+
+function useBuilderWorkspaceScope({ organization, project, explorerId }: BuilderWorkspaceProps) {
   const loomClient = useLoomClient();
   const projectId = organization ? `${organization}/${project}` : project;
   const authResourcePath = organization
@@ -304,6 +297,49 @@ const BuilderWorkspaceContent = ({
     }, ...available];
   }, [explorers.data, projectId]);
   const ownerKey = builderOwnerKeyFor(projectId, authResourcePath, effectiveExplorerId);
+  return {
+    loomClient,
+    projectId,
+    authResourcePath,
+    selectedExplorerId,
+    setSelectedExplorerId,
+    explorers,
+    effectiveExplorerId,
+    explorerSummaries,
+    ownerKey,
+  };
+}
+
+function BuilderWorkspaceScope(props: BuilderWorkspaceProps) {
+  const scope = useBuilderWorkspaceScope(props);
+  const { projectId, authResourcePath, effectiveExplorerId, ownerKey,
+    selectedExplorerId, setSelectedExplorerId, explorerSummaries } = scope;
+  const draft = useBuilderSessionDraft({ projectId, authResourcePath, effectiveExplorerId, ownerKey });
+  if (selectedExplorerId === 'dataframe-default' &&
+      (draft.builder.error as { code?: string } | undefined)?.code === 'DEFAULT_DATAFRAME_UNAVAILABLE') {
+    const fallback = explorerSummaries.find((candidate) => candidate.explorerId !== 'dataframe-default');
+    if (fallback) setSelectedExplorerId(fallback.explorerId);
+  }
+  return (
+    <BuilderSessionProvider draft={draft}>
+      <BuilderWorkspaceContent {...props} scope={scope} />
+    </BuilderSessionProvider>
+  );
+}
+
+const BuilderWorkspaceContent = ({
+  populationSelection,
+  populationSelectionLoading = false,
+  populationSelectionError,
+  onExplorerChange,
+  featureFocus,
+  workspaceComposition,
+  scope,
+}: BuilderWorkspaceProps & { readonly scope: ReturnType<typeof useBuilderWorkspaceScope> }) => {
+  const {
+    loomClient, projectId, authResourcePath, setSelectedExplorerId, explorers,
+    effectiveExplorerId, explorerSummaries, ownerKey,
+  } = scope;
   const workspaceAttached = useRef(false);
   const workspaceHostRef = useCallback((node: HTMLElement | null) => {
     workspaceAttached.current = node !== null;
@@ -311,30 +347,17 @@ const BuilderWorkspaceContent = ({
   const {
     builderQueryArgs,
     builder,
-    refetchBuilder,
     explorerQueryEnabled,
     builderDataKey,
     state,
-    dispatch,
-    rememberSelectedTable,
     previousDraftRevisionId,
     setLocalState,
     setRestorableDraft,
     serverDraft,
     serverDraftKey,
     draftAccess,
-    syncBuilderData,
-  } = useBuilderDraft({
-    projectId,
-    authResourcePath,
-    effectiveExplorerId,
-    ownerKey,
-  });
-  if (selectedExplorerId === 'dataframe-default' &&
-      (builder.error as { code?: string } | undefined)?.code === 'DEFAULT_DATAFRAME_UNAVAILABLE') {
-    const fallback = explorerSummaries.find((candidate) => candidate.explorerId !== 'dataframe-default');
-    if (fallback) setSelectedExplorerId(fallback.explorerId);
-  }
+  } = useBuilderSession(draft => draft);
+  const { refetchBuilder, dispatch, rememberSelectedTable, syncBuilderData } = useBuilderActions();
   const capabilities = useGetExplorerAuthoringCapabilityV2Query(builderQueryArgs);
   const [applyBuilderCommands] = useApplyExplorerBuilderCommandsV2Mutation();
   const [assessRowChange, rowChangeStatus] = useAssessExplorerRowChangeMutation();
@@ -2349,7 +2372,7 @@ const BuilderWorkspaceContent = ({
 };
 
 const BuilderWorkspace = (
-  props: React.ComponentProps<typeof BuilderWorkspaceContent>,
+  props: BuilderWorkspaceProps,
 ) => {
   const projectId = props.organization
     ? `${props.organization}/${props.project}`
@@ -2362,7 +2385,7 @@ const BuilderWorkspace = (
     authResourcePath,
     !props.explorerId || props.explorerId === 'default' ? 'dataframe-default' : props.explorerId,
   );
-  return <BuilderWorkspaceContent key={ownerKey} {...props} />;
+  return <BuilderWorkspaceScope key={ownerKey} {...props} />;
 };
 
 export default BuilderWorkspace;
