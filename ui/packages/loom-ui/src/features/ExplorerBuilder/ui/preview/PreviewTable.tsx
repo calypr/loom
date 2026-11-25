@@ -1,3 +1,4 @@
+import { observeElementRect, useVirtualizer, type Rect, type Virtualizer } from '@tanstack/react-virtual';
 import { formatPreviewCell } from '../../model/previewCellFormat';
 export { formatPreviewCell } from '../../model/previewCellFormat';
 import React, { useState } from 'react';
@@ -15,14 +16,31 @@ import type { DraftTable } from '../../model/authoring';
 import { effectiveOutputAvailability } from '../../model/outputEligibility';
 import { losslessText } from '../../../../display/valueDisplay';
 import { resultUnitTitle } from '../../../../display/resultUnitDisplay';
-import { useVirtualViewport } from '../../dom/virtualization';
-import { BoundedCache, virtualRange } from '../../model/virtualization';
+import { BoundedCache } from '../../model/BoundedCache';
 
 const PREVIEW_ROW_HEIGHT = 44;
 const PREVIEW_HEADER_HEIGHT = 30;
 const PREVIEW_COLUMN_WIDTH = 152;
 const PREVIEW_ROW_GUTTER_WIDTH = 28;
 const PREVIEW_HEADER_CONTROLS_WIDTH = 192;
+const previewRowRect: Rect = { width: 1024, height: 640 };
+const previewColumnRect: Rect = {
+  width: previewRowRect.width - PREVIEW_HEADER_CONTROLS_WIDTH,
+  height: previewRowRect.height,
+};
+
+const observePreviewRect = (
+  instance: Virtualizer<HTMLDivElement, Element>,
+  onRect: (rect: Rect) => void,
+) => observeElementRect(instance, () => {
+  const element = instance.scrollElement;
+  if (!element) return;
+  const width = element.clientWidth || previewRowRect.width;
+  onRect({
+    width: instance.options.horizontal ? Math.max(1, width - PREVIEW_HEADER_CONTROLS_WIDTH) : width,
+    height: element.clientHeight || previewRowRect.height,
+  });
+});
 
 type OwnerRecordInspectorState = {
   readonly columnLabel: string;
@@ -101,8 +119,7 @@ export const PreviewTable = ({
     setInspectedRow(undefined);
   };
   useEscapeToClose(Boolean(inspectedRow), closeInspectedRow);
-  const { viewport, ref: previewScrollRef } =
-    useVirtualViewport<HTMLDivElement>();
+  const previewScrollRef = React.useRef<HTMLDivElement>(null);
   const formattingCacheRef = React.useRef<BoundedCache<string> | null>(null);
   if (!formattingCacheRef.current) formattingCacheRef.current = new BoundedCache(5000);
   const formattingCache = formattingCacheRef.current;
@@ -242,38 +259,31 @@ export const PreviewTable = ({
     PREVIEW_HEADER_HEIGHT +
     rows.length * PREVIEW_ROW_HEIGHT +
     (hasEmptyPreview ? 48 : 0);
-  const previewTableWidth = Math.max(
-    viewport.width,
-    PREVIEW_ROW_GUTTER_WIDTH +
-      columns.length * PREVIEW_COLUMN_WIDTH +
-      PREVIEW_HEADER_CONTROLS_WIDTH,
-  );
-  const headerColumnViewportWidth = Math.max(
-    0,
-    Math.min(
-      previewTableWidth,
-      viewport.scrollLeft + viewport.width - PREVIEW_HEADER_CONTROLS_WIDTH,
-    ),
-  );
-  const columnRange = virtualRange({
+  const previewTableWidth = PREVIEW_ROW_GUTTER_WIDTH +
+    columns.length * PREVIEW_COLUMN_WIDTH + PREVIEW_HEADER_CONTROLS_WIDTH;
+  const columnVirtualizer = useVirtualizer({
     count: columns.length,
-    offset: Math.max(0, viewport.scrollLeft - PREVIEW_ROW_GUTTER_WIDTH),
-    viewport: Math.max(
-      0,
-      viewport.width - PREVIEW_HEADER_CONTROLS_WIDTH -
-        Math.max(0, PREVIEW_ROW_GUTTER_WIDTH - viewport.scrollLeft),
-    ),
-    itemSize: PREVIEW_COLUMN_WIDTH,
+    getScrollElement: () => previewScrollRef.current,
+    horizontal: true,
+    estimateSize: () => PREVIEW_COLUMN_WIDTH,
+    initialRect: previewColumnRect,
+    observeElementRect: observePreviewRect,
+    paddingStart: PREVIEW_ROW_GUTTER_WIDTH,
     overscan: 2,
   });
-  const rowRange = virtualRange({
+  const rowVirtualizer = useVirtualizer({
     count: rows.length,
-    offset: Math.max(0, viewport.scrollTop - PREVIEW_HEADER_HEIGHT),
-    viewport: Math.max(0, viewport.height - PREVIEW_HEADER_HEIGHT),
-    itemSize: PREVIEW_ROW_HEIGHT,
+    getScrollElement: () => previewScrollRef.current,
+    estimateSize: () => PREVIEW_ROW_HEIGHT,
+    initialRect: previewRowRect,
+    observeElementRect: observePreviewRect,
+    paddingStart: PREVIEW_HEADER_HEIGHT,
     overscan: 3,
   });
-  const visibleColumns = columns.slice(columnRange.start, columnRange.end);
+  const visibleColumns = columnVirtualizer.getVirtualItems().map(({ index, start }) => ({
+    column: columns[index],
+    left: start,
+  }));
   const formattedCell = (rowIndex: number, column: ExplorerBuilderEmission, rawValue: unknown): string =>
     formattingCache.getOrSet(`display:${rowIndex}:${column.emissionId}`, () => formatPreviewCell(rawValue));
   const titledCell = (rowIndex: number, column: ExplorerBuilderEmission, rawValue: unknown): string =>
@@ -335,7 +345,7 @@ export const PreviewTable = ({
             data-testid="preview-table-content"
             className="relative"
             style={{
-              width: previewTableWidth,
+              width: `max(100%, ${previewTableWidth}px)`,
               height: previewContentHeight,
             }}
           >
@@ -346,7 +356,7 @@ export const PreviewTable = ({
               aria-colcount={columns.length}
               className="absolute left-0 top-0 text-left text-xs"
               style={{
-                width: previewTableWidth,
+                width: '100%',
                 height: PREVIEW_HEADER_HEIGHT + rows.length * PREVIEW_ROW_HEIGHT,
               }}
             >
@@ -357,12 +367,10 @@ export const PreviewTable = ({
             >
               <div
                 data-testid="preview-table-header-columns"
-                className="absolute inset-y-0 left-0 overflow-hidden"
-                style={{ width: headerColumnViewportWidth }}
+                className="absolute inset-0 overflow-hidden"
               >
-                <div className="relative h-full" style={{ width: previewTableWidth }}>
-                  {visibleColumns.map((column, visibleIndex) => {
-                    const columnIndex = columnRange.start + visibleIndex;
+                <div className="relative h-full">
+                  {visibleColumns.map(({ column, left }) => {
                     return (
                       <div
                         role="columnheader"
@@ -373,7 +381,7 @@ export const PreviewTable = ({
                         title={column.label}
                         className="absolute top-0 truncate px-4 font-semibold"
                         style={{
-                          left: PREVIEW_ROW_GUTTER_WIDTH + columnIndex * PREVIEW_COLUMN_WIDTH,
+                          left,
                           width: PREVIEW_COLUMN_WIDTH,
                           height: PREVIEW_HEADER_HEIGHT,
                         }}
@@ -393,8 +401,8 @@ export const PreviewTable = ({
                 </div>
               </div>
             </div>
-            {rows.slice(rowRange.start, rowRange.end).map((row, visibleRowIndex) => {
-              const rowIndex = rowRange.start + visibleRowIndex;
+            {rowVirtualizer.getVirtualItems().map(({ index: rowIndex, start }) => {
+              const row = rows[rowIndex];
               const rawIdentity = row.__loom_row_id;
               const rowIdentity = typeof rawIdentity === 'string'
                 ? rawIdentity
@@ -408,7 +416,7 @@ export const PreviewTable = ({
                   key={rowIndex}
                   className="construction-preview-data-row group/preview-row absolute left-0 right-0 bg-white hover:bg-slate-50"
                   style={{
-                    top: PREVIEW_HEADER_HEIGHT + rowIndex * PREVIEW_ROW_HEIGHT,
+                    top: start,
                     height: PREVIEW_ROW_HEIGHT,
                   }}
                 >
@@ -436,8 +444,7 @@ export const PreviewTable = ({
                       </span>
                     </button>
                   ) : null}
-                  {visibleColumns.map((column, visibleColumnIndex) => {
-                    const columnIndex = columnRange.start + visibleColumnIndex;
+                  {visibleColumns.map(({ column, left }) => {
                     const rawValue = row[column.publicColumn];
                     const arrayValue = Array.isArray(rawValue) ? rawValue : undefined;
                     const isOwnerRecords =
@@ -449,7 +456,7 @@ export const PreviewTable = ({
                         key={column.emissionId}
                         className="absolute top-0 max-w-56 overflow-hidden px-4 py-2.5 text-slate-700"
                         style={{
-                          left: PREVIEW_ROW_GUTTER_WIDTH + columnIndex * PREVIEW_COLUMN_WIDTH,
+                          left,
                           width: PREVIEW_COLUMN_WIDTH,
                           height: PREVIEW_ROW_HEIGHT,
                         }}

@@ -925,8 +925,8 @@ describe('PreviewTable column controls', () => {
         filterable: true,
         chartable: true,
       })),
-      rows: Array.from({ length: 1000 }, () =>
-        Object.fromEntries(wideColumns.map((value) => [value.column, 'value'])),
+      rows: Array.from({ length: 1000 }, (_, rowIndex) =>
+        Object.fromEntries(wideColumns.map((value) => [value.column, `Row ${rowIndex}, ${value.label}`])),
       ),
     };
     render(
@@ -938,6 +938,15 @@ describe('PreviewTable column controls', () => {
       }),
     );
 
+    expect(screen.getAllByRole('cell').length).toBeLessThanOrEqual(1500);
+
+    fireEvent.scroll(screen.getByTestId('preview-table-scroll'), {
+      target: { scrollTop: 44 * 400, scrollLeft: 152 * 70 },
+    });
+
+    expect(screen.getByRole('columnheader', { name: 'Column 70' })).toBeInTheDocument();
+    expect(screen.getByText('Row 400, Column 70')).toBeInTheDocument();
+    expect(screen.queryByText('Row 0, Column 0')).not.toBeInTheDocument();
     expect(screen.getAllByRole('cell').length).toBeLessThanOrEqual(1500);
   });
 
