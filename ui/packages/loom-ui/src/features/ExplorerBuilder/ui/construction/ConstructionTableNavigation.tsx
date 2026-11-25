@@ -1,6 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react';
+import { HeadlessMantineProvider, Popover } from '@mantine/core';
+import { anchoredPopoverTheme } from '../../dom/anchoredPopover';
 import { useDismissibleLayer } from '../../dom/useDismissibleLayer';
-import { useAnchoredPosition } from '../../dom/useAnchoredPosition';
 
 import type { ConstructionWorkspaceTable } from '../../model/constructionWorkspaceTable';
 
@@ -38,7 +39,13 @@ export const ConstructionTableNavigation = ({
   const [tableActionsOpen, setTableActionsOpen] = useState(false);
   const tableActionsRef = useDismissibleLayer<HTMLDivElement>(tableActionsOpen, setTableActionsOpen);
   const tableActionsButtonRef = useRef<HTMLButtonElement>(null);
-  const tableActionsPosition = useAnchoredPosition(tableActionsButtonRef, tableActionsOpen);
+  const closeTableActionsOnEscape = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Escape' || !tableActionsOpen) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setTableActionsOpen(false);
+    tableActionsButtonRef.current?.focus();
+  };
   return (
   <nav aria-label="Tables" className={`construction-table-tabs flex min-w-0 items-center py-1 ${compact ? 'gap-1' : 'flex-wrap gap-3'}`}>
     <h2 className="sr-only">Tables</h2>
@@ -79,78 +86,79 @@ export const ConstructionTableNavigation = ({
               <span className="min-w-0 truncate">{title}</span>
             </button>
             {selected ? (
-              <div
-                ref={tableActionsRef}
-                className="relative shrink-0"
-                onKeyDown={(event) => {
-                  if (event.key !== 'Escape' || !tableActionsOpen) return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setTableActionsOpen(false);
-                  tableActionsButtonRef.current?.focus();
-                }}
-              >
-                <button
-                  type="button"
-                  ref={tableActionsButtonRef}
-                  aria-label={`Actions for ${title}`}
-                  aria-haspopup="true"
-                  aria-expanded={tableActionsOpen}
-                  data-testid={`construction-table-actions-${table.outputId}`}
-                  disabled={disabled}
-                  onClick={() => setTableActionsOpen((open) => !open)}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-lg leading-none text-slate-600 hover:bg-slate-100 hover:text-slate-950 disabled:opacity-50"
-                  title={`Actions for ${title}`}
-                >
-                  ⋯
-                </button>
-                {tableActionsOpen ? (
-                  <div
-                    data-testid="construction-table-actions-menu"
-                    className="fixed z-[120] grid min-w-36 rounded-md border border-slate-200 bg-white p-1 shadow-lg"
-                    style={tableActionsPosition ?? { visibility: 'hidden' }}
+              <div ref={tableActionsRef} className="relative shrink-0" onKeyDown={closeTableActionsOnEscape}>
+                <HeadlessMantineProvider theme={anchoredPopoverTheme}>
+                  <Popover
+                    opened={tableActionsOpen}
+                    onChange={setTableActionsOpen}
+                    position="bottom-end"
+                    zIndex={120}
+                    closeOnClickOutside={false}
                   >
-                    <button
-                      type="button"
-                      aria-label={`Rename ${title}`}
-                      data-testid={`construction-rename-table-${table.outputId}`}
-                      disabled={disabled}
-                      onClick={() => {
-                        setTableActionsOpen(false);
-                        onRenameTable(table.outputId);
-                      }}
-                      className="rounded px-2 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-45"
+                    <Popover.Target>
+                      <button
+                        type="button"
+                        ref={tableActionsButtonRef}
+                        aria-label={`Actions for ${title}`}
+                        aria-haspopup="true"
+                        aria-expanded={tableActionsOpen}
+                        data-testid={`construction-table-actions-${table.outputId}`}
+                        disabled={disabled}
+                        onClick={() => setTableActionsOpen((open) => !open)}
+                        className="flex h-7 w-7 items-center justify-center rounded-md text-lg leading-none text-slate-600 hover:bg-slate-100 hover:text-slate-950 disabled:opacity-50"
+                        title={`Actions for ${title}`}
+                      >
+                        ⋯
+                      </button>
+                    </Popover.Target>
+                    <Popover.Dropdown
+                      data-testid="construction-table-actions-menu"
+                      data-dismissible-layer
+                      className="grid min-w-36 rounded-md border border-slate-200 bg-white p-1 shadow-lg"
+                      style={{ position: 'fixed' }}
                     >
-                      Rename
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Duplicate table"
-                      data-testid="construction-duplicate-table"
-                      disabled={disabled}
-                      onClick={() => {
-                        setTableActionsOpen(false);
-                        onDuplicateTable();
-                      }}
-                      className="rounded px-2 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-45"
-                    >
-                      Duplicate
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Delete table"
-                      data-testid="construction-delete-table"
-                      disabled={disabled}
-                      onClick={() => {
-                        setTableActionsOpen(false);
-                        onDeleteTable();
-                      }}
-                      className="rounded px-2 py-1.5 text-left text-xs text-red-700 hover:bg-red-50 disabled:opacity-45"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                ) : null}
+                      <button
+                        type="button"
+                        aria-label={`Rename ${title}`}
+                        data-testid={`construction-rename-table-${table.outputId}`}
+                        disabled={disabled}
+                        onClick={() => {
+                          setTableActionsOpen(false);
+                          onRenameTable(table.outputId);
+                        }}
+                        className="rounded px-2 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-45"
+                      >
+                        Rename
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Duplicate table"
+                        data-testid="construction-duplicate-table"
+                        disabled={disabled}
+                        onClick={() => {
+                          setTableActionsOpen(false);
+                          onDuplicateTable();
+                        }}
+                        className="rounded px-2 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-45"
+                      >
+                        Duplicate
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Delete table"
+                        data-testid="construction-delete-table"
+                        disabled={disabled}
+                        onClick={() => {
+                          setTableActionsOpen(false);
+                          onDeleteTable();
+                        }}
+                        className="rounded px-2 py-1.5 text-left text-xs text-red-700 hover:bg-red-50 disabled:opacity-45"
+                      >
+                        Delete
+                      </button>
+                    </Popover.Dropdown>
+                  </Popover>
+                </HeadlessMantineProvider>
               </div>
             ) : null}
           </div>
