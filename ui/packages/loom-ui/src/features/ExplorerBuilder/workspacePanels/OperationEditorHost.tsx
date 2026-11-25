@@ -2,7 +2,7 @@ import React, { useId, useState } from 'react';
 import { useColumnRuleInventory, type ColumnRuleInventoryScope } from '../columnRuleInventory';
 import { observedCategorySystems, observedExtensionPaths, observedIdentifierSystems } from '../model/columnRuleInventory';
 import { columnRulePresets, type ColumnRulePreset } from '../model/sourceColumnRule';
-import type { AddColumnsGraphSource, AddColumnsView } from '../authoring/useAddColumns';
+import type { AddColumnsGraphSource, AddColumnsView } from '../session/useAddColumns';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import type { Construction, ConstructionCapabilitiesResponse, ConstructionChoiceSelection, ConstructionStep } from '../../../contracts/types';
 import type { LoomClient } from '../../../client/api';
@@ -15,7 +15,7 @@ import type { ConstructionReshapeEditorEntry } from '../constructionOperations/C
 import { ConstructionColumnSelection } from '../constructionWorkspace/ConstructionColumnSelection';
 import { ConceptCatalog } from '../components/ConceptCatalog';
 import { useConstructionLifecycle } from '../session/useConstructionLifecycle';
-import { useCombineCatalog } from '../authoring/useCombineCatalog';
+import { useCombineCatalog } from '../session/useCombineCatalog';
 import { ConstructionOperationEditor } from '../constructionOperations/ConstructionOperationEditor';
 import { ConstructionReshapeEditor } from '../constructionOperations/ConstructionReshapeEditor';
 import { FilterRowsEditor } from '../constructionOperations/FilterRowsEditor';

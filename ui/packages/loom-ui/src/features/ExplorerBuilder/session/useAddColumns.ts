@@ -1,4 +1,5 @@
-import { useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import { createAddColumnsState, type AddColumnsView } from './addColumnsState';
+import { useMemo, useState, useSyncExternalStore, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type React from 'react';
 import type { useLoomClient } from '../../../react';
 import type { Construction, ConstructionStep, ConstructionChoiceSelection, ConstructionCapabilitiesResponse, ExplorerBuilderCommand } from '../../../contracts/types';
@@ -10,17 +11,16 @@ import { constructionAppendStageFor } from '../model/constructionStages';
 import { relatedSourceOutputLabel } from '../constructionWorkspace/relatedSourceOutputLabel';
 import { sameConstructionRoute } from '../model/populationRoutes';
 import { hasPairedPreviewRows } from '../model/workspaceGuards';
-import { useBrowserSubscription } from '../hooks/useBrowserSubscription';
 import type { ConceptCatalogView } from '../components/ConceptCatalog';
 import type { ConstructionHistorySelection, ConstructionOperationFamily } from '../constructionWorkspace/ConstructionWorkspace';
-import type { useConstructionLifecycle } from '../session/useConstructionLifecycle';
-import type { useCommandQueueActions } from '../session/useCommandQueueActions';
+import type { useConstructionLifecycle } from './useConstructionLifecycle';
+import type { useCommandQueueActions } from './useCommandQueueActions';
 import type { useCombineCatalog } from './useCombineCatalog';
 import type { PreviewLimit } from '../model/previewRecovery';
-import type { AutomaticPreviewIdentity } from '../session/automaticPreview';
-import type { AppliedPreviewHandoff } from '../session/appliedChoicePreview';
+import type { AutomaticPreviewIdentity } from './automaticPreview';
+import type { AppliedPreviewHandoff } from './appliedChoicePreview';
 
-export type AddColumnsView = ConceptCatalogView | 'advanced';
+export type { AddColumnsView } from './addColumnsState';
 
 export interface AddColumnsGraphSource {
   readonly occurrenceId: string;
@@ -84,21 +84,19 @@ export const useAddColumns = ({
   setRowIntentSession,
   opaqueId,
 }: UseAddColumnsOptions) => {
-  const addColumnsRequest = useRef<AbortController | undefined>(undefined);
-  const [addColumnsView, setAddColumnsView] = useState<AddColumnsView>('all');
-  const [addColumnsViewRevision, setAddColumnsViewRevision] = useState(0);
-  useBrowserSubscription((_onStoreChange) => () => {
-    addColumnsRequest.current?.abort();
-    addColumnsRequest.current = undefined;
-  }, [state.explorerId, table?.outputId, state.catalog.snapshotToken, state.draftVersion, state.draftDigest,
-    graphSource?.occurrenceId, activeConstructionFamily]);
+  const [addColumns] = useState(createAddColumnsState);
+  const requestScopeKey = JSON.stringify([
+    state.explorerId, table?.outputId, state.catalog.snapshotToken, state.draftVersion, state.draftDigest,
+    graphSource?.occurrenceId, activeConstructionFamily,
+  ]);
+  const subscribe = useMemo(() => addColumns.subscribeInScope(requestScopeKey), [addColumns, requestScopeKey]);
+  const { addColumnsView, addColumnsViewRevision } = useSyncExternalStore(subscribe, addColumns.getSnapshot, addColumns.getSnapshot);
 
   const addSourceRouteContext = graphSource?.nodeId && !graphSource.isRoot && !graphSource.exactRelated
     ? { occurrenceId: graphSource.occurrenceId, nodeId: graphSource.nodeId }
     : undefined;
   const selectAddColumnsView = (view: AddColumnsView) => {
-    if (addColumnsView !== view) setAddColumnsViewRevision((revision) => revision + 1);
-    setAddColumnsView(view);
+    addColumns.setView(view, addColumnsView !== view);
   };
   const buildRelatedSourceCandidate = (
     selection: CatalogChoiceIntent,
@@ -451,9 +449,8 @@ export const useAddColumns = ({
     }
     const admission = admitAuthoringRequest(current.tables, { kind: 'add-columns-proposal', outputId: table.outputId });
     if (admission.kind === 'refused') throw new Error(admission.refusal.message);
-    addColumnsRequest.current?.abort();
-    const controller = new AbortController();
-    addColumnsRequest.current = controller;
+    const request = addColumns.startRequest(requestScopeKey);
+    if (!request) throw new Error('The table changed while its column preview was loading. Choose the columns again.');
     try {
       const response = await loomClient.proposeConstructionChoices({
         project: projectId,
@@ -470,10 +467,10 @@ export const useAddColumns = ({
           ...(selection.title ? { title: selection.title } : {}),
         })),
         limit: proposalLimit,
-      }, controller.signal);
+      }, request.signal);
       const latest = draftAccess.getState();
       if (
-        controller.signal.aborted ||
+        !request.isCurrent() ||
         ownerKey !== proposalOwnerKey ||
         previewLimit !== proposalLimit ||
         latest.explorerId !== current.explorerId ||
@@ -511,7 +508,7 @@ export const useAddColumns = ({
         setActiveConstructionFamily(undefined);
       }
     } finally {
-      if (addColumnsRequest.current === controller) addColumnsRequest.current = undefined;
+      request.finish();
     }
   };
 
@@ -524,8 +521,7 @@ export const useAddColumns = ({
   return {
     panel: { view: addColumnsView },
     restorePanel: (panel: { view: typeof addColumnsView } | undefined) => {
-      setAddColumnsView(panel?.view ?? 'fields');
-      setAddColumnsViewRevision((revision) => revision + 1);
+      addColumns.setView(panel?.view ?? 'fields', true);
     },
     addSourceRouteContext,
     addColumnsView,

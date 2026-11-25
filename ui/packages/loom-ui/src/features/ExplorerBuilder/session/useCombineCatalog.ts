@@ -1,3 +1,4 @@
+import { RequestOwner } from '../../../data/requests';
 import { useRef, useState } from 'react';
 import type { useLoomClient } from '../../../react';
 import type { ConstructionCombineCatalog, ConstructionCombinePublishedRevision } from '../constructionOperations/combineEditorTypes';
@@ -39,8 +40,7 @@ export const useCombineCatalog = ({
     catalog: { kind: 'loading' },
     loadingMore: false,
   });
-  const combineCatalogController = useRef<AbortController | undefined>(undefined);
-  const combineCatalogRequestGeneration = useRef(0);
+  const [requests] = useState(() => new RequestOwner());
   const combineCatalogOwnerRef = useRef({ ownerKey, explorerId });
   combineCatalogOwnerRef.current = { ownerKey, explorerId };
 
@@ -57,14 +57,10 @@ export const useCombineCatalog = ({
   };
   const combineCatalogIdentity = combineCatalogIdentityFor(state);
   const invalidateCombineCatalogRequest = () => {
-    combineCatalogRequestGeneration.current += 1;
-    combineCatalogController.current?.abort();
-    combineCatalogController.current = undefined;
+    requests.cancel('combine-catalog');
   };
   const cancelCombineCatalogRequest = () => {
-    combineCatalogRequestGeneration.current += 1;
-    combineCatalogController.current?.abort();
-    combineCatalogController.current = undefined;
+    requests.cancel('combine-catalog');
     setCombineCatalogLoad((current) => current.loadingMore ? { ...current, loadingMore: false } : current);
   };
   const loadCombineCatalogPage = async (cursor?: string) => {
@@ -87,10 +83,9 @@ export const useCombineCatalog = ({
       previous.loadingMore
     )) return;
 
-    combineCatalogController.current?.abort();
-    const requestGeneration = ++combineCatalogRequestGeneration.current;
-    const controller = new AbortController();
-    combineCatalogController.current = controller;
+    requests.setIdentity(identity);
+    const request = requests.start('combine-catalog', identity);
+    if (!request) return;
     if (cursor && previous?.catalog.kind === 'ready') {
       setCombineCatalogLoad({ ...previous, loadingMore: true, loadMoreError: undefined });
     } else {
@@ -107,11 +102,10 @@ export const useCombineCatalog = ({
         expectedDraftDigest: requestState.draftDigest,
         ...(cursor ? { cursor } : {}),
         limit: 100,
-      }, controller.signal);
+      }, request.signal);
       const latest = draftAccess.getState();
       if (
-        controller.signal.aborted ||
-        requestGeneration !== combineCatalogRequestGeneration.current ||
+        !request.isCurrent() ||
         combineCatalogOwnerRef.current.ownerKey !== ownerKey ||
         combineCatalogOwnerRef.current.explorerId !== requestState.explorerId ||
         identity !== combineCatalogIdentityFor(latest)
@@ -147,7 +141,7 @@ export const useCombineCatalog = ({
       setCombineCatalogLoad((current) => {
         if (
           current.identity !== identity ||
-          requestGeneration !== combineCatalogRequestGeneration.current ||
+          !request.isCurrent() ||
           combineCatalogOwnerRef.current.ownerKey !== ownerKey ||
           combineCatalogOwnerRef.current.explorerId !== requestState.explorerId
         ) return current;
@@ -164,8 +158,7 @@ export const useCombineCatalog = ({
       });
     } catch (error) {
       if (
-        controller.signal.aborted ||
-        requestGeneration !== combineCatalogRequestGeneration.current ||
+        !request.isCurrent() ||
         combineCatalogOwnerRef.current.ownerKey !== ownerKey ||
         combineCatalogOwnerRef.current.explorerId !== requestState.explorerId
       ) return;

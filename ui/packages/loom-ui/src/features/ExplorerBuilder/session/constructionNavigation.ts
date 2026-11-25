@@ -6,10 +6,10 @@ import { createReshapeEditorEntry, publicScalarListColumnIds, type ConstructionR
 import { constructionAppendStageFor } from '../model/constructionStages';
 import { admitAuthoringRequest } from '../model/admission';
 import type { useConstructionLifecycle } from './useConstructionLifecycle';
-import type { useCombineCatalog } from '../authoring/useCombineCatalog';
+import type { useCombineCatalog } from './useCombineCatalog';
 import type { useCommandQueueActions } from './useCommandQueueActions';
 import type { useRecipeEditingOwner } from './useRecipeEditingOwner';
-import type { AddColumnsView } from '../authoring/useAddColumns';
+import type { AddColumnsView } from './useAddColumns';
 
 type UseConstructionNavigationOptions = {
   readonly ownerKey: string;
