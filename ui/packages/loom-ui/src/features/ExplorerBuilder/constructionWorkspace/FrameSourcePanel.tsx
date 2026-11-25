@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
-import { useLoomClient, useQuery } from '../../../react';
+import { useFrameCategories, useFrameSourceOptions } from '../session/frameSourceQueries';
 import type { FrameDefinition, FrameSourceOption, SemanticInventoryItem } from '../../../contracts/types';
 import { catalogChoiceIntent, catalogItemAvailability, type CatalogChoiceIntent, type CatalogItem } from '../model/catalogItems';
 
@@ -74,7 +74,6 @@ const CategoryPicker = ({
   readonly disabled: boolean;
   readonly onAddSelected: (selections: ReadonlyArray<CatalogChoiceIntent>) => Promise<unknown>;
 }) => {
-  const client = useLoomClient();
   const [searchInput, setSearchInput] = useState('');
   const [query, setQuery] = useState('');
   const [cursorState, setCursorState] = useState<{ readonly searchKey: string; readonly cursor: string }>();
@@ -90,20 +89,10 @@ const CategoryPicker = ({
     frameIdentity(frame), query,
   ]);
   const currentCursor = cursorState?.searchKey === searchKey ? cursorState.cursor : undefined;
-  const categoryQuery = useQuery(async (signal) => {
-    const response = await client.browseSemanticInventory({
-      project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot,
-      frameId: frame.id, query, cursor: currentCursor, limit: 50,
-      requestId: `frame-categories-${window.crypto.randomUUID()}`,
-    }, signal);
-    if (response.frameId !== frame.id || response.frameSource?.id !== frame.id) {
-      throw new Error('Loom returned categories for a different framing source.');
-    }
-    if (response.state !== 'complete') {
-      throw new Error(`The coded-value inventory is ${response.state}. Try again when it is complete.`);
-    }
-    return { entries: response.entries, nextCursor: response.nextCursor };
-  }, [authResourcePath, client, currentCursor, explorerId, frame.id, frameIdentity(frame), outputId, project, query, rowRoot, snapshotToken]);
+  const categoryQuery = useFrameCategories({
+    project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot, query,
+    frameId: frame.id, frameKey: frameIdentity(frame), currentCursor,
+  });
   const previousPage = loadedPages?.searchKey === searchKey ? loadedPages.value : undefined;
   const state: LoadState<{ entries: ReadonlyArray<SemanticInventoryItem>; nextCursor?: string }> = categoryQuery.error
     ? { kind: 'error', message: errorMessage(categoryQuery.error) }
@@ -238,7 +227,6 @@ export const FrameSourcePanel = ({
   readonly onAddSelected: (selections: ReadonlyArray<CatalogChoiceIntent>) => Promise<unknown>;
   readonly onRemoveColumn: (column: string) => Promise<boolean>;
 }) => {
-  const client = useLoomClient();
   const [queryInput, setQueryInput] = useState('');
   const [query, setQuery] = useState('');
   const [cursorState, setCursorState] = useState<{ readonly searchKey: string; readonly cursor: string }>();
@@ -279,16 +267,10 @@ export const FrameSourcePanel = ({
   const sourceSearchKey = sourceSearchKeyFor(query);
   const cursor = cursorState?.searchKey === sourceSearchKey ? cursorState.cursor : undefined;
   const sourcePickerEnabled = sourcePickerOpen && Boolean(snapshotToken && outputId && rowRoot);
-  const sourceQuery = useQuery(async (signal) => {
-    const response = await client.browseFrameSourceOptions({
-      project, explorerId, authResourcePath, snapshotToken, outputId, resourceType: sourceResourceType, query, cursor, limit: 20,
-      requestId: `frame-source-options-${window.crypto.randomUUID()}`,
-    }, signal);
-    if (response.outputId !== outputId || response.snapshotToken !== snapshotToken) {
-      throw new Error('Loom returned framing choices for another table or dataset.');
-    }
-    return { sources: response.sources, nextCursor: response.nextCursor };
-  }, [authResourcePath, client, cursor, explorerId, outputId, project, query, rowRoot, snapshotToken, sourceResourceType], sourcePickerEnabled);
+  const sourceQuery = useFrameSourceOptions({
+    project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot, query,
+    cursor, sourceResourceType, sourcePickerEnabled,
+  });
   const priorSourcePage = loadedSourcePages?.searchKey === sourceSearchKey ? loadedSourcePages.value : undefined;
   const state: LoadState<{ sources: ReadonlyArray<FrameSourceOption>; nextCursor?: string }> = !sourcePickerEnabled
     ? { kind: 'loading' }

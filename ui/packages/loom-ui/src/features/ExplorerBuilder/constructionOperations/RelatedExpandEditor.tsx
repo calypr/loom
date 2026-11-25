@@ -1,7 +1,6 @@
 import type { RelatedExpandQueryOwner } from '../session/commandQueue';
-import { sameChoiceRequestScope } from '../../../contracts/identity';
-import React, { useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { useLoomClient, useQuery } from '../../../react';
+import React, { useState } from 'react';
+import { uniqueRoutes, useRelatedExpandRoutes } from '../session/useRelatedExpandRoutes';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
@@ -23,52 +22,16 @@ type RouteChoice = RelatedExpandChoiceSearchResponse['choices'][number];
 type CandidateIntent = Pick<ConstructionProposalRequest, 'candidateConstruction' | 'changedStepId'>;
 type EmptyPolicy = NonNullable<RelatedExpandOperation['relatedExpand']['emptyPolicy']>;
 
-interface RouteQueryCheckpoint {
-  readonly queryKey: string;
-  readonly choices: ReadonlyArray<RouteChoice>;
-  readonly truncated: boolean;
-  readonly nextScope?: 'saved' | 'catalog';
-}
-
-interface ActiveRoutePage {
-  readonly queryKey: string;
-  readonly task: Promise<void>;
-}
-
-
 const contributorQuantifier = (choice: ContributorChoice) =>
   choice.source.cardinality === 'many' ? { quantifier: 'ANY' as const } : {};
 
 const routeLabel = (choice: RouteChoice): string => routePath(choice.route);
-const routeDisplayKey = (choice: RouteChoice): string => JSON.stringify([choice.nodeId, choice.route.map(({ edgeId, matchMode }) => [edgeId, matchMode])]);
-const uniqueRoutes = (items: ReadonlyArray<RouteChoice>): RouteChoice[] => {
-  const seen = new Set<string>();
-  return items.filter((item) => {
-    const key = routeDisplayKey(item);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-};
-
 const availableColumnName = (base: string, columns: ReadonlyArray<{ readonly name: string }>): string => {
   const used = new Set(columns.map((column) => column.name.toLowerCase()));
   let name = base;
   for (let suffix = 2; used.has(name.toLowerCase()); suffix += 1) name = `${base}_${suffix}`;
   return name;
 };
-
-const choicesMatchRequest = (
-  result: RelatedExpandChoiceSearchResponse,
-  snapshotToken: string,
-  draftVersion: number,
-  draftDigest: string,
-  outputId: string,
-  stageId: string,
-  anchorColumnId: string,
-  targetResourceType: string,
-): boolean => sameChoiceRequestScope(result, { snapshotToken, draftVersion, draftDigest, outputId, stageId })
-  && result.choices.every((item) => item.anchorColumnId === anchorColumnId && item.targetResourceType === targetResourceType);
 
 const candidateFor = (
   construction: Construction,
@@ -162,7 +125,6 @@ export const RelatedExpandEditor = ({
   readonly queryOwnerRef?: React.RefObject<RelatedExpandQueryOwner | null>;
   readonly onCandidateChange: (candidate: CandidateIntent | undefined) => void;
 }) => {
-  const client = useLoomClient();
   const stage = capabilities.selectedStage;
   const saved = step?.operation.relatedExpand;
   const anchors = stage.relatedExpandAnchors ?? (stage.activeRelatedRecord ? [] : [{
@@ -209,91 +171,14 @@ export const RelatedExpandEditor = ({
   const aboutRef = useDismissibleLayer<HTMLDivElement>(aboutOpen, setAboutOpen);
   const selectedAnchor = anchors.find((anchor) => anchor.anchorColumnId === anchorColumnId);
   const startsFromSavedGraph = selectedAnchor?.kind === 'root' || selectedAnchor?.kind === 'rootContributors';
-  const routeQueryKey = JSON.stringify([
-    project, explorerId, authResourcePath ?? '', snapshotToken,
-    capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType, startsFromSavedGraph,
-  ]);
-  const [loadedChoices, setLoadedChoices] = useState<RouteQueryCheckpoint>();
-  const routeCheckpointRef = useRef<RouteQueryCheckpoint | undefined>(undefined);
-  const routeQueryPausedRef = useRef(false);
-  const activeRoutePageRef = useRef<ActiveRoutePage | undefined>(undefined);
-  const choices = loadedChoices?.queryKey === routeQueryKey ? loadedChoices.choices : [];
-  const routeSearchTruncated = loadedChoices?.queryKey === routeQueryKey && loadedChoices.truncated;
   const savedOutput = step?.outputs.find((column) => column.id === outputColumnId);
   const [outputName, setOutputName] = useState(savedOutput?.name ?? '');
   const [outputLabel, setOutputLabel] = useState(savedOutput?.label ?? '');
   const targetTypes = [...new Set(catalog.nodes.map((node) => node.resourceType))].sort();
-  const routeQuery = useQuery(async (signal) => {
-    let checkpoint = routeCheckpointRef.current;
-    if (checkpoint?.queryKey !== routeQueryKey) {
-      checkpoint = { queryKey: routeQueryKey, choices: [], truncated: false, nextScope: startsFromSavedGraph ? 'saved' : 'catalog' };
-      routeCheckpointRef.current = checkpoint;
-      routeQueryPausedRef.current = false;
-    }
-    while (checkpoint.nextScope && !signal.aborted && !routeQueryPausedRef.current) {
-      const scope = checkpoint.nextScope;
-      const previous = checkpoint;
-      const task = (async () => {
-        const result = await client.searchRelatedExpandChoices({
-          project, explorerId, authResourcePath, snapshotToken, outputId,
-          expectedDraftVersion: capabilities.draftVersion,
-          expectedDraftDigest: capabilities.draftDigest,
-          stageId: stage.id, anchorColumnId, targetResourceType, limit: 12,
-          ...(scope === 'saved' ? { savedGraphOnly: true } : {}),
-          requestId: `related-expand-choices-${window.crypto.randomUUID()}`,
-        }, signal);
-        if (signal.aborted) return;
-        if (!choicesMatchRequest(result, snapshotToken, capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType)) {
-          throw new Error('The available paths changed. Reload this table before expanding records.');
-        }
-        if (!result.complete && !result.nextCursor && !result.truncated) {
-          throw new Error('Could not finish loading relationship paths. Reopen this editor to retry.');
-        }
-        const next: RouteQueryCheckpoint = {
-          queryKey: routeQueryKey,
-          choices: uniqueRoutes([...previous.choices, ...result.choices]),
-          truncated: previous.truncated || result.truncated || Boolean(result.nextCursor),
-          nextScope: scope === 'saved' ? 'catalog' : undefined,
-        };
-        checkpoint = next;
-        routeCheckpointRef.current = next;
-        setLoadedChoices(next);
-      })();
-      const activePage: ActiveRoutePage = { queryKey: routeQueryKey, task };
-      activeRoutePageRef.current = activePage;
-      try {
-        await task;
-      } finally {
-        if (activeRoutePageRef.current === activePage) activeRoutePageRef.current = undefined;
-      }
-    }
-    return checkpoint.choices;
-  }, [client, authResourcePath, explorerId, project, snapshotToken, capabilities.draftVersion,
-    capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType, startsFromSavedGraph],
-  Boolean(targetResourceType && anchorColumnId));
-  const queryOwner = useMemo<RelatedExpandQueryOwner>(() => ({
-    draftVersion: capabilities.draftVersion,
-    draftDigest: capabilities.draftDigest,
-    pauseAndDrain: async () => {
-      if (queryOwnerRef && queryOwnerRef.current !== queryOwner) return;
-      routeQueryPausedRef.current = true;
-      const activePage = activeRoutePageRef.current;
-      if (activePage?.queryKey === routeQueryKey) {
-        await activePage.task.then(() => undefined, () => undefined);
-      }
-    },
-    resume: () => {
-      if (queryOwnerRef && queryOwnerRef.current !== queryOwner) return;
-      routeQueryPausedRef.current = false;
-      const checkpoint = routeCheckpointRef.current;
-      if (!activeRoutePageRef.current && checkpoint?.queryKey === routeQueryKey && checkpoint.nextScope) void routeQuery.refetch();
-    },
-  }), [capabilities.draftDigest, capabilities.draftVersion, queryOwnerRef, routeQuery.refetch, routeQueryKey]);
-  useImperativeHandle(queryOwnerRef ?? null, () => queryOwner, [queryOwner]);
-  const loading = routeQuery.isFetching;
-  const error = routeQuery.error instanceof Error
-    ? routeQuery.error.message
-    : routeQuery.error ? 'Could not load related paths.' : '';
+  const { choices, routeSearchTruncated, loading, error, clearRoutes, retry } = useRelatedExpandRoutes({
+    project, explorerId, authResourcePath, snapshotToken, outputId,
+    capabilities, anchorColumnId, targetResourceType, startsFromSavedGraph, queryOwnerRef,
+  });
   const staleRouteSearch = error === 'The available paths changed. Reload this table before expanding records.';
 
 
@@ -367,7 +252,7 @@ export const RelatedExpandEditor = ({
               setChoice(undefined);
               setCondition({ kind: 'ALL' });
               setOtherRoutesOpen(false);
-                setLoadedChoices({ queryKey: routeQueryKey, choices: [], truncated: false });
+                clearRoutes();
               onCandidateChange(undefined);
             }} className="rounded border border-slate-300 bg-white px-3 py-2">
               {anchors.map((anchor) => <option key={anchor.anchorColumnId} value={anchor.anchorColumnId}>{anchor.label}</option>)}
@@ -382,7 +267,7 @@ export const RelatedExpandEditor = ({
             setChoice(undefined);
             setCondition({ kind: 'ALL' });
             setOtherRoutesOpen(false);
-            setLoadedChoices({ queryKey: routeQueryKey, choices: [], truncated: false });
+            clearRoutes();
             const suggested = availableColumnName(`related_${target.toLowerCase()}_id`, stage.columns);
             setOutputName(suggested);
             setOutputLabel(`${target} FHIR resource ID`);
@@ -396,7 +281,7 @@ export const RelatedExpandEditor = ({
       {loading ? <p role="status" className="text-sm text-slate-600">Finding relationship paths…</p> : null}
       {error ? <p role="alert" className="text-sm text-red-800">{error}</p> : null}
       {error && !loading && !staleRouteSearch ? <button type="button" disabled={disabled}
-        onClick={() => void routeQuery.refetch()} className="justify-self-start text-sm text-blue-800 underline">
+        onClick={() => void retry()} className="justify-self-start text-sm text-blue-800 underline">
         Retry finding paths
       </button> : null}
       {routeSearchTruncated && !loading ? <p role="status" data-testid="construction-related-route-truncation" className="text-sm text-amber-900">
