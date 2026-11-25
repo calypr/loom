@@ -1,4 +1,7 @@
+import { opaqueId } from './builderIds';
 import { useBuilderActions, useBuilderSession } from './BuilderSessionProvider';
+import { useWorkspaceUiActions } from './useWorkspaceUi';
+import type { useFirstTableActions } from './useFirstTableActions';
 import { selectedTable } from '../model/authoring';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import {
@@ -14,19 +17,13 @@ import type { useCommandQueueActions } from './useCommandQueueActions';
 
 type UseTableExplorerCrudOptions = {
   readonly recipeMutationAllowed: () => boolean;
-  readonly isFirstTableActionPending: () => boolean;
-  readonly tableCreatorOpen: boolean;
-  readonly setFirstTableName: (name: string) => void;
-  readonly setTableCreatorOpen: Dispatch<SetStateAction<boolean>>;
+  readonly firstTable: Pick<ReturnType<typeof useFirstTableActions>, 'isFirstTableActionPending' | 'tableCreatorOpen' | 'setFirstTableName' | 'setTableCreatorOpen'>;
   readonly applyCommands: ReturnType<typeof useCommandQueueActions>['applyCommands'];
   readonly selectExplorer: (explorerId: string) => void;
   readonly onExplorerChange?: (explorerId: string) => void;
   readonly explorers: Pick<ReturnType<typeof useGetExplorerAuthoringExplorersQuery>, 'data' | 'refetch'>;
   readonly capabilities: Pick<ReturnType<typeof useGetExplorerAuthoringCapabilityV2Query>, 'data'>;
-  readonly effectiveExplorerId: string;
   readonly invalidateCompile: () => void;
-  readonly setMessage: Dispatch<SetStateAction<string | undefined>>;
-  readonly opaqueId: (prefix: 'output' | 'tab') => string;
 };
 
 type UseTableExplorerCrudResult = {
@@ -42,14 +39,15 @@ type UseTableExplorerCrudResult = {
 };
 
 export const useTableExplorerCrud = ({
-  recipeMutationAllowed, isFirstTableActionPending,
-  tableCreatorOpen, setFirstTableName, setTableCreatorOpen, applyCommands,
+  recipeMutationAllowed, firstTable, applyCommands,
   selectExplorer, onExplorerChange, explorers, capabilities,
-  effectiveExplorerId, invalidateCompile, setMessage, opaqueId,
+  invalidateCompile,
 }: UseTableExplorerCrudOptions): UseTableExplorerCrudResult => {
   const { state, draftAccess, builderQueryArgs } = useBuilderSession(draft => draft);
   const { dispatch, rememberSelectedTable } = useBuilderActions();
-  const { project: projectId, authResourcePath } = builderQueryArgs;
+  const { setMessage } = useWorkspaceUiActions();
+  const { isFirstTableActionPending, tableCreatorOpen, setFirstTableName, setTableCreatorOpen } = firstTable;
+  const { project: projectId, authResourcePath, explorerId } = builderQueryArgs;
   const table = selectedTable(state);
   const [createExplorer, createStatus] = useBuilderMutation('createExplorer');
   const [deleteExplorer, deleteStatus] = useBuilderMutation('deleteExplorer');
@@ -146,16 +144,16 @@ export const useTableExplorerCrud = ({
   const deleteCurrentExplorer = async () => {
     if (!capabilities.data?.features.deleteExplorer) return;
     const current = (explorers.data ?? []).find(
-      (explorer) => explorer.explorerId === effectiveExplorerId,
+      (explorer) => explorer.explorerId === explorerId,
     );
     const fallback =
       (explorers.data ?? []).find(
         (explorer) =>
-          explorer.explorerId !== effectiveExplorerId &&
+          explorer.explorerId !== explorerId &&
           explorer.explorerId === 'dataframe-default',
       ) ??
       (explorers.data ?? []).find(
-        (explorer) => explorer.explorerId !== effectiveExplorerId,
+        (explorer) => explorer.explorerId !== explorerId,
       );
     if (!current || !fallback) return;
     if (
@@ -167,9 +165,9 @@ export const useTableExplorerCrud = ({
     try {
       await deleteExplorer({
         project: projectId,
-        explorerId: effectiveExplorerId,
+        explorerId,
         authResourcePath,
-        requestId: `delete-explorer-${effectiveExplorerId}`,
+        requestId: `delete-explorer-${explorerId}`,
       }).unwrap();
       invalidateCompile();
       selectExplorer(fallback.explorerId);

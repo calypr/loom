@@ -2,12 +2,12 @@ import { createContext, useContext, useState, useSyncExternalStore, type ReactNo
 import type { ConstructionOperationFamily } from '../model/constructionOperationFamily';
 import type { ReshapeEntryKind, ReshapeForm } from '../model/reshapeForms';
 import type { ColumnSelectionState } from './workspaceSelection';
-import type { useAddColumns } from './useAddColumns';
+import type { AddColumnsView } from './addColumnsState';
 import { createWorkspaceUi } from './workspaceUi';
 
 type OccurrencePanel = {
   readonly family: ConstructionOperationFamily | undefined;
-  readonly addColumns: ReturnType<typeof useAddColumns>['panel'];
+  readonly addColumns: { readonly view: AddColumnsView };
   readonly reshapeEntryKind: ReshapeEntryKind;
   readonly reshapeFormKind: ReshapeForm['kind'];
   readonly columnSelection: ColumnSelectionState;

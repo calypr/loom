@@ -11,7 +11,7 @@ import type { useConstructionLifecycle } from './useConstructionLifecycle';
 import type { useCombineCatalog } from './useCombineCatalog';
 import type { useCommandQueueActions } from './useCommandQueueActions';
 import type { useRecipeEditingOwner } from './useRecipeEditingOwner';
-import type { AddColumnsView } from './useAddColumns';
+import type { AddColumnsView } from './addColumnsState';
 
 type UseConstructionNavigationOptions = {
   readonly ownerKey: string;

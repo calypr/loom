@@ -1,11 +1,14 @@
+import { opaqueId } from './builderIds';
+import type { useConstructionNavigationState } from './constructionNavigation';
+import type { useWorkspaceSelection } from './useWorkspaceSelection';
 import { sameCatalogSnapshot, sameDraftVersion, sameDraftDigest } from '../../../contracts/identity';
 import { createAddColumnsState, type AddColumnsView } from './addColumnsState';
-import { useMemo, useState, useSyncExternalStore, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
 import type React from 'react';
-import type { useLoomClient } from '../../../react';
-import type { Construction, ConstructionStep, ConstructionChoiceSelection, ConstructionCapabilitiesResponse, ExplorerBuilderCommand } from '../../../contracts/types';
-import type { BuilderAuthoringState, DraftTable } from '../model/authoring';
+import type { Construction, ConstructionStep, ExplorerBuilderCommand } from '../../../contracts/types';
 import { selectedTable } from '../model/authoring';
+import { useBuilderSession } from './BuilderSessionProvider';
+import { useWorkspaceUi, useWorkspaceUiActions } from './useWorkspaceUi';
 import { admitAuthoringRequest } from '../model/admission';
 import type { CatalogChoiceIntent } from '../model/catalogItems';
 import { constructionAppendStageFor } from '../model/constructionStages';
@@ -13,14 +16,10 @@ import { relatedSourceOutputLabel } from '../model/relatedSourceOutputLabel';
 import { sameConstructionRoute } from '../model/populationRoutes';
 import { hasPairedPreviewRows } from '../model/workspaceGuards';
 import type { ConceptCatalogView } from '../model/conceptCatalogView';
-import type { ConstructionOperationFamily } from '../model/constructionOperationFamily';
-import type { ConstructionHistorySelection } from '../model/constructionHistory';
 import type { useConstructionLifecycle } from './useConstructionLifecycle';
 import type { useCommandQueueActions } from './useCommandQueueActions';
 import type { useCombineCatalog } from './useCombineCatalog';
-import type { PreviewLimit } from '../model/previewRecovery';
-import type { AutomaticPreviewIdentity } from './automaticPreview';
-import type { AppliedPreviewHandoff } from './appliedChoicePreview';
+import type { useAutomaticPreviewActions } from './useAutomaticPreviewActions';
 
 export type { AddColumnsView } from './addColumnsState';
 
@@ -34,58 +33,37 @@ export interface AddColumnsGraphSource {
 }
 
 type UseAddColumnsOptions = {
-  readonly state: BuilderAuthoringState;
-  readonly table: DraftTable | undefined;
   readonly graphSource?: AddColumnsGraphSource;
   readonly constructionLifecycle: Pick<ReturnType<typeof useConstructionLifecycle>, 'capabilities' | 'beginApply' | 'cancel' | 'proposeCandidateAndWait'>;
   readonly editingConstructionStep: ConstructionStep | undefined;
-  readonly activeConstructionFamily: ConstructionOperationFamily | undefined;
-  readonly ownerKey: string;
-  readonly projectId: string;
-  readonly authResourcePath?: string;
-  readonly previewLimit: PreviewLimit;
-  readonly draftAccess: { getState(): BuilderAuthoringState };
-  readonly loomClient: ReturnType<typeof useLoomClient>;
-  readonly sourceStageDescriptors: ConstructionCapabilitiesResponse['stages'] | undefined;
-  readonly rowValuePolicy: NonNullable<ConstructionChoiceSelection['rowValuePolicy']>;
-  readonly isCancelingConstructionProposal: () => boolean;
-  readonly appliedChoicePreview: MutableRefObject<AppliedPreviewHandoff | undefined>;
-  readonly automaticPreviewRequest: MutableRefObject<AutomaticPreviewIdentity | undefined>;
+  readonly navigation: Pick<ReturnType<typeof useConstructionNavigationState>, 'activeConstructionFamily' | 'setActiveConstructionFamily'>;
+  readonly selection: Pick<ReturnType<typeof useWorkspaceSelection>, 'setConstructionHistorySelection' | 'setEditingConstructionStepId' | 'setRowIntentSession'>;
+  readonly automaticPreview: ReturnType<typeof useAutomaticPreviewActions>;
   readonly applyCommandsWithResult: ReturnType<typeof useCommandQueueActions>['applyCommandsWithResult'];
   readonly combineCatalog: Pick<ReturnType<typeof useCombineCatalog>, 'cancel'>;
-  readonly setActiveConstructionFamily: (next: undefined) => void;
-  readonly setConstructionHistorySelection: Dispatch<SetStateAction<ConstructionHistorySelection>>;
-  readonly setEditingConstructionStepId: Dispatch<SetStateAction<string | undefined>>;
-  readonly setRowIntentSession: Dispatch<SetStateAction<boolean>>;
-  readonly opaqueId: (prefix: 'step') => string;
 };
 
 export const useAddColumns = ({
-  state,
-  table,
   graphSource,
   constructionLifecycle,
   editingConstructionStep,
-  activeConstructionFamily,
-  ownerKey,
-  projectId,
-  authResourcePath,
-  previewLimit,
-  draftAccess,
-  loomClient,
-  sourceStageDescriptors,
-  rowValuePolicy,
-  isCancelingConstructionProposal,
-  appliedChoicePreview,
-  automaticPreviewRequest,
+  navigation,
+  selection,
+  automaticPreview,
   applyCommandsWithResult,
   combineCatalog,
-  setActiveConstructionFamily,
-  setConstructionHistorySelection,
-  setEditingConstructionStepId,
-  setRowIntentSession,
-  opaqueId,
 }: UseAddColumnsOptions) => {
+  const { activeConstructionFamily, setActiveConstructionFamily } = navigation;
+  const { setConstructionHistorySelection, setEditingConstructionStepId, setRowIntentSession } = selection;
+  const { state, draftAccess, builderQueryArgs, ownerKey, transport: loomClient } = useBuilderSession(draft => draft);
+  const table = selectedTable(state);
+  const { project: projectId, authResourcePath } = builderQueryArgs;
+  const rowValuePolicy = useWorkspaceUi(ui => ui.rowValuePolicy);
+  const { isCancelingConstructionProposal } = useWorkspaceUiActions();
+  const sourceStageDescriptors = constructionLifecycle.capabilities.status === 'ready'
+    ? constructionLifecycle.capabilities.response.stages
+    : undefined;
+  const { previewLimit, appliedChoicePreview, automaticPreviewRequest } = automaticPreview;
   const [addColumns] = useState(createAddColumnsState);
   const requestScopeKey = JSON.stringify([
     state.explorerId, table?.outputId, state.catalog.snapshotToken, state.draftVersion, state.draftDigest,

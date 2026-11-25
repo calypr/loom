@@ -87,9 +87,6 @@ const unsupportedSavedSourceColumns = (tables: BuilderAuthoringState['tables']) 
       })),
   );
 
-const opaqueId = (prefix: 'output' | 'tab' | 'step') =>
-  `${prefix}-${window.crypto.randomUUID()}`;
-
 const constructionSourceStageId = 'source_projection';
 
 const receiptContainsOutputIds = (
@@ -154,10 +151,11 @@ export function useBuilderWorkspaceActions({
   const sourceStepEditDirty = useRef(false);
   const advancedRuleEditorReturn = useRef<string | undefined>(undefined);
   const sourceStepEditCancelAction = useRef<(() => void) | undefined>(undefined);
+  const firstTable = useFirstTableActions({ getSuggestions, setMessage });
   const {
     firstTableName, setFirstTableName, tableCreatorOpen, setTableCreatorOpen,
     firstTableProgress, isFirstTableActionPending, createFirstTableFromRoot,
-  } = useFirstTableActions({ getSuggestions, setMessage });
+  } = firstTable;
   const sourceRecipeState = useSourceRecipeState();
   const { sourceRelationshipRequest, recipeEditToken, sourceProposal, setSourceProposal,
     lastAcceptedOutputPreview, connectingRelationship, setConnectingRelationship, savedNetwork,
@@ -272,10 +270,11 @@ export function useBuilderWorkspaceActions({
 
   const [sourceRowsInspectorHost, setSourceRowsInspectorHost] = useState<HTMLElement | null>(null);
   const table = selectedTable(state);
+  const workspaceSelection = useWorkspaceSelection(ownerKey, state.explorerId, table?.outputId);
   const {
     rowIntentSession, sourceRowsOpen, constructionHistorySelection, editingConstructionStepId, columnSelection,
     setRowIntentSession, setSourceRowsOpen, setConstructionHistorySelection, setEditingConstructionStepId, setColumnSelection,
-  } = useWorkspaceSelection(ownerKey, state.explorerId, table?.outputId);
+  } = workspaceSelection;
   const recipeOwner = useRecipeEditingOwner({ project: projectId, explorerId: state.explorerId,
     outputId: table?.outputId ?? '', snapshotToken: state.catalog.snapshotToken,
     draftVersion: state.draftVersion, draftDigest: state.draftDigest });
@@ -754,30 +753,14 @@ export function useBuilderWorkspaceActions({
     addSelectedFeatures,
     addColumnsReason,
   } = useAddColumns({
-    state,
-    table,
     graphSource,
+    automaticPreview,
     constructionLifecycle,
     editingConstructionStep,
-    activeConstructionFamily,
-    ownerKey,
-    projectId,
-    authResourcePath,
-    previewLimit,
-    draftAccess,
-    loomClient,
-    sourceStageDescriptors,
-    rowValuePolicy,
-    isCancelingConstructionProposal,
-    appliedChoicePreview,
-    automaticPreviewRequest,
+    navigation: navigationState,
+    selection: workspaceSelection,
     applyCommandsWithResult,
     combineCatalog,
-    setActiveConstructionFamily,
-    setConstructionHistorySelection,
-    setEditingConstructionStepId,
-    setRowIntentSession,
-    opaqueId,
   });
   const {
     suggestionsFailure, setSuggestionsFailure, suggestionRequestKey,
@@ -797,10 +780,10 @@ export function useBuilderWorkspaceActions({
     constructionLifecycle.proposal.status !== 'idle';
   const { addTable, duplicateTable, renameTable, renameTableById, deleteSelectedTable,
     createCustomExplorer, deleteCurrentExplorer, createStatus, deleteStatus } = useTableExplorerCrud({
-    recipeMutationAllowed, isFirstTableActionPending,
-    tableCreatorOpen, setFirstTableName, setTableCreatorOpen, applyCommands,
+    recipeMutationAllowed, firstTable,
+    applyCommands,
     selectExplorer, onExplorerChange, explorers, capabilities,
-    effectiveExplorerId, invalidateCompile: compileRequests.invalidate, setMessage, opaqueId,
+    invalidateCompile: compileRequests.invalidate,
   });
 
   const automaticPreviewQuery = useAutomaticPreview(queryOptionsFor({
