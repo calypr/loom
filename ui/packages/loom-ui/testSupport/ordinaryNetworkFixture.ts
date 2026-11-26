@@ -1,7 +1,7 @@
-import type { DescribeAuthoringNetworkArgs } from '../src/api';
-import type { AuthoringNetworkResponse, ExplorerBuilderDocument } from '../src/types';
+import type { LoomClient } from '../src/client/api';
+import type { AuthoringNetworkResponse, ExplorerBuilderDocument } from '../src/contracts/types';
 
-export function ordinaryNetworkFixture(document: ExplorerBuilderDocument, args: DescribeAuthoringNetworkArgs): AuthoringNetworkResponse {
+export function ordinaryNetworkFixture(document: ExplorerBuilderDocument, args: Parameters<LoomClient['describeAuthoringNetwork']>[0]): AuthoringNetworkResponse {
   if (document.importedRecipe) throw new Error('Pinned sources require an explicit server-network fixture.');
   type Stage = AuthoringNetworkResponse['rowIdentity']['stages'][number];
   const rows = document.rows ?? { kind: 'RECORDS' as const, records: {} };

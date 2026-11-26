@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import fieldPresentationReadyFixture from '../../../../tests/fixtures/semantic-field-presentation-ready.json?raw';
-import { canonicalProject, createLoomClient, LoomRequestError, populationMappingResponseSchema } from './api';
-import { cellTraceResponseSchema } from './cellTrace';
+import { canonicalProject, createLoomClient, LoomRequestError } from './client/api';
+import { cellTraceResponseSchema } from './contracts/cellTrace';
 import {
   EXPLORER_AUTHORING_API_VERSION,
   EXPLORER_AUTHORING_SEMANTICS_VERSION,
@@ -13,7 +13,7 @@ import {
   constructionProposalResponseSchema,
   fieldPresentationSchema,
   semanticInventoryBrowseResponseSchema,
-} from './types';
+} from './contracts/types';
 
 const tracedFeature = { outputId: 'patients', column: 'gender', authoredColumn: 'patient_gender', occurrenceId: 'base', label: 'Gender', logicalType: 'string', sourceResourceType: 'Patient', sourcePath: 'gender', projectionMode: 'VALUE', lossless: true, lossReasons: [] };
 const constructionCapabilitiesResponse = {
@@ -1449,6 +1449,44 @@ describe('Loom project paths', () => {
     );
   });
 
+  it('preserves the scoped path and fetch adapter contract for related-field choices', async () => {
+    const requestId = 'related-field-request';
+    const signal = AbortSignal.timeout(5000);
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response('This draft has expired.', { status: 409 }))
+      .mockRejectedValueOnce(new TypeError('Network unavailable'));
+    const client = createLoomClient({
+      baseUrl: '/loom-proxy/',
+      credentials: 'include',
+      headers: { Authorization: 'Bearer fixture-token' },
+      fetch,
+    });
+    const args = {
+      project: 'HTAN_INT/BForePC', explorerId: 'preview/draft', snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 4, expectedDraftDigest: 'draft-4', outputId: 'patients',
+      stageId: 'expand-encounters', cursor: 'next-page', requestId,
+    };
+
+    const error = await client.searchRelatedFieldChoices(args, signal).catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(LoomRequestError);
+    expect(error).toMatchObject({ status: 409, message: 'This draft has expired.', requestId });
+    expect(fetch).toHaveBeenCalledWith(
+      '/loom-proxy/api/v1/projects/HTAN_INT%252FBForePC/explorers/preview%2Fdraft/authoring/v2/related-field-choices',
+      expect.objectContaining({
+        credentials: 'include',
+        signal,
+        headers: expect.objectContaining({
+          Authorization: 'Bearer fixture-token',
+          'Content-Type': 'application/json',
+          'X-Request-ID': requestId,
+        }),
+      }),
+    );
+    await expect(client.searchRelatedFieldChoices(args, signal)).rejects.toMatchObject({
+      status: 'FETCH_ERROR', message: 'Network unavailable', retryable: true,
+    });
+  });
+
   it('searches server-proved population routes without sending browser-selected edges', async () => {
     const response = {
       snapshotToken: 'snapshot-1',
@@ -1685,14 +1723,20 @@ describe('Loom project paths', () => {
     );
   });
 
-  it('parses a bounded population coverage report', () => {
-    expect(populationMappingResponseSchema.parse({
-      binding: { receiptId: 'receipt-1', outputId: 'patients', project: 'NCPI_ACCEPTANCE', explorerId: 'default', generation: 'generation-1', scopeDigest: 'scope-1', selectionRevisionId: 'selection-1', membershipDigest: 'members-1', resourceType: 'DocumentReference' },
-      status: 'COMPLETE',
-      counts: { selected: 3, mapped: 2, unmapped: 1, emittedRows: 1 },
-      unmapped: [{ project: 'NCPI_ACCEPTANCE', generation: 'generation-1', resourceType: 'DocumentReference', id: 'dev-file-004' }],
-      diagnostics: [],
-    })).toEqual({
+  it('parses a bounded population coverage report', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify({
+        binding: { receiptId: 'receipt-1', outputId: 'patients', project: 'NCPI_ACCEPTANCE', explorerId: 'default', generation: 'generation-1', scopeDigest: 'scope-1', selectionRevisionId: 'selection-1', membershipDigest: 'members-1', resourceType: 'DocumentReference' },
+        status: 'COMPLETE',
+        counts: { selected: 3, mapped: 2, unmapped: 1, emittedRows: 1 },
+        unmapped: [{ project: 'NCPI_ACCEPTANCE', generation: 'generation-1', resourceType: 'DocumentReference', id: 'dev-file-004' }],
+        diagnostics: [],
+      }), { headers: { 'content-type': 'application/json' } }),
+    );
+    const client = createLoomClient({ fetch });
+    await expect(client.populationMapping({
+      project: 'NCPI_ACCEPTANCE', explorerId: 'default', receiptId: 'receipt-1', outputId: 'patients',
+    })).resolves.toEqual({
       binding: { receiptId: 'receipt-1', outputId: 'patients', project: 'NCPI_ACCEPTANCE', explorerId: 'default', generation: 'generation-1', scopeDigest: 'scope-1', selectionRevisionId: 'selection-1', membershipDigest: 'members-1', resourceType: 'DocumentReference' },
       status: 'COMPLETE',
       counts: { selected: 3, mapped: 2, unmapped: 1, emittedRows: 1 },
@@ -2006,7 +2050,7 @@ describe('Loom project paths', () => {
     );
   });
 
-  it('separates cached Builder reads by authorization scope', async () => {
+  it('loads fresh Builder state on each direct client read', async () => {
     const builder = JSON.stringify({
       apiVersion: 'loom.calypr.org/explorer-authoring/v2',
       kind: 'ExplorerBuilderState',
@@ -2022,7 +2066,7 @@ describe('Loom project paths', () => {
     const base = { project: 'HTAN_INT/BForePC', explorerId: 'default' };
 
     await client.getBuilder({ ...base, authResourcePath: '/programs/HTAN_INT/projects/BForePC' });
-    await client.getBuilder({ ...base, authResourcePath: '/programs/HTAN_INT/projects/OtherPC' });
+    await client.getBuilder({ ...base, authResourcePath: '/programs/HTAN_INT/projects/BForePC' });
 
     expect(fetch).toHaveBeenCalledTimes(2);
   });
@@ -2085,7 +2129,7 @@ describe('Loom project paths', () => {
     });
   });
 
-  it('invalidates cached Viewer runtime after publication', async () => {
+  it('reads fresh Viewer runtime after publication', async () => {
     const explorerState = (generation: string) => ({
       apiVersion: 'loom.calypr.org/explorer-state/v1',
       kind: 'ExplorerState',

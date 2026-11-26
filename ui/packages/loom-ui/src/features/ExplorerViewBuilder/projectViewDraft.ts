@@ -3,15 +3,7 @@ import type {
   ProjectViewBuilderConfigRevision,
   ProjectViewBuilderFrame,
   ProjectViewConfig,
-} from '../../projectViewBuilder';
-
-export const PROJECT_VIEW_CHART_TYPES = [
-  'bar',
-  'horizontalStacked',
-  'pie',
-  'fullPie',
-  'donut',
-] as const;
+} from '../../contracts/projectViewBuilder';
 
 const safeIdPart = (value: string): string => {
   const normalized = value
@@ -22,7 +14,7 @@ const safeIdPart = (value: string): string => {
   return normalized || 'view';
 };
 
-export const uniqueProjectConfigId = (
+const uniqueProjectConfigId = (
   title: string,
   existing: ReadonlyArray<string>,
 ): string => {
@@ -39,7 +31,7 @@ export const projectViewFrameRef = (
   outputName: string,
 ): string => `${recipeName}/${outputName}`;
 
-export const outputNameForFrameRef = (
+const outputNameForFrameRef = (
   recipeName: string,
   frameRef: string,
 ): string | undefined => {
@@ -144,18 +136,3 @@ export const canUseViewColumnPresentation = (column: {
   filterable: column.filterable,
   chartable: column.chartable,
 });
-
-export const moveArrayItem = <T>(
-  values: ReadonlyArray<T>,
-  index: number,
-  offset: -1 | 1,
-): T[] => {
-  const nextIndex = index + offset;
-  if (index < 0 || nextIndex < 0 || nextIndex >= values.length) {
-    return [...values];
-  }
-  const next = [...values];
-  const [selected] = next.splice(index, 1);
-  next.splice(nextIndex, 0, selected);
-  return next;
-};

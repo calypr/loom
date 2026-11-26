@@ -791,12 +791,12 @@ export const coreAdapters = {
   ),
   'builder.construction_proposal_apply_cancel_retry': adapter(
     'builder.construction_proposal_apply_cancel_retry', 'core.construction_proposal_apply_cancel_retry', 'core.driveConstructionProposalLifecycle',
-    ['ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1800', 'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:233', 'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx:307'],
+    ['ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1800', 'ui/packages/loom-ui/src/features/ExplorerBuilder/session/useConstructionLifecycle.ts:233', 'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx:307'],
     driveProposalLifecycle,
   ),
   'builder.construction_step_editor_routing': adapter(
     'builder.construction_step_editor_routing', 'core.construction_step_editor_routing', 'core.driveConstructionStepEditorRouting',
-    ['ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1017', 'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1036', 'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:173'],
+    ['ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1017', 'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1036', 'ui/packages/loom-ui/src/features/ExplorerBuilder/session/useConstructionLifecycle.ts:173'],
     driveStepEditorRouting,
   ),
   'builder.delete_explorer_no_fallback': adapter(

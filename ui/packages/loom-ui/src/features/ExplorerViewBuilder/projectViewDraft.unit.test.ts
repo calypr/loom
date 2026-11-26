@@ -1,11 +1,10 @@
 import {
   duplicateProjectConfig,
-  moveArrayItem,
   projectConfigFromCatalog,
   projectViewFrameRef,
   viewForFrameReference,
 } from './projectViewDraft';
-import type { ProjectViewBuilderCatalog, ProjectViewConfig } from '../../projectViewBuilder';
+import type { ProjectViewBuilderCatalog, ProjectViewConfig } from '../../contracts/projectViewBuilder';
 
 const catalog: ProjectViewBuilderCatalog = {
   recipeName: 'published_recipe',
@@ -131,10 +130,5 @@ describe('project view draft helpers', () => {
     expect(duplicate.views[0]?.table.columns[0]?.pinned).toBe(true);
   });
 
-  it('moves array items without mutating the input or changing order at the boundary', () => {
-    const input = ['first', 'second', 'third'];
-    expect(moveArrayItem(input, 0, 1)).toEqual(['second', 'first', 'third']);
-    expect(moveArrayItem(input, 2, 1)).toEqual(input);
-    expect(input).toEqual(['first', 'second', 'third']);
-  });
+
 });

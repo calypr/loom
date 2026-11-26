@@ -13,14 +13,15 @@ import {
 } from '@mantine/core';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import type { EChartsOption } from 'echarts';
-import type { LoomFacetResult, LoomOutputResult } from '../../api';
-import type { ExplorerRuntimeBindingV1, ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from '../../types';
-import { resultUnitTitle } from '../../resultUnitDisplay';
+import type { LoomFacetResult, LoomOutputResult } from '../../client/api';
+import { facetValues, isMissingValue } from './model';
+import type { ExplorerRuntimeBindingV1, ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from '../../contracts/types';
+import { resultUnitTitle } from '../../display/resultUnitDisplay';
 import { PAGE_SIZES, activeOutputState, clearedSelection, isPageSize, isSelectedSelection, missingSelection, valuesSelection, type ViewerFieldSelection, type ViewerState } from './model';
 import type { ViewerAction } from './reducer';
-import { chartFacetName, facetName, filterLabel, filterType, isMissingValue, MISSING_VALUE, MISSING_VALUE_DESCRIPTION } from './serialization';
+import { chartFacetName, facetName, filterLabel, filterType, MISSING_VALUE, MISSING_VALUE_DESCRIPTION } from './serialization';
 import { BoundedFormatCache } from './formatCache';
-import { displayValue } from '../../valueDisplay';
+import { displayValue } from '../../display/valueDisplay';
 import type { CellExplanationCoordinate } from './CellExplanationDialog';
 
 const LazyReactECharts = React.lazy(() =>
@@ -94,23 +95,6 @@ const FileCell = ({ value, row, runtime }: { readonly value: unknown; readonly r
       ))}
     </Group>
   );
-};
-
-export const facetValues = (facet: LoomFacetResult | undefined, column: string): Array<{ readonly value: string; readonly count?: string }> => {
-  if (!facet) return [];
-  const values = new Map<string, number | undefined>();
-  for (const row of facet.rows) {
-    const raw = row.key ?? row[column];
-    if (raw === undefined || raw === null) continue;
-    const value = textFor(raw);
-    const count = Number(row.doc_count);
-    const previous = values.get(value);
-    values.set(value, Number.isFinite(count) ? (previous ?? 0) + count : previous);
-  }
-  return [...values].map(([value, count]) => ({
-    value,
-    ...(count === undefined ? {} : { count: String(count) }),
-  }));
 };
 
 const COLLAPSED_FACET_VALUES = 6;
@@ -262,7 +246,7 @@ const chartValues = (facet: LoomFacetResult | undefined, column: string): Array<
   return Number.isFinite(value) ? [{ name: entry.value, value }] : [];
 });
 
-export const ChartPanel = ({ binding, output, result }: { readonly binding: ExplorerRuntimeBindingV1; readonly output: ExplorerRuntimeOutputV1; readonly result?: LoomOutputResult }) => {
+const ChartPanel = ({ binding, output, result }: { readonly binding: ExplorerRuntimeBindingV1; readonly output: ExplorerRuntimeOutputV1; readonly result?: LoomOutputResult }) => {
   const chartType = binding.type?.trim().toLowerCase() ?? '';
   const supported = ['bar', 'horizontalstacked', 'pie', 'fullpie', 'donut'].includes(chartType);
   if (!supported) return <Paper withBorder radius="md" p="md"><Text c="orange" size="sm">Unsupported chart type <code>{binding.type || 'unknown'}</code>.</Text></Paper>;

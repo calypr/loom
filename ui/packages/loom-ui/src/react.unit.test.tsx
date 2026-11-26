@@ -2,17 +2,19 @@
 
 import React, { StrictMode } from 'react';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
-import { createLoomClient } from './api';
-import type { ResolveConfiguredColumnContextsArgs } from './api';
+import { createQueryResource } from './data/queryResource';
+import { createLoomClient } from './client/api';
+import { EXPLORER_AUTHORING_API_VERSION } from './contracts/types';
+import type { ResolveConfiguredColumnContextsArgs } from './client/api';
 import {
+  useBuilderMutation,
   LoomProvider,
-  resourceFor,
-  useGetExplorerBuilderStateV2Query,
   useGetExplorerAuthoringExplorersQuery,
   useGetExplorerAuthoringCapabilityV2Query,
-  usePreviewExplorerAuthoringV2Mutation,
-  useResolveConfiguredColumnContextsQuery,
+  useLoomRuntime,
 } from './react';
+import { useResolveConfiguredColumnContextsQuery } from './data/builderQueries';
+import { useGetExplorerBuilderStateV2Query } from './features/ExplorerBuilder/session/useBuilderLoad';
 
 const ExplorerStatus = () => {
   const query = useGetExplorerAuthoringExplorersQuery({ project: 'NCPI_ACCEPTANCE' });
@@ -47,6 +49,155 @@ describe('Loom React queries', () => {
     expect(result.current.builder.isLoading).toBe(false);
     expect(result.current.capability.isLoading).toBe(false);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('shares capability results across mounts within the same client and authorization scope', async () => {
+    let requests = 0;
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(JSON.stringify({
+      apiVersion: EXPLORER_AUTHORING_API_VERSION,
+      kind: 'ExplorerAuthoringCapabilities',
+      operations: [`request-${++requests}`],
+      features: {
+        emissionFilters: true, emissionCharts: true, sharedFilters: true, fixedFilters: true,
+        fileActions: true, deleteExplorer: true,
+      },
+    })));
+    const client = createLoomClient({ fetch });
+    const wrapper = ({ children }: { readonly children: React.ReactNode }) => (
+      <LoomProvider client={client}>{children}</LoomProvider>
+    );
+    const args = { project: 'HTAN_INT/BForePC', explorerId: 'preview/a', authResourcePath: '/scope/a' };
+
+    await expect(client.getCapability(args)).resolves.toMatchObject({ operations: ['request-1'] });
+    await expect(client.getCapability(args)).resolves.toMatchObject({ operations: ['request-2'] });
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/HTAN_INT%252FBForePC/explorers/preview%2Fa/authoring/v2/capability',
+      expect.objectContaining({ method: 'GET', body: undefined }),
+    );
+
+    const first = renderHook(() => useGetExplorerAuthoringCapabilityV2Query(args), { wrapper });
+    await waitFor(() => expect(first.result.current.data?.operations).toEqual(['request-3']));
+    first.unmount();
+
+    const second = renderHook(
+      (authResourcePath) => useGetExplorerAuthoringCapabilityV2Query({ ...args, authResourcePath }),
+      { initialProps: args.authResourcePath, wrapper },
+    );
+    expect(second.result.current.data?.operations).toEqual(['request-3']);
+    expect(fetch).toHaveBeenCalledTimes(3);
+
+    second.rerender('/scope/b');
+    await waitFor(() => expect(second.result.current.data?.operations).toEqual(['request-4']));
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it('shares Explorer list reads and refreshes only the affected scope after CRUD', async () => {
+    const project = 'HTAN_INT/BForePC';
+    const firstScope = { project, authResourcePath: '/scope/a' };
+    const secondScope = { project, authResourcePath: '/scope/b' };
+    const summary = (explorerId: string) => ({
+      project, explorerId, title: explorerId, management: 'interactive', updatedAt: '2026-11-25',
+    });
+    let entries = [summary('original')];
+    let reads = 0;
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
+      if (init?.method === 'POST') {
+        const created = summary('created');
+        entries = [...entries, created];
+        return Response.json(created);
+      }
+      if (init?.method === 'DELETE') {
+        entries = entries.filter(({ explorerId }) => explorerId !== 'created');
+        return new Response(null, { status: 204 });
+      }
+      reads++;
+      return Response.json(entries);
+    });
+    const client = createLoomClient({ fetch });
+    const wrapper = ({ children }: { readonly children: React.ReactNode }) => (
+      <LoomProvider client={client}>{children}</LoomProvider>
+    );
+    const mount = (scope: typeof firstScope) => renderHook(
+      () => useGetExplorerAuthoringExplorersQuery(scope),
+      { wrapper },
+    );
+    const first = mount(firstScope);
+    const shared = mount(firstScope);
+    const separate = mount(secondScope);
+    await waitFor(() => expect(first.result.current.data).toHaveLength(1));
+    await waitFor(() => expect(shared.result.current.data).toHaveLength(1));
+    await waitFor(() => expect(separate.result.current.data).toHaveLength(1));
+    expect(reads).toBe(2);
+
+    await act(async () => { await client.createExplorer({ ...firstScope, name: 'Created' }); });
+    await act(async () => { await first.result.current.refetch(); });
+    expect(first.result.current.data?.map(({ explorerId }) => explorerId)).toEqual(['original', 'created']);
+    expect(shared.result.current.data).toHaveLength(2);
+    expect(separate.result.current.data).toHaveLength(1);
+    expect(reads).toBe(3);
+
+    first.unmount();
+    shared.unmount();
+    await client.deleteExplorer({ ...firstScope, explorerId: 'created' });
+    const reopened = mount(firstScope);
+    await waitFor(() => expect(reopened.result.current.data?.map(({ explorerId }) => explorerId)).toEqual(['original']));
+    expect(reads).toBe(4);
+  });
+
+  it('restarts an initial Explorer list read interrupted by invalidation', async () => {
+    let pendingSignal: AbortSignal | null | undefined;
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockImplementationOnce((_input, init) => new Promise<Response>(() => {
+        pendingSignal = init?.signal;
+      }))
+      .mockResolvedValueOnce(Response.json([]));
+    const client = createLoomClient({ fetch });
+    const { result } = renderHook(
+      () => useGetExplorerAuthoringExplorersQuery({ project: 'NCPI_ACCEPTANCE' }),
+      { wrapper: ({ children }) => <LoomProvider client={client}>{children}</LoomProvider> },
+    );
+    await waitFor(() => expect(pendingSignal?.aborted).toBe(false));
+
+    act(() => client.invalidate('explorers'));
+
+    expect(pendingSignal?.aborted).toBe(true);
+    await waitFor(() => expect(result.current.data).toEqual([]));
+    expect(result.current.isLoading).toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('refreshes active Viewer runtime after publication without crossing authorization scopes', async () => {
+    const scope = { project: 'NCPI_ACCEPTANCE', explorerId: 'default', authResourcePath: '/scope/a' };
+    let generation = 'old';
+    let reads = 0;
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
+      if (init?.method === 'POST') {
+        generation = 'new';
+        return Response.json({
+          apiVersion: EXPLORER_AUTHORING_API_VERSION, kind: 'ExplorerBuilderPublication',
+          receiptId: 'receipt-1', revisionId: 'revision-2', state: 'READY', outputs: [], diagnostics: [],
+        });
+      }
+      reads++;
+      return Response.json({
+        apiVersion: 'loom.calypr.org/explorer-state/v1', kind: 'ExplorerState',
+        project: scope.project, explorerId: scope.explorerId, title: 'Cohort', management: 'interactive',
+        active: {}, draft: { version: 1, digest: 'digest' }, generated: {}, activeUrl: '/viewer',
+        runtime: { generation, outputs: [], sharedFilters: {}, diagnostics: [] },
+      });
+    });
+    const client = createLoomClient({ fetch });
+    const { result } = renderHook(() => ({
+      active: useLoomRuntime(scope),
+      separate: useLoomRuntime({ ...scope, authResourcePath: '/scope/b' }),
+    }), { wrapper: ({ children }) => <LoomProvider client={client}>{children}</LoomProvider> });
+    await waitFor(() => expect(result.current.active.data?.generation).toBe('old'));
+    await waitFor(() => expect(result.current.separate.data?.generation).toBe('old'));
+
+    await act(async () => { await client.publish({ ...scope, receiptId: 'receipt-1' }); });
+    await waitFor(() => expect(result.current.active.data?.generation).toBe('new'));
+    expect(result.current.separate.data?.generation).toBe('old');
+    expect(reads).toBe(3);
   });
 
   it('keeps configured-context queries disabled until their saved draft identity is ready', async () => {
@@ -408,20 +559,24 @@ describe('Loom React queries', () => {
       readonly signal: AbortSignal;
       readonly resolve: (value: string) => void;
     }> = [];
-    const resource = resourceFor(
+    const resource = createQueryResource(
       (signal) =>
         new Promise<string>((resolve) => pending.push({ signal, resolve })),
     );
     const unsubscribe = resource.subscribe(() => undefined);
 
     expect(pending).toHaveLength(1);
+    const retired = resource.refresh();
     const newer = resource.refresh();
-    expect(pending).toHaveLength(2);
+    expect(pending).toHaveLength(3);
     expect(pending[0].signal.aborted).toBe(true);
+    expect(pending[1].signal.aborted).toBe(true);
 
-    pending[1].resolve('newer');
-    await newer;
+    pending[2].resolve('newer');
+    expect(await newer).toEqual({ data: 'newer' });
     pending[0].resolve('obsolete');
+    pending[1].resolve('retired refresh');
+    expect(await retired).toMatchObject({ error: expect.any(Error) });
     await waitFor(() => expect(resource.getSnapshot().data).toBe('newer'));
 
     unsubscribe();
@@ -450,7 +605,7 @@ describe('Loom React queries', () => {
 
   it('evicts a resource after its last subscriber and starts a fresh epoch', async () => {
     const requests: Array<{ readonly signal: AbortSignal; readonly resolve: (value: string) => void }> = [];
-    const resource = resourceFor((signal) => new Promise<string>((resolve) => requests.push({ signal, resolve })));
+    const resource = createQueryResource((signal) => new Promise<string>((resolve) => requests.push({ signal, resolve })));
     const firstUnsubscribe = resource.subscribe(() => undefined);
     expect(requests).toHaveLength(1);
     firstUnsubscribe();
@@ -479,7 +634,7 @@ describe('Loom React mutations', () => {
       <LoomProvider client={client}>{children}</LoomProvider>
     );
     const { result } = renderHook(
-      () => usePreviewExplorerAuthoringV2Mutation(),
+      () => useBuilderMutation('preview'),
       { wrapper },
     );
     const request = {

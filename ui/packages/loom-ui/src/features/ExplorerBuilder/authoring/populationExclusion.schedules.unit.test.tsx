@@ -1,25 +1,16 @@
+import { useConceptCatalogSession } from '../session/ConceptCatalogSession';
+import { useAuthoredTraversalSession } from '../session/AuthoredTraversalSession';
+import { useBuilderToolbarSession } from '../session/BuilderToolbarSession';
 // @vitest-environment jsdom
 import React from 'react';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { act, fireEvent, render as renderUI, screen, waitFor, within } from '@testing-library/react';
-import {
-  useApplyExplorerBuilderCommandsV2Mutation,
-  useAssessExplorerRowChangeMutation,
-  useCreateExplorerAuthoringMutation,
-  useDeleteExplorerAuthoringMutation,
-  useGetExplorerAuthoringCapabilityV2Query,
-  useGetExplorerAuthoringExplorersQuery,
-  useGetExplorerBuilderStateV2Query,
-  useGetExplorerCandidateSuggestionsV2Mutation,
-  usePreviewExplorerAuthoringV2Mutation,
-  usePopulationMappingMutation,
-  usePublishExplorerAuthoringV2Mutation,
-  LoomProvider,
-} from '../../../react';
-import BuilderWorkspace from '../BuilderWorkspace';
-import { LoomExplorerBuilder } from '../../../Builder';
+import { useGetExplorerAuthoringCapabilityV2Query, useGetExplorerAuthoringExplorersQuery, LoomProvider } from '../../../react';
+import { useGetExplorerBuilderStateV2Query } from '../session/useBuilderLoad';
+import BuilderWorkspace from '../ui/workspace/BuilderWorkspace';
+import { LoomExplorerBuilder } from '../Builder';
 import { ordinaryNetworkFixture } from '../../../../testSupport/ordinaryNetworkFixture';
-import type { SelectionRevision } from '../../../selection';
+import type { SelectionRevision } from '../../../contracts/selection';
 import type {
   ConstructionCategoryDiscoveryResponse,
   Construction,
@@ -31,19 +22,27 @@ import type {
   ExplorerBuilderPreviewResult,
   ExplorerBuilderWorkspace,
   RowChangeAssessment,
-} from '../../../types';
-import type { RelatedExpandQueryOwner } from '../constructionOperations/RelatedExpandEditor';
-import type { ConstructionCandidateIntent } from '../constructionWorkspace/useConstructionLifecycle';
-import { createLoomClient } from '../../../api';
-import type { LoomClient } from '../../../api';
+} from '../../../contracts/types';
+import type { RelatedExpandQueryOwner } from '../session/commandQueue';
+import type { ConstructionCandidateIntent } from '../session/useConstructionLifecycle';
+import { createLoomClient } from '../../../client/api';
+import type { LoomClient } from '../../../client/api';
 import type {
-  ApplyExplorerBuilderCommandsArgs,
   PreviewExplorerBuilderArgs,
   ProposeConstructionArgs,
-  ProposeConstructionChoicesArgs,
-  ReconcileExplorerBuilderArgs,
-} from '../../../api';
+} from '../../../client/api';
 import { population_exclusion as schedules } from '../../../../testdata/schedules/population_exclusion';
+
+const { useApplyExplorerBuilderCommandsV2Mutation, useAssessExplorerRowChangeMutation, useCreateExplorerAuthoringMutation, useDeleteExplorerAuthoringMutation, useGetExplorerCandidateSuggestionsV2Mutation, usePreviewExplorerAuthoringV2Mutation, usePopulationMappingMutation, usePublishExplorerAuthoringV2Mutation } = vi.hoisted(() => ({
+  useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
+  useAssessExplorerRowChangeMutation: vi.fn(),
+  useCreateExplorerAuthoringMutation: vi.fn(),
+  useDeleteExplorerAuthoringMutation: vi.fn(),
+  useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
+  usePreviewExplorerAuthoringV2Mutation: vi.fn(),
+  usePopulationMappingMutation: vi.fn(),
+  usePublishExplorerAuthoringV2Mutation: vi.fn(),
+}));
 
 const mockLoomClient = vi.hoisted(() => ({
   describeAuthoringNetwork: vi.fn(),
@@ -96,29 +95,42 @@ const savedSemanticBindingId = (step: Construction['steps'][number] | undefined)
   return '';
 };
 
+vi.mock('../session/useBuilderLoad', () => ({
+  useGetExplorerBuilderStateV2Query: vi.fn(),
+}));
+
+vi.mock('../../../data/builderQueries', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../data/builderQueries')>(),
+  useResolveConfiguredColumnContextsQuery: mockLoomClient.configuredColumnContextsQuery,
+}));
+
 vi.mock('../../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../react')>();
   return {
     ...actual,
     useLoomClient: () => (mockLoomClientReference.current as typeof mockLoomClient | undefined) ?? mockLoomClient,
-    useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
-    useAssessExplorerRowChangeMutation: vi.fn(),
-    useCreateExplorerAuthoringMutation: vi.fn(),
-    useDeleteExplorerAuthoringMutation: vi.fn(),
-    useGetExplorerAuthoringCapabilityV2Query: vi.fn(),
-    useGetExplorerAuthoringExplorersQuery: vi.fn(),
-    useGetExplorerBuilderStateV2Query: vi.fn(),
-    useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
-    usePreviewExplorerAuthoringV2Mutation: vi.fn(),
-    usePopulationMappingMutation: vi.fn(),
-    usePublishExplorerAuthoringV2Mutation: vi.fn(),
-    useReconcileExplorerBuilderV2Mutation: (...args: Parameters<typeof actual.useReconcileExplorerBuilderV2Mutation>) => {
-      if (!mockUseActualReconcile.enabled) return mockReconcileMutation(...args);
-      const result = actual.useReconcileExplorerBuilderV2Mutation(...args);
+    useBuilderMutation: (method: string) => {
+      const overrides: Readonly<Record<string, () => unknown>> = {
+        applyCommands: useApplyExplorerBuilderCommandsV2Mutation,
+        assessRowChange: useAssessExplorerRowChangeMutation,
+        createExplorer: useCreateExplorerAuthoringMutation,
+        deleteExplorer: useDeleteExplorerAuthoringMutation,
+        suggestions: useGetExplorerCandidateSuggestionsV2Mutation,
+        preview: usePreviewExplorerAuthoringV2Mutation,
+        populationMapping: usePopulationMappingMutation,
+        publish: usePublishExplorerAuthoringV2Mutation,
+        reconcile: () => {
+      if (!mockUseActualReconcile.enabled) return mockReconcileMutation();
+      const result = actual.useBuilderMutation('reconcile');
       mockUseActualReconcile.isLoading = result[1].isLoading;
       return result;
     },
-    useResolveConfiguredColumnContextsQuery: mockLoomClient.configuredColumnContextsQuery,
+      };
+      const override = overrides[method];
+      return override ? override() : actual.useBuilderMutation(method as Parameters<typeof actual.useBuilderMutation>[0]);
+    },
+    useGetExplorerAuthoringCapabilityV2Query: vi.fn(),
+    useGetExplorerAuthoringExplorersQuery: vi.fn(),
   };
 });
 
@@ -133,8 +145,10 @@ const render = (
   ),
 });
 
-vi.mock('../components/BuilderToolbar', () => ({
-  BuilderToolbar: ({
+vi.mock('../ui/toolbar/BuilderToolbar', () => ({
+  BuilderToolbar: () => {
+    const props = useBuilderToolbarSession(session => session);
+    const renderMockToolbar = ({
     onReview,
     onPublish,
     onSelectTable,
@@ -183,11 +197,13 @@ vi.mock('../components/BuilderToolbar', () => ({
         </>
       ) : null}
     </div>
-  ),
+  );
+    return renderMockToolbar(props as unknown as Parameters<typeof renderMockToolbar>[0]);
+  },
 }));
 
-vi.mock('../components/GuidedGraphWorkspace', () => ({
-  GuidedGraphWorkspace: ({
+vi.mock('../ui/traversal/GuidedGraphWorkspace', () => {
+  const renderGraph = ({
     onChangeEdge,
     onChangeBase,
   }: {
@@ -207,11 +223,17 @@ vi.mock('../components/GuidedGraphWorkspace', () => ({
         Change rows
       </button>
     </>
-  ),
-}));
+  );
+  return { GuidedGraphWorkspace: function MockGuidedGraphWorkspace() {
+    const props = useAuthoredTraversalSession(session => session);
+    return renderGraph(props);
+  } };
+});
 
-vi.mock('../components/ConceptCatalog', () => ({
-  ConceptCatalog: ({
+vi.mock('../ui/catalog/ConceptCatalog', () => ({
+  ConceptCatalog: (presentation: object) => {
+    const scope = useConceptCatalogSession(session => session);
+    const renderMockCatalog = ({
     onAddSelected,
     disabled,
     disabledReason,
@@ -266,11 +288,13 @@ vi.mock('../components/ConceptCatalog', () => ({
         {actionError ? <p role="alert">{actionError}</p> : null}
       </section>
     );
+  };
+    return renderMockCatalog({ ...presentation, ...scope } as unknown as Parameters<typeof renderMockCatalog>[0]);
   },
 }));
 
-vi.mock('../components/PreviewTable', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../components/PreviewTable')>();
+vi.mock('../ui/preview/PreviewTable', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../ui/preview/PreviewTable')>();
   return {
     ...actual,
     PreviewTable: (props: Parameters<typeof actual.PreviewTable>[0]) => mockUseActualPreviewTable.enabled
@@ -285,8 +309,8 @@ vi.mock('../components/PreviewTable', async (importOriginal) => {
   };
 });
 
-vi.mock('../constructionOperations/ConstructionReshapeEditor', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../constructionOperations/ConstructionReshapeEditor')>();
+vi.mock('../ui/reshape/ConstructionReshapeEditor', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../ui/reshape/ConstructionReshapeEditor')>();
   const MockConstructionReshapeEditor = ({
     editingStep,
     initialKind,
@@ -589,7 +613,7 @@ describe('population exclusion mounted schedules', () => {
       explicitGroups: [],
     });
     mockLoomClient.proposeConstructionChoices.mockReset();
-    mockLoomClient.proposeConstructionChoices.mockImplementation(async (args: ProposeConstructionChoicesArgs) => ({
+    mockLoomClient.proposeConstructionChoices.mockImplementation(async (args: Parameters<LoomClient['proposeConstructionChoices']>[0]) => ({
       commandId: args.commandId,
       snapshotToken: args.snapshotToken,
       draftVersion: args.expectedDraftVersion,
@@ -795,7 +819,7 @@ describe('population exclusion mounted schedules', () => {
   });
 
   const openPopulationExclusion = async (mode: 'normal' | 'refresh' | 'unrelated' | 'queued-refresh' = 'normal', deferRoutes = false) => {
-    const actualReact = await vi.importActual<typeof import('../../../react')>('../../../react');
+    const actualReact = await vi.importActual<typeof import('../session/useBuilderLoad')>('../session/useBuilderLoad');
     (useGetExplorerBuilderStateV2Query as Mock).mockImplementation(actualReact.useGetExplorerBuilderStateV2Query);
     mockLoomClient.createSelection.mockReset();
     mockLoomClient.searchPopulationRoutes.mockReset();

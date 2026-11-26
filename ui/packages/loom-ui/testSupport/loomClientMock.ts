@@ -1,5 +1,6 @@
 import { vi, type Mock } from 'vitest';
-import type { LoomClient } from '../src/api';
+import type { LoomClient } from '../src/client/api';
+import { traceLoomClient } from './traceLoomClient';
 
 const never = () => new Promise<never>(() => undefined);
 
@@ -71,5 +72,6 @@ export function createLoomClientMock<Overrides extends Partial<LoomClient>>(
   overrides: Overrides,
 ): Omit<LoomClientMockDefaults, keyof Overrides> & Overrides;
 export function createLoomClientMock(overrides: Partial<LoomClient> = {}) {
-  return { ...defaults, ...overrides };
+  const client = { ...defaults, ...overrides };
+  return traceLoomClient(client);
 }

@@ -1,0 +1,4132 @@
+import { isRecord } from './guards';
+import { z } from 'zod';
+import { importedSourceParametersSchema, validateEditableSourceParameters } from './sourceRecipeParameters';
+export { importedSourceParametersSchema, sourceRecipeExpressionSchema, sourceRecipeEditFunctions } from './sourceRecipeParameters';
+export type { ImportedSourceParameters, SourceRecipeExpression } from './sourceRecipeParameters';
+
+export interface DataframeSelector {
+  readonly recipe: string;
+  readonly translationVersion: string;
+  readonly output: string;
+}
+
+export const EXPLORER_AUTHORING_API_VERSION =
+  'loom.calypr.org/explorer-authoring/v2' as const;
+export { EXPLORER_AUTHORING_SEMANTICS_VERSION } from '../authoringSemanticsVersion.mjs';
+
+const opaqueIdSchema = z.string().trim().min(1);
+const exactOpaqueIdSchema = z.string().min(1).refine((value) => value === value.trim(), 'ID must not have surrounding whitespace.');
+const projectionModeSchema = z.enum([
+  'VALUE',
+  'INDEXED',
+  'FIRST',
+  'ALL',
+  'DISTINCT',
+]);
+export const semanticInventorySelectionModeSchema = z.enum([
+  'EXACT_CONCEPT',
+  'SYSTEM_VERSION_CATEGORY',
+]);
+export type SemanticInventorySelectionMode = z.infer<typeof semanticInventorySelectionModeSchema>;
+export const SEMANTIC_FIELD_PRESENTATION_REVISION = 'semantic-field-presentation/v1';
+const unknownRecordSchema = z.record(z.string(), z.unknown());
+
+export const correlatedBindingSchema = z.object({
+  ownerPath: z.string().optional(),
+  keyPath: opaqueIdSchema,
+  systemPath: opaqueIdSchema,
+  codePath: opaqueIdSchema,
+  valuePath: opaqueIdSchema,
+  valueFallback: z.array(opaqueIdSchema).optional(),
+  fallbackOnBlankString: z.boolean().optional(),
+  choiceArms: z.array(opaqueIdSchema).optional(),
+  logicalType: opaqueIdSchema,
+  unitPath: z.string().optional(),
+  versionPath: opaqueIdSchema.optional(),
+  valueScope: z.literal('CODING').optional(),
+  selectionScope: z.enum(['EXACT', 'SYSTEM_VERSION']).optional(),
+}).strict();
+
+const terminologyKeySchema = z.object({
+  system: opaqueIdSchema,
+  code: opaqueIdSchema,
+  version: z.string().optional(),
+}).strict();
+const codedValueKeySchema = z.object({
+  system: opaqueIdSchema,
+  code: z.string(),
+  version: z.string().optional(),
+}).strict();
+
+const constructionGroupSemanticCategorySchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('CHOICE'),
+    choiceId: opaqueIdSchema,
+  }).strict(),
+  z.object({
+    kind: z.literal('BINDING'),
+    bindingId: opaqueIdSchema,
+    ruleVersion: opaqueIdSchema,
+    familyId: opaqueIdSchema,
+    sourceKind: z.enum(['file', 'retained_vertex']),
+    system: z.string().min(1),
+    version: z.string().default(''),
+    resourceType: opaqueIdSchema,
+    codingPath: opaqueIdSchema,
+  }).strict(),
+]);
+
+const constructionSemanticGroupChoiceSchema = z.object({
+  choiceId: opaqueIdSchema,
+  bindingId: opaqueIdSchema,
+  ruleVersion: opaqueIdSchema,
+  label: z.string().min(1),
+  scopeLabel: z.string().min(1),
+  resourceType: opaqueIdSchema,
+  sourcePath: opaqueIdSchema,
+}).strict();
+
+const constructionGroupFieldCurrentStageScalarSchema = z.object({
+  sourceRole: z.enum(['ROOT', 'OWNER', 'ANCESTOR', 'CURRENT_ITEM']),
+  occurrenceId: opaqueIdSchema,
+  ownerResourceType: opaqueIdSchema,
+  resourceType: opaqueIdSchema,
+  candidateId: opaqueIdSchema.optional(),
+  canonicalPath: opaqueIdSchema.optional(),
+  boundarySelector: opaqueIdSchema.optional(),
+}).strict();
+
+const constructionGroupFieldCurrentStageCodingIdentitySchema = z.object({
+  sourceRole: z.literal('CURRENT_ITEM'),
+  occurrenceId: opaqueIdSchema,
+  ownerResourceType: opaqueIdSchema,
+  resourceType: opaqueIdSchema,
+  canonicalPath: opaqueIdSchema,
+}).strict();
+
+const constructionGroupFieldRelatedRouteStepSchema = z.object({
+  stepIndex: z.number().int().nonnegative(),
+  fromOccurrenceId: opaqueIdSchema,
+  fromNodeId: opaqueIdSchema,
+  fromResourceType: opaqueIdSchema,
+  edgeId: opaqueIdSchema,
+  relationship: opaqueIdSchema,
+  storageDirection: z.enum(['INBOUND', 'OUTBOUND']),
+  matchMode: z.enum(['OPTIONAL', 'REQUIRED']),
+  toOccurrenceId: opaqueIdSchema,
+  toNodeId: opaqueIdSchema,
+  toResourceType: opaqueIdSchema,
+}).strict();
+
+const constructionGroupRelatedOccurrenceBaseSchema = {
+  anchorOccurrenceId: opaqueIdSchema,
+  anchorNodeId: opaqueIdSchema,
+  anchorResourceType: opaqueIdSchema,
+  route: z.array(constructionGroupFieldRelatedRouteStepSchema).min(1),
+  targetOccurrenceId: opaqueIdSchema,
+  targetNodeId: opaqueIdSchema,
+  targetResourceType: opaqueIdSchema,
+  resourceType: opaqueIdSchema,
+  emptyPolicy: z.enum(['PRESERVE_PARENT', 'EXCLUDE', 'ERROR']),
+  multiplicity: z.literal('DISTINCT_TARGET_PER_INPUT'),
+};
+
+const constructionGroupFieldRelatedScalarSchema = z.object({
+  ...constructionGroupRelatedOccurrenceBaseSchema,
+  candidateId: opaqueIdSchema,
+  canonicalPath: opaqueIdSchema,
+}).strict();
+
+const constructionGroupFieldRelatedCodingIdentitySchema = z.object({
+  ...constructionGroupRelatedOccurrenceBaseSchema,
+  codingSelector: opaqueIdSchema,
+  codingEmptyPolicy: z.enum(['GROUP', 'EXCLUDE', 'ERROR']),
+  ordinalSemantics: z.literal('ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY'),
+}).strict();
+
+const constructionGroupFieldCurrentStageScalarInputSchema = z.object({
+  kind: z.literal('CURRENT_STAGE'),
+  currentStage: constructionGroupFieldCurrentStageScalarSchema,
+}).strict();
+
+const constructionGroupFieldRelatedScalarInputSchema = z.object({
+  kind: z.literal('RELATED_OCCURRENCE'),
+  relatedOccurrence: constructionGroupFieldRelatedScalarSchema,
+}).strict();
+
+const constructionGroupFieldCurrentStageCodingIdentityInputSchema = z.object({
+  kind: z.literal('CURRENT_STAGE'),
+  currentStage: constructionGroupFieldCurrentStageCodingIdentitySchema,
+}).strict();
+
+const constructionGroupFieldRelatedCodingIdentityInputSchema = z.object({
+  kind: z.literal('RELATED_OCCURRENCE'),
+  relatedOccurrence: constructionGroupFieldRelatedCodingIdentitySchema,
+}).strict();
+
+const constructionGroupFieldSourceChoiceSchema = z.object({
+  kind: z.literal('CHOICE'),
+  choiceId: opaqueIdSchema,
+}).strict();
+
+const constructionGroupFieldSourceLegacyScalarBindingSchema = z.object({
+  kind: z.literal('BINDING'),
+  valueKind: z.literal('SCALAR'),
+  sourceStageId: opaqueIdSchema,
+  sourceShapeId: opaqueIdSchema,
+  sourceRole: z.enum(['ROOT', 'OWNER', 'ANCESTOR', 'CURRENT_ITEM']),
+  occurrenceId: opaqueIdSchema,
+  resourceType: opaqueIdSchema,
+  ownerOccurrenceId: opaqueIdSchema,
+  ownerResourceType: opaqueIdSchema,
+  candidateId: opaqueIdSchema,
+  canonicalPath: opaqueIdSchema,
+  boundarySelector: opaqueIdSchema.optional(),
+}).strict();
+
+const constructionGroupFieldSourceNestedScalarBindingSchema = z.object({
+  kind: z.literal('BINDING'),
+  valueKind: z.literal('SCALAR'),
+  sourceStageId: opaqueIdSchema,
+  sourceShapeId: opaqueIdSchema,
+  input: z.discriminatedUnion('kind', [
+    constructionGroupFieldCurrentStageScalarInputSchema,
+    constructionGroupFieldRelatedScalarInputSchema,
+  ]),
+}).strict();
+
+const constructionGroupFieldSourceScalarOptions = [
+  constructionGroupFieldSourceChoiceSchema,
+  constructionGroupFieldSourceLegacyScalarBindingSchema,
+  constructionGroupFieldSourceNestedScalarBindingSchema,
+] as const;
+
+const constructionGroupFieldSourceScalarSchema = z.union(constructionGroupFieldSourceScalarOptions);
+
+const constructionGroupFieldSourceLegacyCodingIdentityBindingSchema = z.object({
+  kind: z.literal('BINDING'),
+  valueKind: z.literal('CODING_IDENTITY'),
+  sourceStageId: opaqueIdSchema,
+  sourceShapeId: opaqueIdSchema,
+  sourceRole: z.literal('CURRENT_ITEM'),
+  occurrenceId: opaqueIdSchema,
+  resourceType: opaqueIdSchema,
+  ownerOccurrenceId: opaqueIdSchema,
+  ownerResourceType: opaqueIdSchema,
+  canonicalPath: opaqueIdSchema,
+}).strict();
+
+const constructionGroupFieldSourceNestedCodingIdentityBindingSchema = z.object({
+  kind: z.literal('BINDING'),
+  valueKind: z.literal('CODING_IDENTITY'),
+  sourceStageId: opaqueIdSchema,
+  sourceShapeId: opaqueIdSchema,
+  input: z.discriminatedUnion('kind', [
+    constructionGroupFieldCurrentStageCodingIdentityInputSchema,
+    constructionGroupFieldRelatedCodingIdentityInputSchema,
+  ]),
+}).strict();
+
+const constructionGroupFieldSourceSchema = z.union([
+  ...constructionGroupFieldSourceScalarSchema.options,
+  constructionGroupFieldSourceLegacyCodingIdentityBindingSchema,
+  constructionGroupFieldSourceNestedCodingIdentityBindingSchema,
+]);
+
+const constructionRelatedOccurrenceSchema = z.object({
+  routeId: opaqueIdSchema,
+  routeLabel: z.string().optional(),
+}).strict();
+
+const constructionGroupFieldScalarChoiceSchema = z.object({
+    kind: z.literal('FIELD_SOURCE'),
+    valueKind: z.literal('SCALAR'),
+    fieldSource: z.object({ kind: z.literal('CHOICE'), choiceId: opaqueIdSchema }).strict(),
+    matchedOutputKeyId: opaqueIdSchema.optional(),
+    label: z.string().min(1),
+    sourceStageId: opaqueIdSchema,
+    sourceShapeId: opaqueIdSchema,
+    candidateId: opaqueIdSchema,
+    sourceRole: z.enum(['ROOT', 'OWNER', 'ANCESTOR', 'CURRENT_ITEM', 'RELATED_OCCURRENCE']),
+    occurrenceId: opaqueIdSchema,
+    resourceType: opaqueIdSchema,
+    ownerOccurrenceId: opaqueIdSchema,
+    ownerResourceType: opaqueIdSchema,
+    canonicalPath: opaqueIdSchema,
+    scopeLabel: z.string().optional(),
+    valueType: z.string().optional(),
+    inputColumnId: opaqueIdSchema.optional(),
+    boundarySelector: opaqueIdSchema.optional(),
+    relatedOccurrence: constructionRelatedOccurrenceSchema.optional(),
+}).strict();
+
+const constructionGroupCodingIdentityChoiceSchema = z.object({
+    kind: z.literal('FIELD_SOURCE'),
+    valueKind: z.literal('CODING_IDENTITY'),
+    fieldSource: z.object({ kind: z.literal('CHOICE'), choiceId: opaqueIdSchema }).strict(),
+    matchedOutputKeyId: opaqueIdSchema.optional(),
+    label: z.string().min(1),
+    sourceStageId: opaqueIdSchema,
+    sourceShapeId: opaqueIdSchema,
+    sourceRole: z.enum(['CURRENT_ITEM', 'RELATED_OCCURRENCE']),
+    occurrenceId: opaqueIdSchema,
+    resourceType: opaqueIdSchema,
+    ownerOccurrenceId: opaqueIdSchema,
+    ownerResourceType: opaqueIdSchema,
+    canonicalPath: opaqueIdSchema,
+    scopeLabel: z.string().optional(),
+    valueType: z.string().optional(),
+    relatedOccurrence: constructionRelatedOccurrenceSchema.optional(),
+}).strict();
+
+const constructionSemanticGroupFieldChoiceSchema = z.object({
+    kind: z.literal('SEMANTIC_CATEGORY'),
+    semanticCategory: constructionGroupSemanticCategorySchema,
+    label: z.string().min(1),
+    scopeLabel: z.string().optional(),
+    resourceType: opaqueIdSchema.optional(),
+    canonicalPath: opaqueIdSchema.optional(),
+}).strict();
+
+const constructionGroupFieldChoiceSchema = z.union([
+  constructionGroupFieldScalarChoiceSchema,
+  constructionGroupCodingIdentityChoiceSchema,
+  constructionSemanticGroupFieldChoiceSchema,
+]);
+
+export const conceptCandidateSchema = z.object({
+  sourceResourceType: opaqueIdSchema,
+  sourceCanonical: z.string().optional(),
+  sourceProfile: z.string().optional(),
+  sourcePath: z.string().optional(),
+  owningScope: z.string().optional(),
+  extensionUrlPath: z.array(z.string()).optional(),
+  keySelector: z.string().optional(),
+  system: z.string().optional(),
+  code: z.string().optional(),
+  display: z.string().optional(),
+  valueSelector: z.string().optional(),
+  choiceArm: z.string().optional(),
+  logicalType: z.string().optional(),
+  observedUnits: z.array(z.string()).optional(),
+  observedUnitsTruncated: z.boolean().optional(),
+  completeness: opaqueIdSchema,
+  status: opaqueIdSchema,
+  population: z.number().int().nonnegative().safe(),
+  examples: z.array(z.string()).optional(),
+  examplesTruncated: z.boolean().optional(),
+  ruleHint: z.string().optional(),
+  ruleVersion: z.string().optional(),
+}).strict();
+
+const extensionBindingSchema = z.object({
+  ownerPath: opaqueIdSchema,
+  urlPath: z.array(opaqueIdSchema).min(1),
+  valuePath: opaqueIdSchema,
+  logicalType: opaqueIdSchema,
+  valueFallback: z.array(opaqueIdSchema).optional(),
+  choiceArms: z.array(opaqueIdSchema).optional(),
+  unitPath: z.string().optional(),
+}).strict();
+
+const identifierBindingSchema = z.object({
+  ownerPath: opaqueIdSchema,
+  systemPath: opaqueIdSchema,
+  valuePath: opaqueIdSchema,
+  systemURI: opaqueIdSchema,
+  logicalType: opaqueIdSchema,
+}).strict();
+
+export const explorerAuthoringDiagnosticSchema = z
+  .object({
+    severity: z.enum(['error', 'warning', 'info']),
+    stage: z.string().optional(),
+    code: opaqueIdSchema,
+    path: z.string().nullable().optional(),
+    fieldPath: z.string().nullable().optional(),
+    message: z.string(),
+    details: unknownRecordSchema.optional(),
+    requestId: z.string().optional(),
+  })
+  .strict();
+export type ExplorerAuthoringDiagnostic = z.infer<
+  typeof explorerAuthoringDiagnosticSchema
+>;
+
+export const explorerTablePresentationSchema = z
+  .object({
+    visible: z.boolean().optional(),
+    order: z.number().int().nonnegative().optional(),
+    pinned: z.boolean().optional(),
+    cellRenderer: z.literal('fileActions').optional(),
+  })
+  .strict();
+export const explorerFilterPresentationSchema = z
+  .object({
+    label: z.string().optional(),
+    order: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+export const explorerChartPresentationSchema = z
+  .object({
+    type: opaqueIdSchema,
+    title: z.string().optional(),
+    order: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+const fieldColumnSourceSchema = z
+  .object({
+    kind: z.literal('field'),
+    field: z.object({
+      path: opaqueIdSchema,
+      projectionMode: projectionModeSchema.optional(),
+      relatedSelection: z.object({
+        kind: z.literal('first-by-resource-key'),
+        acknowledged: z.boolean(),
+      }).strict().optional(),
+    }).strict(),
+  }).strict();
+const lookupColumnSourceSchema = z.union([
+  z.object({
+    kind: z.literal('identifierBySystem'),
+    lookup: z.object({
+      identifier: identifierBindingSchema,
+      projectionMode: projectionModeSchema.optional(),
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('extensionByUrl'),
+    lookup: z.object({
+      extension: extensionBindingSchema,
+      projectionMode: projectionModeSchema.optional(),
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.enum([
+      'identifierBySystem',
+      'extensionByUrl',
+    ]),
+    lookup: z.object({
+      match: opaqueIdSchema,
+      path: opaqueIdSchema.optional(),
+      projectionMode: projectionModeSchema.optional(),
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('codedValue'),
+    lookup: z.object({
+      binding: correlatedBindingSchema,
+      key: codedValueKeySchema,
+      projectionMode: projectionModeSchema.optional(),
+    }).strict(),
+  }).strict().superRefine(({ lookup }, context) => {
+    const systemVersionScope = lookup.binding.selectionScope === 'SYSTEM_VERSION';
+    if (systemVersionScope && lookup.key.code !== '') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'System/version-scoped coded values must not persist an exact code.',
+        path: ['lookup', 'key', 'code'],
+      });
+    }
+    if (systemVersionScope && !lookup.binding.versionPath) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'System/version-scoped coded values require a Coding version path.',
+        path: ['lookup', 'binding', 'versionPath'],
+      });
+    }
+    if (systemVersionScope && lookup.binding.valueScope !== 'CODING') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'System/version-scoped coded values must match a specific Coding.',
+        path: ['lookup', 'binding', 'valueScope'],
+      });
+    }
+    if (!systemVersionScope && !lookup.key.code.trim()) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Exact coded values require a non-empty code.',
+        path: ['lookup', 'key', 'code'],
+      });
+    }
+  }),
+]);
+const ownerRecordsColumnSourceSchema = z.object({
+  kind: z.literal('ownerRecords'),
+  ownerRecords: z.object({
+    binding: correlatedBindingSchema,
+    key: terminologyKeySchema,
+  }).strict(),
+}).strict();
+export const contributorWindowSchema = z.object({
+  timestampPath: opaqueIdSchema,
+  anchorPath: opaqueIdSchema,
+  lowerOffsetSeconds: z.number().int(),
+  upperOffsetSeconds: z.number().int(),
+  lowerInclusive: z.boolean(),
+  upperInclusive: z.boolean(),
+  precision: z.literal('INSTANT'),
+}).strict().refine(
+  ({ lowerOffsetSeconds, upperOffsetSeconds }) => lowerOffsetSeconds <= upperOffsetSeconds,
+  { message: 'lowerOffsetSeconds must not exceed upperOffsetSeconds' },
+);
+export type ContributorWindow = z.infer<typeof contributorWindowSchema>;
+export const aggregateOrderingSchema = z.object({
+  timestampPath: opaqueIdSchema,
+  direction: z.enum(['ASC', 'DESC']),
+  tiePolicy: z.enum(['REQUIRE_UNIQUE', 'RESOURCE_KEY']),
+}).strict();
+export type AggregateOrdering = z.infer<typeof aggregateOrderingSchema>;
+const unitNormalizationSchema = z.object({
+  policyId: opaqueIdSchema,
+  version: opaqueIdSchema,
+}).strict();
+export const resultUnitSchema = z.object({
+  system: opaqueIdSchema,
+  code: opaqueIdSchema,
+}).strict();
+export type ResultUnit = z.infer<typeof resultUnitSchema>;
+const aggregateColumnSourceSchema = z.object({
+  kind: z.literal('aggregate'),
+  aggregate: z.discriminatedUnion('operation', [
+    z.object({
+      operation: z.enum(['COUNT', 'EXISTS']),
+      path: opaqueIdSchema.optional(),
+      contributorWindow: contributorWindowSchema.optional(),
+    }).strict(),
+    z.object({
+      operation: z.enum(['MIN', 'MAX', 'SUM', 'MEAN']),
+      path: opaqueIdSchema,
+      contributorWindow: contributorWindowSchema.optional(),
+      unitNormalization: unitNormalizationSchema.optional(),
+    }).strict(),
+    z.object({
+      operation: z.literal('COUNT_DISTINCT'),
+      path: opaqueIdSchema,
+    }).strict(),
+    z.object({
+      operation: z.literal('CONTAINS_ALL'),
+      path: opaqueIdSchema,
+      requiredValues: z.array(z.string().refine((value) => value.trim().length > 0)).min(1)
+        .refine((values) => new Set(values).size === values.length),
+    }).strict(),
+    z.object({
+      operation: z.enum(['DISTINCT_VALUES', 'REQUIRE_ONE', 'COLLECT']),
+      path: opaqueIdSchema,
+      unitNormalization: unitNormalizationSchema.optional(),
+    }).strict(),
+    z.object({
+      operation: z.literal('FIRST_ORDERED'),
+      path: opaqueIdSchema,
+      contributorWindow: contributorWindowSchema,
+      ordering: aggregateOrderingSchema,
+      unitNormalization: unitNormalizationSchema.optional(),
+    }).strict(),
+  ]),
+}).strict();
+const contributorValueSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('STRING'), string: z.string() }).strict(),
+  z.object({
+    kind: z.literal('CODE'),
+    code: z.object({ code: z.string().min(1) }).strict(),
+  }).strict(),
+]);
+export const contributorPredicateSchema = z
+  .object({
+    candidateId: opaqueIdSchema,
+    operator: z.enum(['EXISTS', 'EQUALS']),
+    quantifier: z.literal('ANY').optional(),
+    value: contributorValueSchema.optional(),
+  })
+  .strict();
+export type ContributorPredicate = z.infer<typeof contributorPredicateSchema>;
+export const explorerColumnSourceSchema = z.union([
+  z.object({
+    kind: z.literal('imported'),
+    imported: z.object({ outputColumn: opaqueIdSchema }).strict(),
+  }).strict(),
+  fieldColumnSourceSchema,
+  lookupColumnSourceSchema,
+  ownerRecordsColumnSourceSchema,
+  aggregateColumnSourceSchema,
+  z.object({ kind: z.literal('projectId') }).strict(),
+]);
+export type ExplorerColumnSource = z.infer<typeof explorerColumnSourceSchema>;
+export const featureInterpretationSchema = z
+  .object({
+    kind: z.literal('PINNED'),
+    pinned: z.object({ revisionId: opaqueIdSchema }).strict(),
+  })
+  .strict();
+export type FeatureInterpretation = z.infer<typeof featureInterpretationSchema>;
+export type ExplorerBuilderRouteNode = {
+  occurrenceId: string;
+  resourceType: string;
+  catalogEdgeId?: string;
+  relationship?: string;
+  matchMode?: 'OPTIONAL' | 'REQUIRED';
+  children?: ExplorerBuilderRouteNode[];
+};
+const explorerPopulationStepSchema = z.object({
+  resourceType: opaqueIdSchema,
+  relationship: opaqueIdSchema,
+  catalogEdgeId: opaqueIdSchema.optional(),
+  storageDirection: z.enum(['INBOUND', 'OUTBOUND']).optional(),
+}).strict();
+export const explorerPopulationSchema = z.object({
+  selectionRevisionId: opaqueIdSchema,
+  route: z.array(explorerPopulationStepSchema),
+}).strict();
+export const explorerBuilderRouteNodeSchema: z.ZodType<ExplorerBuilderRouteNode> =
+  z.lazy(() =>
+    z
+      .object({
+        occurrenceId: opaqueIdSchema,
+        resourceType: opaqueIdSchema,
+        catalogEdgeId: opaqueIdSchema.optional(),
+        relationship: z.string().optional(),
+        matchMode: z.enum(['OPTIONAL', 'REQUIRED']).optional(),
+        children: z.array(explorerBuilderRouteNodeSchema).optional(),
+      })
+      .strict(),
+  );
+const recordRowsSchema = z.object({}).strict();
+const fieldGroupSourceSchema = z
+  .object({
+    occurrenceId: opaqueIdSchema,
+    fieldPath: opaqueIdSchema,
+    missingKeyPolicy: z.enum(['ERROR', 'EXCLUDE', 'GROUP_AS_MISSING']),
+  })
+  .strict();
+const explicitGroupSourceSchema = z
+  .object({
+    revisionId: opaqueIdSchema,
+    unassignedMemberPolicy: z.enum([
+      'ERROR',
+      'EXCLUDE',
+      'GROUP_AS_UNASSIGNED',
+    ]),
+  })
+  .strict();
+const groupSourceSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('FIELD'), field: fieldGroupSourceSchema }).strict(),
+  z
+    .object({ kind: z.literal('EXPLICIT'), explicit: explicitGroupSourceSchema })
+    .strict(),
+]);
+export const explorerRowDefinitionSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('RECORDS'), records: recordRowsSchema }).strict(),
+  z
+    .object({
+      kind: z.literal('GROUPS'),
+      groups: z
+        .object({
+          source: groupSourceSchema,
+          afterStepId: opaqueIdSchema.optional(),
+          rowValues: z.array(z.object({ columnId: opaqueIdSchema, policy: z.enum(['ALL', 'ONE']) }).strict()).optional(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('EXPANDED'),
+      expanded: z
+        .object({
+          occurrenceId: opaqueIdSchema,
+          scopePath: opaqueIdSchema,
+          emptyCollectionPolicy: z.enum([
+            'ERROR',
+            'EXCLUDE',
+            'PRESERVE_PARENT',
+          ]),
+        })
+        .strict(),
+    })
+    .strict(),
+]);
+export type ExplorerRowDefinition = z.infer<typeof explorerRowDefinitionSchema>;
+
+const rowDefinitionChoiceFieldPolicySchema = z
+  .object({
+    name: z.literal('missingKeyPolicy'),
+    options: z.array(z.enum(['ERROR', 'EXCLUDE', 'GROUP_AS_MISSING'])).min(1),
+  })
+  .strict();
+const rowDefinitionChoiceExpandedPolicySchema = z
+  .object({
+    name: z.literal('emptyCollectionPolicy'),
+    options: z.array(z.enum(['ERROR', 'EXCLUDE', 'PRESERVE_PARENT'])).min(1),
+  })
+  .strict();
+const rowDefinitionChoiceBaseSchema = z.object({
+  choiceId: opaqueIdSchema,
+  occurrenceId: opaqueIdSchema.optional(),
+  fieldPath: z.string().min(1),
+  label: z.string().min(1),
+  description: z.string(),
+  occurrenceSummary: z.string().min(1),
+  routeSummary: z.string().min(1),
+});
+export const rowDefinitionChoiceSchema = z.discriminatedUnion('kind', [
+  rowDefinitionChoiceBaseSchema.extend({
+    kind: z.literal('FIELD_GROUP'),
+    valueType: z.enum(['STRING', 'NUMBER', 'BOOLEAN']),
+    policies: z.array(rowDefinitionChoiceFieldPolicySchema).length(1),
+  }).strict(),
+  rowDefinitionChoiceBaseSchema.extend({
+    kind: z.literal('EXPANDED'),
+    valueType: z.literal('ARRAY'),
+    policies: z.array(rowDefinitionChoiceExpandedPolicySchema).length(1),
+  }).strict(),
+]);
+export type RowDefinitionChoice = z.infer<typeof rowDefinitionChoiceSchema>;
+export const explicitGroupRevisionChoiceSchema = z.object({
+  revisionId: opaqueIdSchema,
+  sourceSelectionRevisionId: opaqueIdSchema.optional(),
+  groupCount: z.number().int().positive().safe(),
+  memberCount: z.number().int().nonnegative().safe(),
+  createdAt: z.string().datetime(),
+  unassignedMemberPolicies: z.array(z.enum(['ERROR', 'EXCLUDE', 'GROUP_AS_UNASSIGNED'])).min(1),
+}).strict();
+export type ExplicitGroupRevisionChoice = z.infer<typeof explicitGroupRevisionChoiceSchema>;
+export const explicitGroupInputSchema = z.object({
+  id: opaqueIdSchema,
+  label: z.string().min(1).max(256),
+  ordinal: z.number().int().nonnegative().safe(),
+  memberIds: z.array(z.string().min(1).max(512)).max(100_000),
+}).strict();
+export const explicitGroupCreateRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  idempotencyKey: z.string().min(1).max(256),
+  groups: z.array(explicitGroupInputSchema).min(1).max(1000),
+}).strict();
+export type ExplicitGroupCreateRequest = z.infer<typeof explicitGroupCreateRequestSchema>;
+export const explicitGroupSummarySchema = z.object({
+  id: opaqueIdSchema,
+  label: z.string().min(1).max(256),
+  ordinal: z.number().int().nonnegative().safe(),
+  memberCount: z.number().int().nonnegative().safe(),
+}).strict();
+export const explicitGroupRevisionSummarySchema = z.object({
+  revisionId: opaqueIdSchema,
+  sourceSelectionRevisionId: opaqueIdSchema,
+  groupCount: z.number().int().positive().safe(),
+  memberCount: z.number().int().nonnegative().safe(),
+  createdAt: z.string().datetime(),
+  groups: z.array(explicitGroupSummarySchema),
+}).strict();
+export type ExplicitGroupRevisionSummary = z.infer<typeof explicitGroupRevisionSummarySchema>;
+export const rowDefinitionChoicesResponseSchema = z
+  .object({
+    snapshotToken: opaqueIdSchema,
+    outputId: opaqueIdSchema,
+    choices: z.array(rowDefinitionChoiceSchema),
+    explicitGroups: z.array(explicitGroupRevisionChoiceSchema),
+  })
+  .strict();
+export type RowDefinitionChoicesResponse = z.infer<typeof rowDefinitionChoicesResponseSchema>;
+
+export const rowDefinitionSelectionSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('RECORDS') }).strict(),
+  z.object({
+    kind: z.literal('FIELD_GROUP'),
+    fieldGroup: z.object({
+      rowChoiceId: opaqueIdSchema,
+      missingKeyPolicy: z.enum(['ERROR', 'EXCLUDE', 'GROUP_AS_MISSING']),
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('EXPLICIT_GROUP'),
+    explicitGroup: z.object({
+      revisionId: opaqueIdSchema,
+      unassignedMemberPolicy: z.enum(['ERROR', 'EXCLUDE', 'GROUP_AS_UNASSIGNED']),
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('EXPANDED'),
+    expanded: z.object({
+      rowChoiceId: opaqueIdSchema,
+      emptyCollectionPolicy: z.enum(['ERROR', 'EXCLUDE', 'PRESERVE_PARENT']),
+    }).strict(),
+  }).strict(),
+]);
+export type RowDefinitionSelection = z.infer<typeof rowDefinitionSelectionSchema>;
+export const rowDefinitionPreviewSummarySchema = z.object({
+  rowCount: z.number().int().nonnegative(),
+  sampled: z.boolean(),
+}).strict();
+const rowDefinitionComparisonExampleSchema = z.object({
+  rowIdentity: opaqueIdSchema,
+  basePresent: z.boolean(),
+  candidatePresent: z.boolean(),
+}).strict();
+const rowDefinitionComparisonCommonSchema = z.object({
+  affectedColumns: z.array(opaqueIdSchema),
+  notices: z.array(z.string()),
+  examples: z.array(rowDefinitionComparisonExampleSchema).max(10),
+});
+export const rowDefinitionComparisonSchema = z.discriminatedUnion('status', [
+  rowDefinitionComparisonCommonSchema.extend({
+    status: z.literal('AVAILABLE'),
+    base: rowDefinitionPreviewSummarySchema,
+    candidate: rowDefinitionPreviewSummarySchema,
+  }).strict(),
+  rowDefinitionComparisonCommonSchema.extend({
+    status: z.literal('UNAVAILABLE'),
+    reasonCode: opaqueIdSchema,
+    reason: z.string().min(1),
+    base: rowDefinitionPreviewSummarySchema.optional(),
+    candidate: rowDefinitionPreviewSummarySchema.optional(),
+  }).strict(),
+]);
+export type RowDefinitionComparison = z.infer<typeof rowDefinitionComparisonSchema>;
+export const rowDefinitionProposalSchema = z.object({
+  candidateDocument: z.lazy(() => explorerBuilderDocumentSchema),
+  candidateNetwork: z.lazy(() => authoringNetworkSchema),
+  candidateRowIdentity: z.lazy(() => rowIdentityPlanSchema),
+  proposalId: opaqueIdSchema.optional(),
+  baseReceiptId: opaqueIdSchema,
+  outputId: opaqueIdSchema,
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: opaqueIdSchema,
+  baseDocumentDigest: opaqueIdSchema,
+  candidateWorkspaceDigest: opaqueIdSchema,
+  mode: z.enum(['RECORDS', 'FIELD_GROUP', 'EXPLICIT_GROUP', 'EXPANDED']),
+  comparison: rowDefinitionComparisonSchema,
+}).strict();
+export type RowDefinitionProposal = z.infer<typeof rowDefinitionProposalSchema>;
+
+const exactCategoryMappingSchema = z
+  .object({ from: z.string(), to: z.string() })
+  .strict();
+export const columnValueTransformationSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('EXACT_CATEGORY_RECODE'),
+      exactCategoryRecode: z
+        .object({
+          mappings: z.array(exactCategoryMappingSchema).min(1),
+          unknownPolicy: z.enum(['ERROR', 'KEEP_ORIGINAL']),
+        })
+        .strict(),
+    })
+    .strict(),
+]);
+export type ColumnValueTransformation = z.infer<
+  typeof columnValueTransformationSchema
+>;
+
+export const columnTransformationChangeSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('SET'),
+      transformation: columnValueTransformationSchema,
+    })
+    .strict(),
+  z.object({ kind: z.literal('REMOVE') }).strict(),
+]);
+export type ColumnTransformationChange = z.infer<
+  typeof columnTransformationChangeSchema
+>;
+
+export const explorerBuilderColumnSchema = z
+  .object({
+    columnId: opaqueIdSchema.optional(),
+    frameId: opaqueIdSchema.optional(),
+    column: opaqueIdSchema.regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
+    label: z.string().min(1),
+    logicalType: z.string().optional(),
+    occurrenceId: opaqueIdSchema,
+    source: explorerColumnSourceSchema,
+    valueTransformation: columnValueTransformationSchema.optional(),
+    contributor: contributorPredicateSchema.optional(),
+    interpretation: featureInterpretationSchema.optional(),
+    table: explorerTablePresentationSchema.optional(),
+    filter: explorerFilterPresentationSchema.optional(),
+    chart: explorerChartPresentationSchema.optional(),
+  })
+  .strict();
+export type ExplorerBuilderColumn = z.infer<typeof explorerBuilderColumnSchema>;
+
+export const explorerColumnSourceDescriptorSchema = z
+  .object({
+    snapshotToken: opaqueIdSchema,
+    outputId: opaqueIdSchema,
+    column: opaqueIdSchema,
+    summary: z.string().min(1),
+    facts: z.array(
+      z.object({
+        label: z.string().min(1),
+        value: z.string(),
+      }).strict(),
+    ),
+    route: z.array(
+      z.object({
+        occurrenceId: opaqueIdSchema,
+        resourceType: opaqueIdSchema,
+        catalogEdgeId: opaqueIdSchema.optional(),
+        relationship: z.string().optional(),
+        storageDirection: z.enum(['INBOUND', 'OUTBOUND']).optional(),
+        matchMode: z.enum(['OPTIONAL', 'REQUIRED']).optional(),
+      }).strict(),
+    ).min(1),
+  })
+  .strict();
+export type ExplorerColumnSourceDescriptor = z.infer<
+  typeof explorerColumnSourceDescriptorSchema
+>;
+
+const constructionTableScalarSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('STRING'), string: z.string() }).strict(),
+  z.object({ kind: z.literal('INTEGER'), integer: z.number().int() }).strict(),
+  z.object({ kind: z.literal('DECIMAL'), decimal: z.number() }).strict(),
+  z.object({ kind: z.literal('BOOLEAN'), boolean: z.boolean() }).strict(),
+  z.object({ kind: z.literal('NULL') }).strict(),
+  z.object({ kind: z.literal('MISSING') }).strict(),
+]);
+export type ConstructionTableScalar = z.infer<typeof constructionTableScalarSchema>;
+
+const constructionInputRefSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('SOURCE_PROJECTION') }).strict(),
+  z.object({ kind: z.literal('STEP_OUTPUT'), stepId: opaqueIdSchema }).strict(),
+  z.object({
+    kind: z.literal('TABLE_REVISION'),
+    tableId: opaqueIdSchema,
+    revisionId: opaqueIdSchema,
+    outputId: opaqueIdSchema,
+  }).strict(),
+  z.object({ kind: z.literal('WORKSPACE_OUTPUT'), outputId: opaqueIdSchema }).strict(),
+]);
+export type ConstructionInputRef = z.infer<typeof constructionInputRefSchema>;
+
+const constructionInputColumnSchema = z.object({
+  id: opaqueIdSchema,
+  name: z.string().min(1),
+  label: z.string().min(1),
+  type: z.string().min(1),
+  clickhouseType: z.string().min(1),
+  nullable: z.boolean(),
+  repeated: z.boolean(),
+  semanticPath: z.string().optional(),
+}).strict();
+export type ConstructionInputColumn = z.infer<typeof constructionInputColumnSchema>;
+
+const constructionInputRevisionSchema = z.object({
+  kind: z.literal('TABLE_REVISION'),
+  tableId: opaqueIdSchema,
+  revisionId: opaqueIdSchema,
+  outputId: opaqueIdSchema,
+  tableTitle: z.string().min(1),
+  outputTitle: z.string().min(1),
+  rowMeaning: z.string().min(1),
+  isCurrent: z.boolean(),
+  createdAt: z.string().datetime(),
+  columns: z.array(constructionInputColumnSchema),
+}).strict();
+export type ConstructionInputRevision = z.infer<typeof constructionInputRevisionSchema>;
+
+export const constructionInputsRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  expectedDraftDigest: z.string().min(1),
+  query: z.string().min(1).optional(),
+  cursor: z.string().min(1).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+}).strict();
+export type ConstructionInputsRequest = z.infer<typeof constructionInputsRequestSchema>;
+
+export const constructionInputsResponseSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
+  datasetGeneration: z.string().min(1),
+  entries: z.array(constructionInputRevisionSchema),
+  nextCursor: z.string().min(1).optional(),
+}).strict();
+export type ConstructionInputsResponse = z.infer<typeof constructionInputsResponseSchema>;
+
+const constructionStageColumnBaseSchema = z.object({
+  id: opaqueIdSchema,
+  name: z.string().min(1),
+  label: z.string().min(1),
+  type: z.string().optional(),
+}).strict();
+
+const constructionStageColumnSchema = constructionStageColumnBaseSchema.extend({
+  nullable: z.boolean().optional(),
+  table: explorerTablePresentationSchema.optional(),
+}).strict();
+export type ConstructionStageColumn = z.infer<typeof constructionStageColumnSchema>;
+
+const constructionStageColumnDescriptorSchema = constructionStageColumnBaseSchema.extend({
+  cardinality: z.enum(['required_one', 'optional_one', 'many']).optional(),
+  sourceKey: z.string().optional(),
+}).strict();
+export type ConstructionStageColumnDescriptor = z.infer<typeof constructionStageColumnDescriptorSchema>;
+
+const constructionFilterValueSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('STRING'), string: z.string() }).strict(),
+  z.object({ kind: z.literal('CODE'), code: z.object({
+    system: z.string().optional(), code: z.string().min(1), display: z.string().optional(),
+  }).strict() }).strict(),
+  z.object({ kind: z.literal('BOOLEAN'), boolean: z.boolean() }).strict(),
+  z.object({ kind: z.literal('INTEGER'), integer: z.number().int() }).strict(),
+  z.object({ kind: z.literal('DECIMAL'), decimal: z.number() }).strict(),
+  z.object({ kind: z.literal('DATE'), date: z.string() }).strict(),
+  z.object({ kind: z.literal('DATE_TIME'), dateTime: z.string().datetime() }).strict(),
+]);
+
+const constructionOperandSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('COLUMN'), columnId: opaqueIdSchema }).strict(),
+  z.object({
+    kind: z.literal('LITERAL'),
+    literal: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('INTEGER'), integer: z.number().int() }).strict(),
+      z.object({ kind: z.literal('DECIMAL'), decimal: z.number() }).strict(),
+    ]),
+  }).strict(),
+]);
+
+const constructionCombineKeySchema = z.object({
+  leftColumnId: opaqueIdSchema,
+  rightColumnId: opaqueIdSchema,
+}).strict();
+export type ConstructionCombineKey = z.infer<typeof constructionCombineKeySchema>;
+
+const constructionCombineProjectionSchema = z.object({
+  outputColumnId: opaqueIdSchema,
+  inputIndex: z.number().int().nonnegative(),
+  inputColumnId: opaqueIdSchema,
+}).strict();
+export type ConstructionCombineProjection = z.infer<typeof constructionCombineProjectionSchema>;
+
+const constructionCombineSchema = z.object({
+  kind: z.enum(['KEY_JOIN', 'APPEND', 'MEMBERSHIP']),
+  keys: z.array(constructionCombineKeySchema).min(1).optional(),
+  projections: z.array(constructionCombineProjectionSchema).min(1),
+  joinType: z.enum(['INNER', 'LEFT']).optional(),
+  rightMatchPolicy: z.literal('PRESERVE_ALL').optional(),
+  membershipMode: z.enum(['INCLUDE', 'EXCLUDE']).optional(),
+}).strict();
+export type ConstructionCombine = z.infer<typeof constructionCombineSchema>;
+
+const constructionRouteStepSchema = z.object({
+  edgeId: opaqueIdSchema,
+  fromNodeId: opaqueIdSchema,
+  toNodeId: opaqueIdSchema,
+  fromResourceType: opaqueIdSchema,
+  toResourceType: opaqueIdSchema,
+  relationship: opaqueIdSchema,
+  storageDirection: z.enum(['INBOUND', 'OUTBOUND']),
+  matchMode: z.enum(['OPTIONAL', 'REQUIRED']),
+}).strict();
+export type ConstructionRouteStep = z.infer<typeof constructionRouteStepSchema>;
+
+const frameFormSchema = z.enum(['VALUE', 'FIRST', 'ALL', 'DISTINCT']);
+const frameZeroPolicySchema = z.enum(['NULL', 'EMPTY_LIST']);
+const frameManyPolicySchema = z.enum(['INVALID_MULTIPLE_VALUES', 'FIRST', 'ALL', 'DISTINCT']);
+
+export const frameDefinitionSchema = z.object({
+  id: opaqueIdSchema,
+  title: z.string().min(1),
+  description: z.string(),
+  source: z.object({
+    bindingId: opaqueIdSchema,
+    resourceType: opaqueIdSchema,
+    sourcePath: z.string(),
+    sourceCanonical: z.string().optional(),
+    sourceProfile: z.string().optional(),
+    owningScope: z.string(),
+    keyPath: z.string(),
+    valuePath: z.string(),
+    valueFallbacks: z.array(opaqueIdSchema).optional(),
+    fallbackOnBlankString: z.boolean().optional(),
+    choiceArms: z.array(z.string()).optional(),
+    logicalType: z.string(),
+    ruleVersion: z.string(),
+    schemaVersion: z.number().int(),
+  }).strict(),
+  route: z.array(constructionRouteStepSchema),
+  form: frameFormSchema,
+  zeroPolicy: frameZeroPolicySchema,
+  manyPolicy: frameManyPolicySchema,
+}).strict();
+export type FrameDefinition = z.infer<typeof frameDefinitionSchema>;
+
+export const frameSourceOptionsResponseSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  outputId: opaqueIdSchema,
+  complete: z.boolean(),
+  truncated: z.boolean(),
+  nextCursor: z.string().min(1).optional(),
+  sources: z.array(z.object({
+    choiceId: z.string().min(1),
+    title: z.string().min(1),
+    description: z.string(),
+    resourceType: opaqueIdSchema,
+    sourcePath: z.string(),
+    sourceCanonical: z.string().optional(),
+    sourceProfile: z.string().optional(),
+    bindingId: opaqueIdSchema,
+    owningScope: z.string(),
+    keyPath: z.string(),
+    valuePath: z.string(),
+    logicalType: z.string(),
+    exampleConcept: z.string(),
+    observedOccurrences: z.number().int().nonnegative(),
+    route: z.array(constructionRouteStepSchema),
+    forms: z.array(z.object({
+      form: frameFormSchema,
+      zeroPolicy: frameZeroPolicySchema,
+      manyPolicy: frameManyPolicySchema,
+      decision: z.string(),
+    }).strict()),
+    defaultForm: frameFormSchema,
+  }).strict()).max(50),
+}).strict();
+export type FrameSourceOptionsResponse = z.infer<typeof frameSourceOptionsResponseSchema>;
+export type FrameSourceOption = FrameSourceOptionsResponse['sources'][number];
+
+const constructionChoiceRepeatedBoundarySchema = z
+  .object({
+    path: z.string().min(1),
+    maxItems: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const relatedFieldSourceSchema = z.object({
+  kind: z.literal('FIELD'),
+  candidateId: opaqueIdSchema,
+  nodeId: opaqueIdSchema,
+  resourceType: opaqueIdSchema,
+  path: opaqueIdSchema,
+  cardinality: z.enum(['optional_one', 'required_one']),
+  logicalType: opaqueIdSchema,
+}).strict();
+
+const relatedExpandContributorSourceSchema = relatedFieldSourceSchema.extend({
+  cardinality: z.enum(['optional_one', 'required_one', 'many']),
+  repeatedBoundaries: z.array(constructionChoiceRepeatedBoundarySchema).optional(),
+}).strict().superRefine((source, context) => {
+  if (source.cardinality === 'many' && (source.repeatedBoundaries?.length ?? 0) === 0) {
+    context.addIssue({
+      code: 'custom',
+      path: ['repeatedBoundaries'],
+      message: 'Repeated related fields must include repeated-boundary metadata.',
+    });
+  }
+});
+
+const constructionRowValuePolicySchema = z.enum(['ALL', 'ONE']);
+const constructionRowValueFieldSourceSchema = constructionGroupFieldSourceScalarSchema;
+const constructionRowValueSchema = z.union([
+  z.object({
+    inputColumnId: opaqueIdSchema,
+    outputColumnId: opaqueIdSchema,
+    policy: constructionRowValuePolicySchema,
+  }).strict(),
+  z.object({
+    fieldSource: constructionRowValueFieldSourceSchema,
+    outputColumnId: opaqueIdSchema,
+    policy: constructionRowValuePolicySchema,
+  }).strict(),
+]);
+
+const relatedSourceSchema = z.object({
+  anchorColumnId: opaqueIdSchema,
+  choiceId: z.string().min(1),
+  sourceOccurrenceId: opaqueIdSchema,
+  source: relatedFieldSourceSchema,
+  route: z.array(constructionRouteStepSchema),
+  contributorRule: z.object({
+    policy: z.literal('ALL_MATCHES'),
+    predicate: contributorPredicateSchema.optional(),
+  }).strict(),
+  form: z.enum(['ALL', 'COUNT', 'PRESENCE']),
+  rowValuePolicy: constructionRowValuePolicySchema.optional(),
+  outputColumnId: opaqueIdSchema,
+}).strict();
+
+const constructionOperationSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('PIVOT'),
+    pivot: z.object({
+      constructionId: opaqueIdSchema,
+      groupKeyIds: z.array(opaqueIdSchema),
+      categoryColumnId: opaqueIdSchema,
+      valueColumnId: opaqueIdSchema,
+      categories: z.array(z.object({
+        key: constructionTableScalarSchema,
+        outputColumnId: opaqueIdSchema,
+      }).strict()),
+      discovery: z.object({
+        maxCategories: z.number().int().min(1).max(256),
+      }).strict().optional(),
+      duplicatePolicy: z.enum(['ERROR', 'SUM', 'MIN', 'MAX']),
+      missingCellPolicy: z.enum(['NULL', 'ERROR']),
+      unlistedCategoryPolicy: z.enum(['ERROR', 'EXCLUDE_WITH_EVIDENCE']),
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('CODED_PIVOT'),
+    codedPivot: z.object({
+      constructionId: opaqueIdSchema,
+      sourceChoiceId: z.string().min(1).optional(),
+      source: z.object({
+        family: frameDefinitionSchema.shape.source,
+        candidateId: opaqueIdSchema,
+        nodeId: opaqueIdSchema,
+        fieldPath: z.string().min(1),
+        route: z.array(constructionRouteStepSchema),
+      }).strict().optional(),
+      categories: z.array(z.object({
+        choiceId: z.string().min(1).optional(),
+        system: z.string().optional(),
+        code: z.string().min(1).optional(),
+        outputColumnId: opaqueIdSchema,
+      }).strict()).min(1).max(50),
+      duplicatePolicy: z.enum(['ERROR', 'SUM', 'MIN', 'MAX']),
+      missingCellPolicy: z.enum(['NULL', 'ERROR']),
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('DERIVE'),
+    derive: z.object({
+      constructionId: opaqueIdSchema,
+      outputColumnId: opaqueIdSchema,
+      operation: z.enum(['ADD', 'SUBTRACT', 'MULTIPLY', 'DIVIDE']),
+      left: constructionOperandSchema,
+      right: constructionOperandSchema,
+      missingInputPolicy: z.enum(['PROPAGATE_NULL', 'ERROR']),
+      divisionByZeroPolicy: z.enum(['NULL', 'ERROR']).optional(),
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('FILTER'),
+    filter: z.object({
+      columnId: opaqueIdSchema,
+      operator: z.enum(['EQUALS', 'NOT_EQUALS', 'IN', 'EXISTS', 'MISSING', 'CONTAINS_TEXT', 'GT', 'GTE', 'LT', 'LTE']),
+      values: z.array(constructionFilterValueSchema).optional(),
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('UNPIVOT'),
+    unpivot: z.object({
+      constructionId: opaqueIdSchema,
+      inputs: z.array(z.object({ columnId: opaqueIdSchema, key: constructionTableScalarSchema }).strict()),
+      keyOutputColumnId: opaqueIdSchema,
+      valueOutputColumnId: opaqueIdSchema,
+      nullRowPolicy: z.enum(['DROP', 'PRESERVE']),
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('GROUP'),
+    group: z.object({
+      constructionId: opaqueIdSchema,
+      missingKeyPolicy: z.enum(['GROUP', 'EXCLUDE', 'ERROR']).optional(),
+      keys: z.array(z.object({
+        inputColumnId: opaqueIdSchema,
+        outputColumnId: opaqueIdSchema,
+      }).strict().or(z.object({
+        fieldSource: constructionGroupFieldSourceSchema,
+        outputColumnId: opaqueIdSchema,
+      }).strict()).or(z.object({
+        semanticCategory: constructionGroupSemanticCategorySchema,
+        outputColumnId: opaqueIdSchema,
+      }).strict())).optional(),
+      aggregates: z.array(z.discriminatedUnion('operation', [
+        z.object({
+          operation: z.literal('COUNT_ROWS'),
+          outputColumnId: opaqueIdSchema,
+        }).strict(),
+        z.object({
+          operation: z.literal('COUNT_NON_NULL'),
+          inputColumnId: opaqueIdSchema,
+          outputColumnId: opaqueIdSchema,
+        }).strict(),
+        z.object({
+          operation: z.literal('COUNT_DISTINCT'),
+          inputColumnId: opaqueIdSchema,
+          outputColumnId: opaqueIdSchema,
+        }).strict(),
+        z.object({
+          operation: z.literal('SUM'),
+          inputColumnId: opaqueIdSchema,
+          outputColumnId: opaqueIdSchema,
+        }).strict(),
+        z.object({
+          operation: z.literal('MEAN'),
+          inputColumnId: opaqueIdSchema,
+          outputColumnId: opaqueIdSchema,
+        }).strict(),
+      ])).optional(),
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('CODED_GROUP'),
+    codedGroup: z.object({
+      constructionId: opaqueIdSchema,
+      choiceId: z.string().min(1).optional(),
+      source: z.object({
+        occurrenceId: opaqueIdSchema,
+        resourceType: opaqueIdSchema,
+        codingPath: opaqueIdSchema,
+        fhirType: z.literal('Coding'),
+        cardinality: z.literal('MANY'),
+        shape: z.literal('ARRAY'),
+        route: z.array(constructionRouteStepSchema).length(0),
+      }).strict(),
+      missingKeyPolicy: z.enum(['GROUP', 'EXCLUDE', 'ERROR']),
+      systemOutputColumnId: opaqueIdSchema,
+      versionOutputColumnId: opaqueIdSchema,
+      codeOutputColumnId: opaqueIdSchema,
+      distinctSourceCountOutputColumnId: opaqueIdSchema,
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('EXPAND'),
+    expand: z.object({
+      constructionId: opaqueIdSchema,
+      inputColumnId: opaqueIdSchema,
+      outputColumnId: opaqueIdSchema,
+      ordinalColumnId: opaqueIdSchema.optional(),
+      emptyPolicy: z.enum(['ERROR', 'EXCLUDE', 'PRESERVE_PARENT']).optional(),
+
+      expandedField: z.object({
+        path: z.string().min(1),
+        cardinality: z.literal('many'),
+        fhirType: z.string().optional(),
+        logicalType: z.string().min(1),
+      }).strict().optional(),
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('COMBINE'),
+    combine: constructionCombineSchema,
+  }).strict(),
+  z.object({
+    kind: z.literal('RELATED_SOURCE'),
+    relatedSource: relatedSourceSchema,
+  }).strict(),
+  z.object({
+    kind: z.literal('RELATED_EXPAND'),
+    relatedExpand: z.object({
+      anchorColumnId: opaqueIdSchema,
+      choiceId: z.string().min(1),
+      targetNodeId: opaqueIdSchema,
+      targetResourceType: opaqueIdSchema,
+      route: z.array(constructionRouteStepSchema).min(1),
+      contributorRule: z.object({
+        policy: z.literal('ALL_MATCHES'),
+        predicate: contributorPredicateSchema.optional(),
+      }).strict(),
+      contributorSource: relatedExpandContributorSourceSchema.optional(),
+      contributorChoiceId: z.string().min(1).optional(),
+      emptyPolicy: z.enum(['ERROR', 'EXCLUDE', 'PRESERVE_PARENT']),
+      relatedRecordColumnId: opaqueIdSchema,
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('RELATED_ELIGIBILITY'),
+    relatedEligibility: z.object({
+      anchorColumnId: opaqueIdSchema,
+      choiceId: z.string().min(1),
+      targetNodeId: opaqueIdSchema,
+      targetResourceType: opaqueIdSchema,
+      route: z.array(constructionRouteStepSchema).min(1),
+      contributorRule: z.object({
+        policy: z.literal('ALL_MATCHES'),
+        predicate: contributorPredicateSchema.optional(),
+      }).strict(),
+      contributorSource: relatedSourceSchema.shape.source.optional(),
+      contributorChoiceId: z.string().min(1).optional(),
+      match: z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('EXISTS') }).strict(),
+        z.object({ kind: z.literal('ABSENT') }).strict(),
+        z.object({ kind: z.literal('COUNT_AT_LEAST'), threshold: z.number().int().positive() }).strict(),
+      ]),
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('RELATED_FIELD'),
+    relatedField: z.object({
+      choiceId: z.string().min(1),
+      source: relatedSourceSchema.shape.source,
+      outputColumnId: opaqueIdSchema,
+    }).strict(),
+  }).strict(),
+]);
+export type ConstructionOperation = z.infer<typeof constructionOperationSchema>;
+
+const constructionStepSchema = z.object({
+  rowValues: z.array(constructionRowValueSchema).optional(),
+  id: opaqueIdSchema,
+  ownerStepId: opaqueIdSchema.optional(),
+  inputs: z.array(constructionInputRefSchema),
+  operation: constructionOperationSchema,
+  outputs: z.array(constructionStageColumnSchema),
+}).strict();
+export type ConstructionStep = z.infer<typeof constructionStepSchema>;
+
+export const constructionSchema = z.object({
+  version: z.number().int().positive(),
+  steps: z.array(constructionStepSchema),
+  sourceProjections: z.array(z.object({
+    ownerStepId: opaqueIdSchema.optional(),
+    columnId: opaqueIdSchema,
+    occurrenceId: opaqueIdSchema,
+    fieldPath: z.string().min(1),
+    fhirType: z.string().min(1),
+    logicalType: z.string().min(1),
+    label: z.string().min(1),
+  }).strict()).optional(),
+}).strict();
+export type Construction = z.infer<typeof constructionSchema>;
+
+const constructionOperationCapabilitySchema = z.object({
+  kind: z.enum(['PIVOT', 'CODED_PIVOT', 'DERIVE', 'FILTER', 'UNPIVOT', 'GROUP', 'CODED_GROUP', 'EXPAND', 'RELATED_SOURCE', 'RELATED_EXPAND', 'RELATED_FIELD', 'RELATED_ELIGIBILITY', 'ROW_VALUES']),
+  supported: z.boolean(),
+  reasonCode: z.string().optional(),
+  reason: z.string().optional(),
+}).strict();
+const constructionRelatedExpandStageDescriptorSchema = z.object({
+  anchorColumnId: opaqueIdSchema,
+  anchorColumn: opaqueIdSchema,
+  anchorKind: z.enum(['root', 'rootContributors', 'activeRelatedRecord']),
+  anchorNodeId: opaqueIdSchema.optional(),
+  anchorResourceType: opaqueIdSchema,
+  relatedRecordColumnId: opaqueIdSchema,
+  parentIdentityColumnId: opaqueIdSchema,
+  parentIdentityColumn: opaqueIdSchema,
+  terminalIdentityColumn: opaqueIdSchema,
+  targetNodeId: opaqueIdSchema,
+  targetResourceType: opaqueIdSchema,
+  route: z.array(constructionRouteStepSchema).min(1),
+}).strict();
+const constructionActiveRelatedRecordSchema = z.object({
+  targetNodeId: opaqueIdSchema,
+  targetResourceType: opaqueIdSchema,
+  terminalIdentityColumn: opaqueIdSchema,
+}).strict();
+const constructionRelatedExpandAnchorSchema = z.object({
+  anchorColumnId: opaqueIdSchema,
+  kind: z.enum(['root', 'rootContributors', 'activeRelatedRecord']),
+  nodeId: opaqueIdSchema.optional(),
+  resourceType: opaqueIdSchema,
+  label: z.string().min(1),
+}).strict();
+const constructionGroupFieldSourceContextSchema = z.object({
+  sourceStageId: opaqueIdSchema,
+  sourceShapeId: opaqueIdSchema,
+  sourceIdentityColumn: opaqueIdSchema,
+  sourceExpansion: z.object({
+    ownerOccurrenceId: opaqueIdSchema,
+    ownerResourceType: opaqueIdSchema,
+    selector: opaqueIdSchema,
+    route: z.array(z.object({
+      occurrenceId: opaqueIdSchema,
+      fromType: opaqueIdSchema,
+      edgeLabel: opaqueIdSchema,
+      toType: opaqueIdSchema,
+      direction: z.enum(['INBOUND', 'OUTBOUND']),
+    }).strict()),
+    ancestors: z.array(z.object({
+      stepIndex: z.number().int().nonnegative(),
+      boundarySelector: opaqueIdSchema,
+      resourceType: opaqueIdSchema,
+    }).strict()),
+    ordinalSemantics: opaqueIdSchema,
+    identitySemantics: opaqueIdSchema,
+    emptyPolicy: opaqueIdSchema,
+  }).strict().optional(),
+  fieldOwners: z.array(z.object({
+    role: z.enum(['ROOT', 'OWNER', 'ANCESTOR', 'CURRENT_ITEM']),
+    occurrenceId: opaqueIdSchema,
+    ownerResourceType: opaqueIdSchema,
+    resourceType: opaqueIdSchema,
+    boundarySelector: opaqueIdSchema.optional(),
+    stepIndex: z.number().int(),
+  }).strict()),
+}).strict();
+const constructionStageDescriptorSchema = z.object({
+  id: opaqueIdSchema,
+  inputStageId: z.string(),
+  operation: z.string().optional(),
+  rowIdentityColumn: z.string().optional(),
+  columns: z.array(constructionStageColumnDescriptorSchema),
+  capabilities: z.array(constructionOperationCapabilitySchema),
+  relatedExpand: constructionRelatedExpandStageDescriptorSchema.optional(),
+  activeRelatedRecord: constructionActiveRelatedRecordSchema.optional(),
+  relatedExpandAnchors: z.array(constructionRelatedExpandAnchorSchema).optional(),
+  codedGroupChoices: z.array(z.object({
+    choiceId: z.string().min(1),
+    occurrenceId: opaqueIdSchema,
+    resourceType: opaqueIdSchema,
+    codingPath: opaqueIdSchema,
+    label: z.string().min(1),
+  }).strict()).optional(),
+  groupFieldSourceContext: constructionGroupFieldSourceContextSchema.optional(),
+}).strict();
+export type ConstructionStageDescriptor = z.infer<typeof constructionStageDescriptorSchema>;
+
+const constructionDependencyIssueSchema = z.object({
+  stepId: opaqueIdSchema,
+  columnId: opaqueIdSchema,
+}).strict();
+const constructionDependencyImpactSchema = z.object({
+  changedStepId: opaqueIdSchema.optional(),
+  removedStepIds: z.array(opaqueIdSchema).optional(),
+  affectedStepIds: z.array(opaqueIdSchema),
+  missingInputs: z.array(constructionDependencyIssueSchema).optional(),
+}).strict();
+export type ConstructionDependencyImpact = z.infer<typeof constructionDependencyImpactSchema>;
+
+export const constructionCapabilitiesRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  expectedDraftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+  groupStepId: opaqueIdSchema.optional(),
+  includeGroupChoices: z.boolean().optional(),
+}).strict();
+export type ConstructionCapabilitiesRequest = z.infer<typeof constructionCapabilitiesRequestSchema>;
+
+const constructionWorkspaceInputColumnSchema = z.object({
+  id: opaqueIdSchema,
+  name: z.string().min(1),
+  label: z.string().min(1),
+  logicalType: z.string().min(1),
+  cardinality: z.enum(['required_one', 'optional_one', 'many']),
+  nullable: z.boolean(),
+  joinCompatibilityKey: z.string().min(1).optional(),
+  appendCompatibilityKey: z.string().min(1).optional(),
+}).strict();
+export type ConstructionWorkspaceInputColumn = z.infer<typeof constructionWorkspaceInputColumnSchema>;
+
+const constructionWorkspaceInputSchema = z.object({
+  outputId: opaqueIdSchema,
+  title: z.string().min(1),
+  columns: z.array(constructionWorkspaceInputColumnSchema),
+}).strict();
+export type ConstructionWorkspaceInput = z.infer<typeof constructionWorkspaceInputSchema>;
+
+const constructionScalarSourceInputSchema = z.object({
+  supported: z.boolean(),
+  stageId: opaqueIdSchema,
+  reasonCode: z.string().optional(),
+  reason: z.string().optional(),
+  choices: z.array(z.object({
+    choiceId: z.string().min(1),
+    columnId: opaqueIdSchema.optional(),
+    occurrenceId: opaqueIdSchema,
+    fieldPath: z.string().min(1),
+    label: z.string().min(1),
+    fhirType: z.string().min(1),
+    logicalType: z.string().min(1),
+    valueType: z.string().min(1),
+    isIdentifier: z.boolean(),
+    isReference: z.boolean(),
+    isPopulated: z.boolean(),
+  }).strict()),
+}).strict();
+
+const constructionSourceChoiceSchema = z.object({
+  choiceId: z.string().min(1),
+
+  columnId: z.string().optional(),
+  fieldPath: z.string().min(1),
+  label: z.string().min(1),
+  logicalType: z.string().min(1),
+  isPopulated: z.boolean(),
+}).strict();
+
+const constructionFilterSourceChoiceSchema = constructionSourceChoiceSchema;
+const constructionDeriveSourceChoiceSchema = constructionSourceChoiceSchema;
+const constructionUnpivotSourceChoiceSchema = constructionSourceChoiceSchema;
+const constructionExpandSourceChoiceSchema = constructionSourceChoiceSchema;
+
+const constructionSourceInputSchema = z.object({
+  supported: z.boolean(),
+  stageId: opaqueIdSchema,
+  reasonCode: z.string().optional(),
+  reason: z.string().optional(),
+  choices: z.array(constructionSourceChoiceSchema),
+}).strict();
+
+const constructionFilterSourceInputSchema = constructionSourceInputSchema;
+const constructionDeriveSourceInputSchema = constructionSourceInputSchema;
+const constructionUnpivotSourceInputSchema = constructionSourceInputSchema;
+const constructionExpandSourceInputSchema = constructionSourceInputSchema;
+
+export const constructionSourceProjectionAvailabilitySchema = z.object({
+  stageId: opaqueIdSchema,
+  supported: z.boolean(),
+  reasonCode: z.string().optional(),
+  reason: z.string().optional(),
+}).strict();
+
+const constructionSourceSelectionSchema = z.object({
+  choiceId: opaqueIdSchema,
+  columnId: opaqueIdSchema,
+}).strict();
+export const constructionPivotSourceSelectionSchema = constructionSourceSelectionSchema;
+export type ConstructionPivotSourceSelection = z.infer<typeof constructionPivotSourceSelectionSchema>;
+
+export const constructionFilterSourceSelectionSchema = constructionSourceSelectionSchema;
+export type ConstructionFilterSourceSelection = z.infer<typeof constructionFilterSourceSelectionSchema>;
+
+export const constructionDeriveSourceSelectionSchema = constructionSourceSelectionSchema;
+export type ConstructionDeriveSourceSelection = z.infer<typeof constructionDeriveSourceSelectionSchema>;
+
+export const constructionUnpivotSourceSelectionSchema = constructionSourceSelectionSchema;
+export type ConstructionUnpivotSourceSelection = z.infer<typeof constructionUnpivotSourceSelectionSchema>;
+
+export const constructionExpandSourceSelectionSchema = constructionSourceSelectionSchema;
+export type ConstructionExpandSourceSelection = z.infer<typeof constructionExpandSourceSelectionSchema>;
+
+export const constructionCapabilitiesResponseSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+  baseConstruction: constructionSchema,
+  stages: z.array(constructionStageDescriptorSchema),
+  selectedStage: constructionStageDescriptorSchema,
+  semanticGroupChoices: z.array(constructionSemanticGroupChoiceSchema).optional(),
+  semanticGroupChoicesIncomplete: z.boolean().optional(),
+  groupFieldChoices: z.array(constructionGroupFieldChoiceSchema),
+  groupRowValueChoices: z.array(constructionGroupFieldScalarChoiceSchema),
+  groupFieldChoicesIncomplete: z.boolean().optional(),
+  sourceProjectionAvailability: constructionSourceProjectionAvailabilitySchema.optional(),
+  nodeOccurrences: z.record(z.string(), z.string()).optional(),
+  sourceInput: constructionScalarSourceInputSchema,
+  pivotSourceInput: constructionScalarSourceInputSchema.optional(),
+  filterSourceInput: constructionFilterSourceInputSchema.optional(),
+  deriveSourceInput: constructionDeriveSourceInputSchema.optional(),
+  unpivotSourceInput: constructionUnpivotSourceInputSchema.optional(),
+  expandSourceInput: constructionExpandSourceInputSchema.optional(),
+  workspaceInputs: z.array(constructionWorkspaceInputSchema),
+}).strict();
+export type ConstructionCapabilitiesResponse = z.infer<typeof constructionCapabilitiesResponseSchema>;
+
+export const constructionColumnPopulationRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  expectedDraftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+  columnIds: z.array(opaqueIdSchema).min(1).max(16),
+}).strict().superRefine((request, context) => {
+  if (new Set(request.columnIds).size !== request.columnIds.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Column IDs must be unique.', path: ['columnIds'] });
+  }
+});
+export type ConstructionColumnPopulationRequest = z.infer<typeof constructionColumnPopulationRequestSchema>;
+
+export const constructionColumnPopulationResponseSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+  columns: z.array(z.object({
+    columnId: opaqueIdSchema,
+    status: z.enum(['POPULATED', 'EMPTY', 'UNKNOWN']),
+  }).strict()),
+}).strict();
+export type ConstructionColumnPopulationResponse = z.infer<typeof constructionColumnPopulationResponseSchema>;
+
+export const constructionCategoryDiscoveryRequestSchema = z.object({
+  groupKeyIds: z.array(opaqueIdSchema).optional(),
+  pivotStepId: opaqueIdSchema.optional(),
+  snapshotToken: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  expectedDraftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+  categoryColumnId: opaqueIdSchema,
+  valueColumnId: opaqueIdSchema,
+  pivotSources: z.array(constructionPivotSourceSelectionSchema).optional(),
+  candidateConstruction: constructionSchema.optional(),
+}).strict();
+export type ConstructionCategoryDiscoveryRequest = z.infer<typeof constructionCategoryDiscoveryRequestSchema>;
+
+const constructionDiscoveredCategorySchema = z.object({
+  key: constructionTableScalarSchema,
+  label: z.string(),
+}).strict();
+
+const constructionCategoryDiscoveryIdentitySchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+  categoryColumnId: opaqueIdSchema,
+  valueColumnId: opaqueIdSchema,
+}).strict();
+
+export const constructionCategoryDiscoveryResponseSchema = z.discriminatedUnion('outcome', [
+  constructionCategoryDiscoveryIdentitySchema.extend({
+    outcome: z.literal('COMPLETE'),
+    complete: z.literal(true),
+    proofFingerprint: z.string().min(1),
+    categories: z.array(constructionDiscoveredCategorySchema),
+  }).strict(),
+  constructionCategoryDiscoveryIdentitySchema.extend({
+    outcome: z.literal('LIMIT_EXCEEDED'),
+    complete: z.literal(false),
+    categories: z.array(constructionDiscoveredCategorySchema).length(0),
+    limit: z.number().int().positive(),
+    message: z.string().min(1),
+  }).strict(),
+  constructionCategoryDiscoveryIdentitySchema.extend({
+    outcome: z.literal('MISSING_UNSUPPORTED'),
+    complete: z.literal(false),
+    categories: z.array(constructionDiscoveredCategorySchema).length(0),
+    message: z.string().min(1),
+  }).strict(),
+  constructionCategoryDiscoveryIdentitySchema.extend({
+    outcome: z.literal('NO_VALUES'),
+    complete: z.literal(false),
+    categories: z.array(constructionDiscoveredCategorySchema).length(0),
+    message: z.string().min(1),
+  }).strict(),
+]);
+export type ConstructionCategoryDiscoveryResponse = z.infer<typeof constructionCategoryDiscoveryResponseSchema>;
+
+export const constructionProposalRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  expectedDraftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  changedStepId: z.string().optional(),
+  removeStepIds: z.array(opaqueIdSchema).optional(),
+  candidateConstruction: constructionSchema,
+  groupSources: z.array(z.object({ rowChoiceId: z.string().min(1), columnId: opaqueIdSchema }).strict()).optional(),
+  groupSource: z.object({
+    rowChoiceId: z.string().min(1),
+    columnId: opaqueIdSchema,
+  }).strict().optional(),
+  limit: z.number().int().min(1).max(1000).optional(),
+  pivotSources: z.array(constructionPivotSourceSelectionSchema).optional(),
+  filterSources: z.array(constructionFilterSourceSelectionSchema).optional(),
+  deriveSources: z.array(constructionDeriveSourceSelectionSchema).optional(),
+  unpivotSources: z.array(constructionUnpivotSourceSelectionSchema).optional(),
+  expandSources: z.array(constructionExpandSourceSelectionSchema).optional(),
+}).strict();
+export type ConstructionProposalRequest = z.infer<typeof constructionProposalRequestSchema>;
+
+export const constructionProposalDiagnosticSchema = z.object({
+  code: z.string().min(1),
+  message: z.string().min(1),
+  stepId: z.string().min(1).optional(),
+  outcome: z.string().min(1).optional(),
+}).strict();
+export type ConstructionProposalDiagnostic = z.infer<typeof constructionProposalDiagnosticSchema>;
+
+export const constructionProposalResponseSchema = z.object({
+  proposalId: opaqueIdSchema.optional(),
+  baseReceiptId: opaqueIdSchema.optional(),
+  outputId: opaqueIdSchema,
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
+  baseDocumentDigest: z.string().min(1),
+  candidateWorkspaceDigest: z.string().min(1),
+  changedStepId: z.string(),
+  candidateConstruction: constructionSchema,
+  dependencyImpact: constructionDependencyImpactSchema,
+  stages: z.array(constructionStageDescriptorSchema),
+  previewStatus: z.enum(['READY', 'NEEDS_REPAIR']),
+  previewDurationMs: z.number().int().nonnegative(),
+  preview: z.lazy(() => explorerBuilderPreviewResultSchema).optional(),
+  diagnostics: z.array(constructionProposalDiagnosticSchema).optional(),
+}).strict();
+export type ConstructionProposalResponse = z.infer<typeof constructionProposalResponseSchema>;
+
+const importedRelationshipFieldSchema = z.object({
+  candidateId: opaqueIdSchema, columnId: opaqueIdSchema, column: opaqueIdSchema,
+  fieldPath: z.string().min(1), label: z.string().min(1), valueMode: z.enum(['ALL', 'FIRST', 'DISTINCT']),
+}).strict();
+const importedRelationshipOverlaySchema = z.object({
+  additions: z.array(z.object({
+    occurrenceId: opaqueIdSchema.regex(/^project_[A-Za-z0-9_]+$/), parentOccurrenceId: opaqueIdSchema,
+    catalogEdgeId: opaqueIdSchema, relationship: z.string().min(1), resourceType: opaqueIdSchema,
+    storageDirection: z.enum(['INBOUND', 'OUTBOUND']).optional(), matchMode: z.enum(['OPTIONAL', 'REQUIRED']),
+    fields: z.array(importedRelationshipFieldSchema).optional(),
+  }).strict()).optional(),
+  removals: z.array(opaqueIdSchema).optional(),
+  matchOverrides: z.array(z.object({ occurrenceId: opaqueIdSchema, matchMode: z.enum(['OPTIONAL', 'REQUIRED']) }).strict()).optional(),
+}).strict();
+export const projectedFieldSchema = z.object({
+  columnId: exactOpaqueIdSchema.optional(), column: z.string().min(1), label: z.string().min(1), occurrenceId: exactOpaqueIdSchema.optional(),
+  owner: z.enum(['PINNED_SOURCE', 'AUTHORED', 'UNKNOWN']),
+  removal: z.enum(['DISABLE_PINNED_FIELD', 'DISABLE_PINNED_OUTPUT', 'REMOVE_COLUMN', 'UNAVAILABLE']),
+  status: z.enum(['EXACT', 'UNKNOWN']), sourceStepId: exactOpaqueIdSchema.optional(), sourceFieldId: exactOpaqueIdSchema.optional(), sourceOutputKey: z.string().min(1).optional(),
+}).strict().superRefine((field, context) => {
+  if (field.removal === 'DISABLE_PINNED_FIELD' && (field.owner !== 'PINNED_SOURCE' || field.status !== 'EXACT' ||
+      !field.columnId || !field.sourceStepId || !field.sourceFieldId)) {
+    context.addIssue({ code: 'custom', message: 'Disabling a projected field requires an exact pinned source slot.' });
+  }
+  if (field.removal === 'DISABLE_PINNED_OUTPUT' && (field.owner !== 'PINNED_SOURCE' || field.status !== 'EXACT' ||
+      !field.columnId || !field.sourceStepId || !field.sourceOutputKey)) {
+    context.addIssue({ code: 'custom', message: 'Disabling a projected output requires an exact pinned source key.' });
+  }
+  if (field.removal === 'REMOVE_COLUMN' && (field.owner !== 'AUTHORED' || field.status !== 'EXACT' || !field.columnId)) {
+    context.addIssue({ code: 'custom', message: 'Removing a projected column requires an exact authored column ID.' });
+  }
+});
+export type ProjectedField = z.infer<typeof projectedFieldSchema>;
+
+export const authoringNetworkSchema = z.object({
+  owner: z.enum(['DOCUMENT', 'IMPORTED_SOURCE']), outputId: opaqueIdSchema, sourceRows: explorerRowDefinitionSchema,
+  occurrences: z.array(z.object({
+    occurrenceId: opaqueIdSchema, parentOccurrenceId: opaqueIdSchema.optional(), sourceStepId: opaqueIdSchema.optional(),
+    resourceType: opaqueIdSchema, label: z.string().optional(), labelMissing: z.boolean(), catalogEdgeId: opaqueIdSchema.optional(),
+    relationship: z.string().optional(), storageDirection: z.enum(['INBOUND', 'OUTBOUND']).optional(),
+    matchMode: z.enum(['OPTIONAL', 'REQUIRED']).optional(), enabled: z.boolean(), preservesRowIdentity: z.boolean(), canExcludeRows: z.boolean(),
+  }).strict()),
+  projectedFields: z.array(projectedFieldSchema).optional(),
+  bindings: z.array(z.object({ columnId: opaqueIdSchema, occurrenceId: opaqueIdSchema.optional(), sourceStepId: opaqueIdSchema.optional(), outputKey: z.string().min(1).max(2048).optional(), valueMode: z.string().optional(), status: z.enum(['EXACT', 'UNKNOWN']) }).strict()),
+  operations: z.array(z.object({ operationId: opaqueIdSchema, kind: z.string().min(1), inputStepIds: z.array(opaqueIdSchema), anchorColumnId: opaqueIdSchema.optional() }).strict()),
+}).strict();
+export const rowIdentityPlanSchema = z.object({
+  outputId: opaqueIdSchema, sourceDefinition: explorerRowDefinitionSchema,
+  stages: z.array(z.object({
+    stageId: opaqueIdSchema, operationId: opaqueIdSchema.optional(),
+    identity: z.object({ kind: z.string().min(1), occurrenceId: opaqueIdSchema.optional(), resourceType: opaqueIdSchema.optional(), inputStageId: opaqueIdSchema.optional(), anchorColumnId: opaqueIdSchema.optional(), relatedRecordColumnId: opaqueIdSchema.optional(), scopePath: z.string().optional(), keyColumnIds: z.array(opaqueIdSchema).optional(), groupRevisionId: opaqueIdSchema.optional(), missingPolicy: z.string().optional(), scope: z.string().min(1) }).strict(),
+    meaning: z.string(), effect: z.string(), mayExcludeRows: z.boolean(), multiplicity: z.literal('UNKNOWN'),
+    count: z.object({ kind: z.literal('UNKNOWN'), value: z.number().int().nonnegative().optional() }).strict(), unsupportedReason: z.string().optional(),
+  }).strict()),
+  relationships: z.array(z.object({ occurrenceId: opaqueIdSchema, catalogEdgeId: opaqueIdSchema.optional(), matchMode: z.enum(['OPTIONAL', 'REQUIRED']), preservesIdentity: z.boolean(), mayExcludeRows: z.boolean(), multiplicity: z.literal('UNKNOWN') }).strict()),
+}).strict();
+export const authoringNetworkRequestSchema = z.object({ snapshotToken: opaqueIdSchema, expectedDraftVersion: z.number().int().positive(), expectedDraftDigest: z.string().min(1), outputId: opaqueIdSchema }).strict();
+export type AuthoringNetworkRequest = z.infer<typeof authoringNetworkRequestSchema>;
+export const authoringNetworkResponseSchema = z.object({ snapshotToken: opaqueIdSchema, draftVersion: z.number().int().positive(), draftDigest: z.string().min(1), network: authoringNetworkSchema, rowIdentity: rowIdentityPlanSchema }).strict();
+export type AuthoringNetworkResponse = z.infer<typeof authoringNetworkResponseSchema>;
+
+export const explorerBuilderDocumentSchema = z
+  .object({
+    kind: z.literal('ExplorerBuilderDocument'),
+    output: z
+      .object({
+        id: opaqueIdSchema.regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
+        title: z.string().min(1),
+        rowLabel: z.string().optional(),
+      })
+      .strict(),
+    rootResourceType: opaqueIdSchema,
+    importedRecipe: z.object({
+      name: z.string().min(1),
+      translationVersion: z.string().min(1),
+      digest: z.string().regex(/^[a-f0-9]{64}$/),
+      output: z.string().min(1),
+    }).strict().optional(),
+    importedSource: z.object({
+      fieldBindings: z.array(z.object({ fieldId: opaqueIdSchema, columnId: opaqueIdSchema }).strict()).optional(),
+      removedStepIds: z.array(opaqueIdSchema).optional(),
+      nextRuleIndex: z.number().int().nonnegative().optional(),
+      relationships: importedRelationshipOverlaySchema.optional(),
+      ruleAdditions: z.array(z.object({
+        kind: z.enum(["DYNAMIC_COLUMN", "EXTENSION_COLUMN", "CATALOG_PROJECTION"]),
+        occurrenceId: opaqueIdSchema.optional(),
+        maxColumns: z.number().int().min(1).max(128).optional(),
+        stepId: opaqueIdSchema,
+        parameters: importedSourceParametersSchema,
+      }).strict()).optional(),
+      steps: z.array(z.object({
+        id: opaqueIdSchema,
+        parentId: opaqueIdSchema.optional(),
+        sourceKey: z.string().min(1).optional(),
+        occurrenceId: opaqueIdSchema.optional(),
+        matchMode: z.enum(['OPTIONAL', 'REQUIRED']).optional(),
+        kind: z.string().min(1),
+        title: z.string().min(1),
+        summary: z.string().min(1),
+        editable: z.boolean(),
+        maxColumns: z.number().int().positive().optional(),
+        valueMode: z.string().min(1).optional(),
+        parameters: importedSourceParametersSchema.optional(),
+      }).strict()),
+    }).strict().optional(),
+    population: explorerPopulationSchema.optional(),
+    route: explorerBuilderRouteNodeSchema,
+    rows: explorerRowDefinitionSchema,
+    frames: z.array(frameDefinitionSchema).optional(),
+    columns: z.array(explorerBuilderColumnSchema),
+    construction: constructionSchema.optional(),
+    fixedFilters: z
+      .array(
+        z
+          .object({
+            column: opaqueIdSchema,
+            values: z.array(z.string()).min(1),
+          })
+          .strict(),
+      )
+      .optional(),
+    actions: z
+      .array(
+        z
+          .object({
+            type: opaqueIdSchema,
+            title: z.string().min(1),
+            fileName: z.string().optional(),
+            columns: z
+              .array(
+                z
+                  .object({
+                    column: opaqueIdSchema,
+                    exportHeader: z.string().optional(),
+                  })
+                  .strict(),
+              )
+              .optional(),
+          })
+          .strict(),
+      )
+      .optional(),
+  })
+  .strict()
+  .superRefine((document, context) => {
+    const importedColumns = document.columns.filter((column) => column.source.kind === 'imported');
+    if (importedColumns.length > 0 && !document.importedRecipe) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Imported source columns require an imported recipe reference.',
+        path: ['importedRecipe'],
+      });
+    }
+    if (document.construction) {
+      const sourceColumnIds = new Set<string>();
+      document.columns.forEach((column, index) => {
+        if (!column.columnId) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Construction documents require a stable columnId on every source column.',
+            path: ['columns', index, 'columnId'],
+          });
+          return;
+        }
+        if (sourceColumnIds.has(column.columnId)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Construction source column IDs must be unique.',
+            path: ['columns', index, 'columnId'],
+          });
+        }
+        sourceColumnIds.add(column.columnId);
+      });
+    }
+  });
+export type ExplorerBuilderDocument = z.infer<
+  typeof explorerBuilderDocumentSchema
+>;
+
+export const explorerBuilderTabSchema = z
+  .object({
+    id: opaqueIdSchema,
+    title: z.string(),
+    outputId: opaqueIdSchema,
+    order: z.number().int().nonnegative(),
+    visible: z.boolean().optional(),
+  })
+  .strict();
+export const explorerBuilderWorkspaceSchema = z
+  .object({
+    apiVersion: z.literal(EXPLORER_AUTHORING_API_VERSION),
+    kind: z.literal('ExplorerBuilderWorkspace'),
+    semanticsVersion: z.number().int().positive().optional(),
+    migrationDecisions: z.array(z.string()).optional(),
+    explorer: z
+      .object({ title: z.string().min(1), description: z.string().optional() })
+      .strict(),
+    documents: z.array(explorerBuilderDocumentSchema),
+    tabs: z.array(explorerBuilderTabSchema),
+    sharedFilters: z
+      .record(
+        z.string(),
+        z.array(
+          z
+            .object({ outputId: opaqueIdSchema, column: opaqueIdSchema })
+            .strict(),
+        ),
+      )
+      .optional(),
+    fileActions: z
+      .object({
+        extensions: z.record(z.string(), z.array(z.string())),
+        actions: z.record(z.string(), z.string()),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .superRefine((workspace, context) => {
+    const outputIds = workspace.documents.map((document) => document.output.id);
+    const tabIds = workspace.tabs.map((tab) => tab.id);
+    const tabOutputIds = workspace.tabs.map((tab) => tab.outputId);
+    const duplicate = (values: ReadonlyArray<string>) =>
+      values.find((value, index) => values.indexOf(value) !== index);
+    if (duplicate(outputIds)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['documents'],
+        message: 'Document output IDs must be unique.',
+      });
+    }
+    if (duplicate(tabIds)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['tabs'],
+        message: 'Tab IDs must be unique.',
+      });
+    }
+    if (
+      duplicate(tabOutputIds) ||
+      outputIds.length !== tabOutputIds.length ||
+      outputIds.some((outputId) => !tabOutputIds.includes(outputId))
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['tabs'],
+        message: 'Tabs and document outputs must have a one-to-one mapping.',
+      });
+    }
+  });
+export type ExplorerBuilderWorkspace = z.infer<
+  typeof explorerBuilderWorkspaceSchema
+>;
+
+export const explorerBuilderRoutePolicySchema = z
+  .object({
+    allowRepeatedEdges: z.boolean().optional(),
+    allowSelfLoops: z.boolean().optional(),
+    repeatedEdges: z.boolean().optional(),
+    selfLoops: z.boolean().optional(),
+    maxSteps: z.number().int().positive().nullable().optional(),
+  })
+  .strict();
+export const explorerBuilderCatalogNodeSchema = z
+  .object({
+    nodeId: opaqueIdSchema,
+    resourceType: opaqueIdSchema,
+    rowRootEligible: z.boolean(),
+    rowGrain: z.string().optional(),
+    populated: z.boolean(),
+    documentCount: z.number().int().nonnegative(),
+  })
+  .strict();
+export const explorerBuilderCatalogEdgeSchema = z
+  .object({
+    edgeId: opaqueIdSchema,
+    fromNodeId: opaqueIdSchema,
+    toNodeId: opaqueIdSchema,
+    label: z.string(),
+    storageDirection: z.enum(['INBOUND', 'OUTBOUND']).optional(),
+    populated: z.boolean().optional(),
+  })
+  .strict();
+export const explorerBuilderAvailabilitySourceReadinessSchema = z
+  .object({
+    status: z.enum(['COMPLETE', 'UNKNOWN', 'BLOCKED']),
+    reason: z.string().optional(),
+  })
+  .strict();
+export const explorerBuilderAvailabilityReadinessSchema = z
+  .object({
+    status: z.enum(['COMPLETE', 'UNKNOWN', 'BLOCKED']),
+    reason: z.string().optional(),
+    resourceInventory: explorerBuilderAvailabilitySourceReadinessSchema,
+    relationships: explorerBuilderAvailabilitySourceReadinessSchema,
+    fieldProfiles: explorerBuilderAvailabilitySourceReadinessSchema,
+  })
+  .strict();
+export const explorerBuilderObservedResourceSchema = z
+  .object({
+    resourceType: z.string().min(1),
+    documentCount: z.number().int().nonnegative().safe(),
+    populated: z.boolean(),
+  })
+  .strict();
+export const explorerBuilderObservedFieldSchema = z
+  .object({
+    resourceType: z.string().min(1),
+    path: z.string().min(1),
+    observedShapeKind: z.string(),
+    pathObservedDocumentCount: z.number().int().nonnegative().safe(),
+    examples: z.array(z.string()),
+    examplesTruncated: z.boolean(),
+    semanticObservations: z.array(conceptCandidateSchema),
+  })
+  .strict();
+export const explorerBuilderObservedRelationshipSchema = z
+  .object({
+    sourceResourceType: z.string().min(1),
+    targetResourceType: z.string().min(1),
+    label: z.string().min(1),
+    storageDirection: z.enum(['INBOUND', 'OUTBOUND']),
+    builderDirection: z.enum(['INBOUND', 'OUTBOUND']),
+    observedEdgeCount: z.number().int().nonnegative().safe(),
+  })
+  .strict();
+export const explorerBuilderAvailabilitySchema = z
+  .object({
+    readiness: explorerBuilderAvailabilityReadinessSchema,
+    resources: z.array(explorerBuilderObservedResourceSchema),
+    fields: z.array(explorerBuilderObservedFieldSchema),
+    relationships: z.array(explorerBuilderObservedRelationshipSchema),
+  })
+  .strict();
+export type ExplorerBuilderAvailability = z.infer<
+  typeof explorerBuilderAvailabilitySchema
+>;
+
+export const constructionChoiceFormSchema = z.enum([
+  'VALUE',
+  'FIRST',
+  'ALL',
+  'DISTINCT',
+  'OWNER_RECORDS',
+  'COUNT',
+  'PRESENCE',
+]);
+export type ConstructionChoiceForm = z.infer<typeof constructionChoiceFormSchema>;
+
+export const constructionChoiceOptionSchema = z
+  .object({
+    form: constructionChoiceFormSchema,
+    shape: z.enum(['SCALAR', 'LIST']),
+    decision: z.enum(['DEFAULT', 'REQUIRES_DECISION']),
+    preservation: z.enum(['PRESERVING', 'REDUCING']),
+    rowEffect: z.literal('PRESERVES_ROW_GRAIN'),
+    support: z.literal('SUPPORTED'),
+    reason: z.string().min(1),
+    contributorPredicateOperators: z.array(z.enum(['EXISTS', 'EQUALS'])).optional(),
+  })
+  .strict();
+export type ConstructionChoiceOption = z.infer<
+  typeof constructionChoiceOptionSchema
+>;
+
+export const fieldChoiceSourceSchema = z
+  .object({
+    kind: z.literal('FIELD'),
+    candidateId: opaqueIdSchema,
+    nodeId: opaqueIdSchema,
+    resourceType: opaqueIdSchema,
+    path: opaqueIdSchema,
+    cardinality: z.string(),
+    repeatedBoundaries: z
+      .array(constructionChoiceRepeatedBoundarySchema)
+      .optional(),
+  })
+  .strict();
+export type FieldChoiceSource = z.infer<typeof fieldChoiceSourceSchema>;
+
+export const semanticBindingChoiceSourceSchema = z
+  .object({
+    kind: z.literal('SEMANTIC'),
+    sourceKind: z.enum(['file', 'retained_vertex']).optional(),
+    conceptId: opaqueIdSchema,
+    bindingId: opaqueIdSchema,
+    candidateId: opaqueIdSchema,
+    nodeId: opaqueIdSchema,
+    resourceType: opaqueIdSchema,
+    sourcePath: opaqueIdSchema,
+    sourceCanonical: z.string().optional(),
+    sourceProfile: z.string().optional(),
+    fieldPath: opaqueIdSchema,
+    owningScope: z.string().optional(),
+    extensionUrlPath: z.array(z.string()).optional(),
+    keySelector: z.string().optional(),
+    system: z.string().optional(),
+    version: z.string().optional(),
+    code: z.string().optional(),
+    valueSelector: opaqueIdSchema,
+    valueFallbacks: z.array(opaqueIdSchema).optional(),
+    fallbackOnBlankString: z.boolean().optional(),
+    choiceArm: z.string().optional(),
+    logicalType: opaqueIdSchema,
+    ruleHint: z.string().optional(),
+    ruleVersion: opaqueIdSchema,
+    schemaVersion: z.number().int().min(1),
+    cardinality: z.string(),
+    repeatedBoundaries: z
+      .array(constructionChoiceRepeatedBoundarySchema)
+      .optional(),
+  })
+  .strict();
+export type SemanticBindingChoiceSource = z.infer<
+  typeof semanticBindingChoiceSourceSchema
+>;
+
+export const constructionChoiceSourceSchema = z
+  .discriminatedUnion('kind', [fieldChoiceSourceSchema, semanticBindingChoiceSourceSchema])
+  .superRefine((source, context) => {
+    if (source.kind === 'SEMANTIC' && source.sourceKind !== undefined && source.ruleHint !== 'CODED_CATEGORY_V1') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'A semantic source kind is only valid for coded category choices.',
+        path: ['sourceKind'],
+      });
+    }
+  });
+export type ConstructionChoiceSource = z.infer<
+  typeof constructionChoiceSourceSchema
+>;
+
+export const sourcePresentationFactSchema = z
+  .object({
+    label: z.string().min(1),
+    value: z.string(),
+  })
+  .strict();
+export const constructionChoicePresentationSchema = z
+  .object({
+    summary: z.string().min(1),
+    facts: z.array(sourcePresentationFactSchema),
+  })
+  .strict();
+
+export const constructionChoiceSchema = z
+  .object({
+    choiceId: z.string().min(1).max(16384),
+    source: constructionChoiceSourceSchema,
+    route: z.array(constructionRouteStepSchema),
+    presentation: constructionChoicePresentationSchema,
+    options: z.array(constructionChoiceOptionSchema).min(1),
+  })
+  .strict();
+export type ConstructionChoice = z.infer<typeof constructionChoiceSchema>;
+
+export const constructionChoiceSearchSourceSchema = z.union([
+  z.object({
+    kind: z.literal('FIELD'),
+    candidateId: opaqueIdSchema,
+  }).strict(),
+  z.object({
+    kind: z.literal('SEMANTIC'),
+    contextToken: opaqueIdSchema,
+    buildId: opaqueIdSchema,
+    conceptId: opaqueIdSchema,
+    bindingId: opaqueIdSchema,
+    selectionMode: z.literal('EXACT_CONCEPT').optional(),
+    choiceId: z.never().optional(),
+  }).strict(),
+  z.object({
+    kind: z.literal('SEMANTIC'),
+    contextToken: opaqueIdSchema,
+    buildId: opaqueIdSchema,
+    conceptId: opaqueIdSchema,
+    bindingId: opaqueIdSchema,
+    selectionMode: z.literal('SYSTEM_VERSION_CATEGORY'),
+    choiceId: opaqueIdSchema,
+  }).strict(),
+]);
+export type ConstructionChoiceSearchSource = z.infer<
+  typeof constructionChoiceSearchSourceSchema
+>;
+
+export const constructionChoiceSearchResponseSchema = z
+  .object({
+    snapshotToken: opaqueIdSchema,
+    outputId: opaqueIdSchema,
+    complete: z.boolean(),
+    truncated: z.boolean(),
+    nextCursor: opaqueIdSchema.optional(),
+    choices: z.array(constructionChoiceSchema).max(50),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.complete === value.truncated) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Construction route search must be either complete or truncated.',
+      });
+    }
+    if (value.nextCursor && !value.truncated) {
+      context.addIssue({
+        code: 'custom',
+        path: ['nextCursor'],
+        message: 'A complete route search cannot have a continuation cursor.',
+      });
+    }
+  });
+export type ConstructionChoiceSearchResponse = z.infer<
+  typeof constructionChoiceSearchResponseSchema
+>;
+
+export const relatedExpandChoiceSearchResponseSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+  complete: z.boolean(),
+  truncated: z.boolean(),
+  nextCursor: opaqueIdSchema.optional(),
+  choices: z.array(z.object({
+    choiceId: z.string().min(1),
+    anchorColumnId: opaqueIdSchema,
+    kind: z.enum(['root', 'rootContributors', 'activeRelatedRecord']),
+    nodeId: opaqueIdSchema,
+    resourceType: opaqueIdSchema,
+    label: z.string().min(1),
+    targetNodeId: opaqueIdSchema,
+    targetResourceType: opaqueIdSchema,
+    route: z.array(constructionRouteStepSchema).min(1),
+  }).strict()).max(50),
+}).strict().superRefine((value, context) => {
+  if (value.complete === value.truncated) {
+    context.addIssue({ code: 'custom', message: 'Related path search must be complete or truncated.' });
+  }
+  if (value.nextCursor && !value.truncated) {
+    context.addIssue({ code: 'custom', path: ['nextCursor'], message: 'A complete path search cannot have a continuation cursor.' });
+  }
+});
+export type RelatedExpandChoiceSearchResponse = z.infer<typeof relatedExpandChoiceSearchResponseSchema>;
+
+export const relatedExpandContributorSearchResponseSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+  routeChoiceId: z.string().min(1),
+  complete: z.boolean(),
+  truncated: z.boolean(),
+  nextCursor: opaqueIdSchema.optional(),
+  choices: z.array(z.object({
+    choiceId: z.string().min(1),
+    source: relatedExpandContributorSourceSchema,
+    label: z.string().min(1),
+    operators: z.array(z.enum(['EXISTS', 'EQUALS'])).min(1),
+    suggestedValues: z.array(z.string()),
+    suggestionsComplete: z.boolean(),
+    suggestionsTruncated: z.boolean(),
+    suggestionsSource: z.literal('catalog'),
+  }).strict()).max(50),
+}).strict().superRefine((value, context) => {
+  if (value.complete === value.truncated) {
+    context.addIssue({ code: 'custom', message: 'Related contributor search must be complete or truncated.' });
+  }
+  if (value.nextCursor && !value.truncated) {
+    context.addIssue({ code: 'custom', path: ['nextCursor'], message: 'A complete contributor search cannot have a continuation cursor.' });
+  }
+});
+export type RelatedExpandContributorSearchResponse = z.infer<typeof relatedExpandContributorSearchResponseSchema>;
+
+export const relatedFieldChoiceSearchResponseSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+  complete: z.boolean(),
+  truncated: z.boolean(),
+  nextCursor: opaqueIdSchema.optional(),
+  choices: z.array(z.object({
+    choiceId: z.string().min(1),
+    label: z.string().min(1),
+    source: relatedSourceSchema.shape.source,
+  }).strict()).max(50),
+}).strict().superRefine((value, context) => {
+  if (value.complete === value.truncated) {
+    context.addIssue({ code: 'custom', message: 'Related field search must be complete or truncated.' });
+  }
+  if (value.nextCursor && !value.truncated) {
+    context.addIssue({ code: 'custom', path: ['nextCursor'], message: 'A complete field search cannot have a continuation cursor.' });
+  }
+});
+export type RelatedFieldChoiceSearchResponse = z.infer<typeof relatedFieldChoiceSearchResponseSchema>;
+
+export const populationRouteChoiceSchema = z
+  .object({
+    routeChoiceId: opaqueIdSchema,
+    route: z.array(constructionRouteStepSchema),
+    presentation: constructionChoicePresentationSchema,
+  })
+  .strict();
+export type PopulationRouteChoice = z.infer<typeof populationRouteChoiceSchema>;
+
+export const populationRoutesResponseSchema = z
+  .object({
+    snapshotToken: opaqueIdSchema,
+    outputId: opaqueIdSchema,
+    selectionRevisionId: opaqueIdSchema,
+    complete: z.boolean(),
+    truncated: z.boolean(),
+    nextCursor: opaqueIdSchema.optional(),
+    choices: z.array(populationRouteChoiceSchema).max(50),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.complete === value.truncated) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Population route search must be either complete or truncated.',
+      });
+    }
+    if (value.nextCursor && !value.truncated) {
+      context.addIssue({
+        code: 'custom',
+        path: ['nextCursor'],
+        message: 'A complete population route search cannot have a continuation cursor.',
+      });
+    }
+  });
+export type PopulationRoutesResponse = z.infer<
+  typeof populationRoutesResponseSchema
+>;
+
+export const constructionChoiceSelectionSchema = z
+  .object({
+    rowValuePolicy: constructionRowValuePolicySchema.optional(),
+    choiceId: z.string().min(1),
+    form: constructionChoiceFormSchema,
+    frameId: opaqueIdSchema.optional(),
+  })
+  .strict();
+export type ConstructionChoiceSelection = z.infer<
+  typeof constructionChoiceSelectionSchema
+>;
+
+export const constructionChoiceProposalRequestSchema = z.object({
+  commandId: opaqueIdSchema,
+  snapshotToken: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  expectedDraftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  constructionChoices: z.array(constructionChoiceSelectionSchema.extend({
+    title: z.string().min(1).optional(),
+  })).min(1).max(100),
+  limit: z.number().int().min(1).max(1000).optional(),
+}).strict();
+export type ConstructionChoiceProposalRequest = z.infer<typeof constructionChoiceProposalRequestSchema>;
+
+export const constructionChoiceProposalResponseSchema = z.object({
+  commandId: opaqueIdSchema,
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  constructionChoices: constructionChoiceProposalRequestSchema.shape.constructionChoices,
+  candidateColumnIds: z.array(opaqueIdSchema),
+  candidateWorkspaceDigest: z.string().min(1),
+  previewStatus: z.literal('READY'),
+  previewDurationMs: z.number().int().nonnegative(),
+  preview: z.lazy(() => explorerBuilderPreviewResultSchema),
+}).strict();
+export type ConstructionChoiceProposalResponse = z.infer<typeof constructionChoiceProposalResponseSchema>;
+
+export const aggregateOperationCapabilitySchema = z
+  .object({
+    operation: z.enum([
+      'COUNT',
+      'COUNT_DISTINCT',
+      'DISTINCT_VALUES',
+      'EXISTS',
+      'MIN',
+      'MAX',
+      'SUM',
+      'MEAN',
+      'CONTAINS_ALL',
+      'REQUIRE_ONE',
+      'COLLECT',
+      'FIRST_ORDERED',
+    ]),
+    rowContext: z.enum(['RECORDS', 'GROUPS', 'EXPANDED']),
+    supported: z.boolean(),
+    reasonCode: z.string().optional(),
+    reason: z.string().optional(),
+    resultLogicalType: z.string().optional(),
+    resultCardinality: z.enum(['ONE', 'OPTIONAL_ONE', 'MANY']).optional(),
+    missingValueSemantics: z.string().optional(),
+    contributorSemantics: z.string().optional(),
+    requiresConfiguration: z.array(z.string()).optional(),
+  })
+  .strict();
+export type AggregateOperationCapability = z.infer<
+  typeof aggregateOperationCapabilitySchema
+>;
+
+export const temporalFieldChoiceSchema = z
+  .object({
+    candidateId: opaqueIdSchema,
+    nodeId: opaqueIdSchema,
+    resourceType: opaqueIdSchema,
+    fieldPath: opaqueIdSchema,
+    label: z.string(),
+  })
+  .strict();
+export type TemporalFieldChoice = z.infer<typeof temporalFieldChoiceSchema>;
+
+export const temporalReductionCapabilitySchema = z
+  .object({
+    available: z.boolean(),
+    reasonCode: z.string().optional(),
+    reason: z.string().optional(),
+    timestampFields: z.array(temporalFieldChoiceSchema),
+    anchorFields: z.array(temporalFieldChoiceSchema),
+  })
+  .strict();
+export type TemporalReductionCapability = z.infer<
+  typeof temporalReductionCapabilitySchema
+>;
+
+export const unitNormalizationPresetCapabilitySchema = z
+  .object({
+    policyId: opaqueIdSchema,
+    version: opaqueIdSchema,
+    target: z.object({ system: z.string(), code: z.string() }).strict(),
+    available: z.boolean(),
+    reasonCode: z.string().optional(),
+    reason: z.string().optional(),
+  })
+  .strict();
+export type UnitNormalizationPresetCapability = z.infer<
+  typeof unitNormalizationPresetCapabilitySchema
+>;
+
+export const unitNormalizationCapabilitySchema = z
+  .object({
+    available: z.boolean(),
+    reasonCode: z.string().optional(),
+    reason: z.string().optional(),
+    presets: z.array(unitNormalizationPresetCapabilitySchema),
+  })
+  .strict();
+export type UnitNormalizationCapability = z.infer<
+  typeof unitNormalizationCapabilitySchema
+>;
+
+export const aggregateTransformationCapabilitySchema = z
+  .object({
+    temporalReduction: temporalReductionCapabilitySchema,
+    unitNormalization: unitNormalizationCapabilitySchema,
+  })
+  .strict();
+export type AggregateTransformationCapability = z.infer<
+  typeof aggregateTransformationCapabilitySchema
+>;
+
+export const valueTransformationCapabilitySchema = z
+  .object({
+    available: z.boolean(),
+    reasonCode: z.string().optional(),
+    reason: z.string().optional(),
+  })
+  .strict();
+export const columnValueTransformationCapabilitiesSchema = z
+  .object({
+    exactCategoryRecode: valueTransformationCapabilitySchema,
+    codedValueRecoding: valueTransformationCapabilitySchema,
+  })
+  .strict();
+export type ColumnValueTransformationCapabilities = z.infer<
+  typeof columnValueTransformationCapabilitiesSchema
+>;
+
+export const explorerBuilderCandidateSchema = z
+  .object({
+    candidateId: opaqueIdSchema,
+    nodeId: opaqueIdSchema,
+    populated: z.boolean().optional(),
+    fieldPath: opaqueIdSchema,
+    label: z.string(),
+    logicalType: opaqueIdSchema,
+    cardinality: opaqueIdSchema,
+    repeated: z.boolean().optional(),
+    filterable: z.boolean(),
+    chartable: z.boolean(),
+    projectionModes: z.array(projectionModeSchema).min(1),
+    defaultProjectionMode: projectionModeSchema,
+    constructionChoice: constructionChoiceSchema.optional(),
+    aggregateOperations: z.array(aggregateOperationCapabilitySchema),
+    transformations: aggregateTransformationCapabilitySchema,
+    valueTransformations: columnValueTransformationCapabilitiesSchema,
+    conceptCandidates: z.array(conceptCandidateSchema).optional(),
+    repeatedBoundaries: z
+      .array(
+        z
+          .object({
+            path: opaqueIdSchema,
+            maxItems: z.number().int().nonnegative(),
+          })
+          .strict(),
+      )
+      .optional(),
+  })
+  .strict();
+export const explorerBuilderCatalogSchema = z
+  .object({
+    snapshotToken: opaqueIdSchema,
+    generation: opaqueIdSchema,
+    resolvedSchemaDigest: z.string().optional(),
+    authorizationScopeDigest: z.string().optional(),
+    complete: z.boolean().optional(),
+    availability: explorerBuilderAvailabilitySchema.optional(),
+    routePolicy: explorerBuilderRoutePolicySchema,
+    nodes: z.array(explorerBuilderCatalogNodeSchema),
+    edges: z.array(explorerBuilderCatalogEdgeSchema),
+    candidates: z.array(explorerBuilderCandidateSchema).optional(),
+  })
+  .strict();
+export type ExplorerBuilderCatalog = z.infer<
+  typeof explorerBuilderCatalogSchema
+>;
+export type ExplorerBuilderCandidate = z.infer<
+  typeof explorerBuilderCandidateSchema
+>;
+
+export const explorerBuilderStateSchema = z
+  .object({
+    apiVersion: z.literal(EXPLORER_AUTHORING_API_VERSION),
+    kind: z.literal('ExplorerBuilderState'),
+    lifecycleState: z.enum(['NEW', 'READY']),
+    draftVersion: z.number().int().nonnegative(),
+    draftDigest: z.string(),
+    previousDraftRevisionId: opaqueIdSchema.optional(),
+    workspace: explorerBuilderWorkspaceSchema.nullable(),
+    catalog: explorerBuilderCatalogSchema,
+  })
+  .strict()
+  .superRefine((state, context) => {
+    if ((state.lifecycleState === 'NEW') !== (state.workspace === null)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['workspace'],
+        message: 'NEW requires null workspace and READY requires a workspace.',
+      });
+    }
+  });
+export type ExplorerBuilderState = z.infer<typeof explorerBuilderStateSchema>;
+
+export const routeRebaseChoiceSchema = z
+  .object({
+    occurrenceId: opaqueIdSchema,
+    edgeId: opaqueIdSchema,
+  })
+  .strict();
+const rowChangeModeSchema = z.enum(['PRESERVE', 'REPLACE']);
+export type RowChangeMode = z.infer<typeof rowChangeModeSchema>;
+const workspaceOutputConsumerSchema = z.object({
+  outputId: opaqueIdSchema,
+  stepId: opaqueIdSchema,
+  inputIndex: z.number().int().nonnegative(),
+}).strict();
+const sharedFilterBindingRefSchema = z.object({
+  name: opaqueIdSchema,
+  outputId: opaqueIdSchema,
+  column: opaqueIdSchema,
+  bindingIndex: z.number().int().nonnegative(),
+}).strict();
+export const rowChangeProposalSchema = z
+  .object({
+    mode: rowChangeModeSchema.optional(),
+    outputId: opaqueIdSchema,
+    rootNodeId: opaqueIdSchema,
+    rootOccurrenceId: opaqueIdSchema,
+    sourceDocumentDigest: opaqueIdSchema,
+    routeRebase: z.array(routeRebaseChoiceSchema),
+    preservedFeatureKeys: z.array(opaqueIdSchema),
+    catalogSnapshotToken: opaqueIdSchema.optional(),
+    catalogGeneration: opaqueIdSchema.optional(),
+    catalogDigest: opaqueIdSchema.optional(),
+    removedFeatureKeys: z.array(opaqueIdSchema).optional(),
+    workspaceOutputConsumers: z.array(workspaceOutputConsumerSchema).optional(),
+    sharedFilterBindings: z.array(sharedFilterBindingRefSchema).optional(),
+  })
+  .strict()
+  .superRefine((proposal, context) => {
+    if (proposal.mode === 'REPLACE') {
+      if (proposal.rootOccurrenceId !== 'base') {
+        context.addIssue({ code: 'custom', path: ['rootOccurrenceId'], message: 'Replacement must use the base occurrence.' });
+      }
+      if (proposal.routeRebase.length !== 0 || proposal.preservedFeatureKeys.length !== 0) {
+        context.addIssue({ code: 'custom', path: ['routeRebase'], message: 'Replacement cannot claim preserved route or features.' });
+      }
+      for (const key of ['catalogSnapshotToken', 'catalogGeneration', 'catalogDigest'] as const) {
+        if (!proposal[key]) context.addIssue({ code: 'custom', path: [key], message: 'Replacement must bind the exact catalog snapshot.' });
+      }
+      for (const key of ['removedFeatureKeys', 'workspaceOutputConsumers', 'sharedFilterBindings'] as const) {
+        if (!proposal[key]) context.addIssue({ code: 'custom', path: [key], message: 'Replacement must report its effects.' });
+      }
+    } else if (proposal.routeRebase.length === 0) {
+      context.addIssue({ code: 'custom', path: ['routeRebase'], message: 'A preserving row change requires a route rebase.' });
+    }
+  });
+export type RowChangeProposal = z.infer<typeof rowChangeProposalSchema>;
+const rowChangeAssessmentBaseSchema = z.object({
+  mode: rowChangeModeSchema.optional(),
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: opaqueIdSchema,
+  currentRootResourceType: opaqueIdSchema,
+  candidateRootResourceType: opaqueIdSchema,
+  preservedFeatureKeys: z.array(opaqueIdSchema),
+  removedFeatureKeys: z.array(opaqueIdSchema).optional(),
+  workspaceOutputConsumers: z.array(workspaceOutputConsumerSchema).optional(),
+  sharedFilterBindings: z.array(sharedFilterBindingRefSchema).optional(),
+  diagnostics: z.array(explorerAuthoringDiagnosticSchema),
+});
+export const rowChangeUnresolvedReferenceSchema = z
+  .object({
+    kind: z.enum(['route', 'column']),
+    id: opaqueIdSchema,
+    code: opaqueIdSchema,
+    message: z.string().min(1),
+    alternatives: z.array(opaqueIdSchema).optional(),
+  })
+  .strict();
+export type RowChangeUnresolvedReference = z.infer<
+  typeof rowChangeUnresolvedReferenceSchema
+>;
+export const rowChangeAssessmentSchema = z.discriminatedUnion('status', [
+  rowChangeAssessmentBaseSchema.extend({
+    status: z.literal('READY'),
+    candidateDocument: explorerBuilderDocumentSchema.optional(),
+    candidateNetwork: authoringNetworkSchema.optional(),
+    candidateRowIdentity: rowIdentityPlanSchema.optional(),
+    proposal: rowChangeProposalSchema,
+    candidateReceiptId: opaqueIdSchema.optional(),
+    unresolved: z.array(rowChangeUnresolvedReferenceSchema).length(0),
+  }).strict(),
+  rowChangeAssessmentBaseSchema.extend({
+    status: z.literal('BLOCKED'),
+    unresolved: z.array(rowChangeUnresolvedReferenceSchema).min(1),
+  }).strict(),
+  rowChangeAssessmentBaseSchema.extend({
+    status: z.literal('NO_CHANGE'),
+    unresolved: z.array(rowChangeUnresolvedReferenceSchema).length(0),
+  }).strict(),
+]).superRefine((assessment, context) => {
+  if (assessment.status !== 'READY' || assessment.mode !== 'REPLACE') return;
+  if (assessment.proposal.mode !== 'REPLACE') {
+    context.addIssue({ code: 'custom', path: ['proposal', 'mode'], message: 'Replacement assessment must contain a replacement proposal.' });
+  }
+  if (!assessment.candidateReceiptId) {
+    context.addIssue({ code: 'custom', path: ['candidateReceiptId'], message: 'Replacement assessment must include its candidate preview receipt.' });
+  }
+  for (const key of ['removedFeatureKeys', 'workspaceOutputConsumers', 'sharedFilterBindings'] as const) {
+    const responseEffects = assessment[key];
+    const proposalEffects = assessment.proposal[key];
+    if (!responseEffects || !proposalEffects || JSON.stringify(responseEffects) !== JSON.stringify(proposalEffects)) {
+      context.addIssue({ code: 'custom', path: [key], message: 'Replacement assessment effects must match the reviewed proposal.' });
+    }
+  }
+});
+export type RowChangeAssessment = z.infer<typeof rowChangeAssessmentSchema>;
+
+export const semanticSelectionIntentSchema = z
+  .object({
+    conceptId: opaqueIdSchema,
+    bindingId: opaqueIdSchema,
+    routeEdgeIds: z.array(opaqueIdSchema),
+    projectionMode: projectionModeSchema,
+    title: z.string().optional(),
+  })
+  .strict();
+export type SemanticSelectionIntent = z.infer<typeof semanticSelectionIntentSchema>;
+
+export const semanticSelectionResultSchema = z
+  .object({
+    conceptId: opaqueIdSchema,
+    bindingId: opaqueIdSchema,
+    columnId: opaqueIdSchema,
+    status: z.enum(['ADDED', 'ALREADY_PRESENT']),
+  })
+  .strict();
+export type SemanticSelectionResult = z.infer<typeof semanticSelectionResultSchema>;
+
+const importedSourceStepChangeSchema = z.object({
+  stepId: opaqueIdSchema,
+  remove: z.literal(true).optional(),
+  maxColumns: z.number().int().positive().optional(),
+  valueMode: z.string().min(1).optional(),
+  parameters: importedSourceParametersSchema.optional(),
+}).strict().superRefine((value, context) => {
+  if (value.remove && (value.maxColumns !== undefined || value.valueMode !== undefined || value.parameters !== undefined)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'A source step removal cannot include edits.' });
+  }
+  if (value.parameters) validateEditableSourceParameters(value.parameters, context);
+});
+
+export const sourceRelationshipChangeSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('ADD'), parentOccurrenceId: opaqueIdSchema, edgeId: opaqueIdSchema, matchMode: z.enum(['OPTIONAL', 'REQUIRED']) }).strict(),
+  z.object({ action: z.literal('MATCH'), occurrenceId: opaqueIdSchema, matchMode: z.enum(['OPTIONAL', 'REQUIRED']) }).strict(),
+  z.object({ action: z.literal('REMOVE'), occurrenceId: opaqueIdSchema }).strict(),
+]);
+export type SourceRelationshipChange = z.infer<typeof sourceRelationshipChangeSchema>;
+const sourceRuleCreateSchema = z.object({
+  kind: z.enum(['DYNAMIC_COLUMN', 'EXTENSION_COLUMN', 'CATALOG_PROJECTION']),
+  occurrenceId: opaqueIdSchema.optional(),
+  maxColumns: z.number().int().min(1).max(128).optional(),
+  parameters: importedSourceParametersSchema,
+}).strict().superRefine((rule, context) => {
+  validateEditableSourceParameters(rule.parameters, context);
+  const arm = { DYNAMIC_COLUMN: 'dynamic', EXTENSION_COLUMN: 'extension', CATALOG_PROJECTION: 'catalog' } as const;
+  if (!rule.parameters[arm[rule.kind]]) {
+    context.addIssue({ code: 'custom', path: ['parameters'], message: 'Source rule parameters must match the rule kind.' });
+  }
+});
+export type SourceRuleCreate = z.infer<typeof sourceRuleCreateSchema>;
+
+export const sourceRelationshipProposalRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  expectedDraftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  includePreview: z.boolean().optional(),
+  change: sourceRelationshipChangeSchema.optional(),
+  sourceStep: importedSourceStepChangeSchema.optional(),
+  sourceRule: sourceRuleCreateSchema.optional(),
+  sourceSteps: z.array(importedSourceStepChangeSchema).min(1).max(128).optional(),
+  limit: z.number().int().min(1).max(1000).optional(),
+}).strict().superRefine((request, context) => {
+  if (Number(request.change !== undefined) + Number(request.sourceStep !== undefined) + Number(request.sourceSteps !== undefined) + Number(request.sourceRule !== undefined) !== 1) context.addIssue({ code: 'custom', message: 'Choose one relationship change, source-step change, atomic source-step batch, or column rule.' });
+  if (request.sourceSteps && new Set(request.sourceSteps.map((step) => step.stepId)).size !== request.sourceSteps.length) context.addIssue({ code: 'custom', path: ['sourceSteps'], message: 'Choose each source operation only once.' });
+});
+export type SourceRelationshipProposalRequest = z.infer<typeof sourceRelationshipProposalRequestSchema>;
+export const sourceRelationshipProposalSchema = z.object({
+  candidateDocument: explorerBuilderDocumentSchema,
+  candidateNetwork: authoringNetworkSchema,
+  candidateRowIdentity: rowIdentityPlanSchema,
+  proposalId: opaqueIdSchema, candidateReceiptId: opaqueIdSchema,
+  outputId: opaqueIdSchema, snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(), draftDigest: z.string().min(1),
+  baseDocumentDigest: z.string().min(1), candidateWorkspaceDigest: z.string().min(1),
+  previewStatus: z.literal('READY'), sampledRows: z.number().int().nonnegative(), sampled: z.boolean(),
+  affectedColumns: z.array(z.string()), notices: z.array(z.string()),
+  preview: z.lazy(() => explorerBuilderPreviewResultSchema).optional(),
+}).strict();
+export type SourceRelationshipProposal = z.infer<typeof sourceRelationshipProposalSchema>;
+export const sourceRelationshipProposalWithPreviewSchema = sourceRelationshipProposalSchema
+  .extend({ preview: z.lazy(() => explorerBuilderPreviewResultSchema) })
+  .strict()
+  .superRefine((proposal, context) => {
+    if (proposal.preview.receiptId !== proposal.candidateReceiptId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['preview', 'receiptId'],
+        message: 'The embedded preview must belong to the candidate receipt.',
+      });
+    }
+    if (proposal.preview.outputId !== proposal.outputId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['preview', 'outputId'],
+        message: 'The embedded preview must belong to the proposed output.',
+      });
+    }
+    if (proposal.preview.rows === null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['preview', 'rows'],
+        message: 'The embedded preview must include rows before the candidate can be applied.',
+      });
+    }
+  });
+export type SourceRelationshipProposalWithPreview = z.infer<typeof sourceRelationshipProposalWithPreviewSchema>;
+
+export const columnPolicyProposalRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema, expectedDraftVersion: z.number().int().positive(), expectedDraftDigest: z.string().min(1),
+  outputId: opaqueIdSchema, columnId: opaqueIdSchema, projectionMode: projectionModeSchema,
+  limit: z.number().int().min(1).max(1000).optional(),
+}).strict();
+export type ColumnPolicyProposalRequest = z.infer<typeof columnPolicyProposalRequestSchema>;
+export const columnPolicyProposalSchema = sourceRelationshipProposalSchema;
+export type ColumnPolicyProposal = z.infer<typeof columnPolicyProposalSchema>;
+
+export const explorerBuilderCommandSchema = z
+  .object({
+    type: z.enum([
+      'CREATE_TABLE',
+      'DUPLICATE_TABLE',
+      'DELETE_TABLE',
+      'RENAME_TABLE',
+      'REORDER_TABLES',
+      'SET_TABLE_ROOT',
+      'APPLY_TABLE_ROOT_REBASE',
+      'SET_TABLE_POPULATION',
+      'CLEAR_TABLE_POPULATION',
+      'APPLY_POPULATION_MEMBER_PROPOSAL',
+      'ADD_ROUTE',
+      'UPDATE_ROUTE_EDGE',
+      'SET_ROUTE_MATCH_MODE',
+      'REMOVE_ROUTE',
+      'ADD_COLUMN',
+      'ADD_COLUMN_SOURCE',
+      'UPDATE_COLUMN_SOURCE',
+      'UPDATE_COLUMN_ROW_VALUE_POLICY',
+      'UPDATE_COLUMN',
+      'UPDATE_CONSTRUCTION_OUTPUT',
+      'UPDATE_COLUMN_TRANSFORMATION',
+      'SET_COLUMN_CONTRIBUTOR',
+      'CLEAR_COLUMN_CONTRIBUTOR',
+      'APPLY_INTERPRETATION_CANDIDATE',
+      'REMOVE_COLUMN',
+      'ADD_SEMANTIC_SELECTIONS',
+      'APPLY_CONSTRUCTION_CHOICE',
+      'SET_FRAME_SOURCE',
+      'REPLACE_FRAME_SOURCE',
+      'REMOVE_FRAME_SOURCE',
+      'APPLY_ROW_DEFINITION_PROPOSAL',
+      'APPLY_CONSTRUCTION_PROPOSAL',
+      'UPDATE_IMPORTED_SOURCE_STEP',
+      'REMOVE_PROJECTED_FIELD',
+      'REFRESH_IMPORTED_SOURCE',
+      'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL',
+      'APPLY_COLUMN_POLICY_PROPOSAL',
+      'RESTORE_DRAFT_REVISION',
+    ]),
+    outputId: exactOpaqueIdSchema.optional(),
+    columnId: exactOpaqueIdSchema.optional(),
+    frameId: opaqueIdSchema.optional(),
+    frameChoiceId: z.string().optional(),
+    form: frameFormSchema.optional(),
+    sourceOutputId: opaqueIdSchema.optional(),
+    title: z.string().optional(),
+    rootNodeId: opaqueIdSchema.optional(),
+    selectionRevisionId: opaqueIdSchema.optional(),
+    routeChoiceId: opaqueIdSchema.optional(),
+    edgeIds: z.array(opaqueIdSchema).optional(),
+    parentOccurrenceId: opaqueIdSchema.optional(),
+    occurrenceId: opaqueIdSchema.optional(),
+    edgeId: opaqueIdSchema.optional(),
+    matchMode: z.enum(['OPTIONAL', 'REQUIRED']).optional(),
+    candidateId: opaqueIdSchema.optional(),
+    projectionMode: projectionModeSchema.optional(),
+    initialPresentation: z.enum(['TABLE', 'FILTER', 'CHART']).optional(),
+    column: opaqueIdSchema.optional(),
+    rowValuePolicy: constructionRowValuePolicySchema.optional(),
+    columnValue: explorerBuilderColumnSchema.optional(),
+    constructionOutput: z.object({
+      stepId: opaqueIdSchema,
+      columnId: opaqueIdSchema,
+      label: z.string().min(1),
+      table: explorerTablePresentationSchema.optional(),
+    }).strict().optional(),
+    transformationChange: columnTransformationChangeSchema.optional(),
+    contributor: contributorPredicateSchema.optional(),
+    source: explorerColumnSourceSchema.optional(),
+    rowChange: rowChangeProposalSchema.optional(),
+    interpretationCandidate: z
+      .object({
+        candidateReceiptId: opaqueIdSchema,
+        revisionId: opaqueIdSchema,
+      })
+      .strict()
+      .optional(),
+    proposalId: opaqueIdSchema.optional(),
+    draftRevisionId: opaqueIdSchema.optional(),
+    contextToken: opaqueIdSchema.optional(),
+    semanticSelections: z.array(semanticSelectionIntentSchema).min(1).max(100).optional(),
+    constructionChoice: constructionChoiceSelectionSchema.optional(),
+    outputIds: z.array(opaqueIdSchema).optional(),
+    sourceStep: importedSourceStepChangeSchema.optional(),
+  })
+  .strict()
+  .superRefine((command, context) => {
+    if (command.type === 'REMOVE_PROJECTED_FIELD') {
+      if (!command.outputId || !command.columnId) {
+        context.addIssue({ code: 'custom', message: 'Projected field removal requires outputId and columnId.' });
+      }
+      for (const [key, value] of Object.entries(command)) {
+        if (!['type', 'outputId', 'columnId'].includes(key) && value !== undefined) {
+          context.addIssue({ code: 'custom', path: [key], message: 'Projected field removal accepts only outputId and columnId.' });
+        }
+      }
+      return;
+    }
+    if (command.columnId !== undefined) {
+      context.addIssue({ code: 'custom', path: ['columnId'], message: 'columnId is only accepted by REMOVE_PROJECTED_FIELD.' });
+    }
+    if (command.type === 'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL' || command.type === 'APPLY_COLUMN_POLICY_PROPOSAL') {
+      if (!command.outputId || !command.proposalId) context.addIssue({ code: 'custom', message: 'Relationship Apply requires outputId and proposalId.' });
+      for (const [key, value] of Object.entries(command)) {
+        if (!['type', 'outputId', 'proposalId'].includes(key) && value !== undefined) context.addIssue({ code: 'custom', path: [key], message: 'Relationship Apply accepts only outputId and proposalId.' });
+      }
+      return;
+    }
+    if (command.type === 'UPDATE_IMPORTED_SOURCE_STEP') {
+      if (!command.outputId) {
+        context.addIssue({ code: 'custom', path: ['outputId'], message: 'UPDATE_IMPORTED_SOURCE_STEP requires an output ID.' });
+      }
+      if (!command.sourceStep) {
+        context.addIssue({ code: 'custom', path: ['sourceStep'], message: 'UPDATE_IMPORTED_SOURCE_STEP requires a source step change.' });
+      }
+      for (const [key, value] of Object.entries(command)) {
+        if (!['type', 'outputId', 'sourceStep'].includes(key) && value !== undefined) {
+          context.addIssue({ code: 'custom', path: [key], message: 'UPDATE_IMPORTED_SOURCE_STEP accepts only outputId and sourceStep.' });
+        }
+      }
+      return;
+    }
+    if (command.type === 'REFRESH_IMPORTED_SOURCE') {
+      if (!command.outputId) {
+        context.addIssue({ code: 'custom', path: ['outputId'], message: 'REFRESH_IMPORTED_SOURCE requires an output ID.' });
+      }
+      for (const [key, value] of Object.entries(command)) {
+        if (!['type', 'outputId'].includes(key) && value !== undefined) {
+          context.addIssue({ code: 'custom', path: [key], message: 'REFRESH_IMPORTED_SOURCE accepts only an output ID.' });
+        }
+      }
+      return;
+    }
+    if (command.type === 'APPLY_POPULATION_MEMBER_PROPOSAL') {
+      if (!command.outputId) {
+        context.addIssue({ code: 'custom', path: ['outputId'], message: 'APPLY_POPULATION_MEMBER_PROPOSAL requires an output ID.' });
+      }
+      if (!command.proposalId) {
+        context.addIssue({ code: 'custom', path: ['proposalId'], message: 'APPLY_POPULATION_MEMBER_PROPOSAL requires a proposal ID.' });
+      }
+      for (const [key, value] of Object.entries(command)) {
+        if (!['type', 'outputId', 'proposalId'].includes(key) && value !== undefined) {
+          context.addIssue({ code: 'custom', path: [key], message: 'APPLY_POPULATION_MEMBER_PROPOSAL accepts only outputId and proposalId.' });
+        }
+      }
+      return;
+    }
+    if (command.type === 'UPDATE_COLUMN_ROW_VALUE_POLICY') {
+      if (!command.outputId) {
+        context.addIssue({
+          code: 'custom',
+          path: ['outputId'],
+          message: 'UPDATE_COLUMN_ROW_VALUE_POLICY requires an output ID.',
+        });
+      }
+      if (!command.column) {
+        context.addIssue({
+          code: 'custom',
+          path: ['column'],
+          message: 'UPDATE_COLUMN_ROW_VALUE_POLICY requires a column.',
+        });
+      }
+      if (!command.rowValuePolicy) {
+        context.addIssue({
+          code: 'custom',
+          path: ['rowValuePolicy'],
+          message: 'UPDATE_COLUMN_ROW_VALUE_POLICY requires ALL or ONE.',
+        });
+      }
+      for (const [key, value] of Object.entries(command)) {
+        if (!['type', 'outputId', 'column', 'rowValuePolicy'].includes(key) && value !== undefined) {
+          context.addIssue({
+            code: 'custom',
+            path: [key],
+            message: 'UPDATE_COLUMN_ROW_VALUE_POLICY accepts only outputId, column, and rowValuePolicy.',
+          });
+        }
+      }
+      return;
+    }
+    if (command.type !== 'RESTORE_DRAFT_REVISION') return;
+    if (!command.draftRevisionId) {
+      context.addIssue({
+        code: 'custom',
+        path: ['draftRevisionId'],
+        message: 'RESTORE_DRAFT_REVISION requires a draft revision ID.',
+      });
+    }
+    for (const [key, value] of Object.entries(command)) {
+      if (key !== 'type' && key !== 'draftRevisionId' && value !== undefined) {
+        context.addIssue({
+          code: 'custom',
+          path: [key],
+          message: 'RESTORE_DRAFT_REVISION accepts only its revision ID.',
+        });
+      }
+    }
+  });
+export type ExplorerBuilderCommand = z.infer<
+  typeof explorerBuilderCommandSchema
+>;
+export const explorerBuilderCommandResultSchema = z
+  .object({
+    type: z.enum([
+      'TABLE_CREATED',
+      'TABLE_CHANGED',
+      'ROUTE_ADDED',
+      'COLUMN_ADDED',
+      'SEMANTIC_SELECTIONS_ADDED',
+      'DRAFT_RESTORED',
+    ]),
+    outputId: opaqueIdSchema.optional(),
+    tabId: opaqueIdSchema.optional(),
+    occurrenceId: opaqueIdSchema.optional(),
+    column: opaqueIdSchema.optional(),
+    semanticSelections: z.array(semanticSelectionResultSchema).max(100).optional(),
+  })
+  .strict();
+export const explorerBuilderCommandsResultSchema = z
+  .object({
+    commandId: opaqueIdSchema,
+    workspace: explorerBuilderWorkspaceSchema,
+    draftVersion: z.number().int().positive(),
+    draftDigest: opaqueIdSchema,
+    previousDraftRevisionId: opaqueIdSchema.optional(),
+    results: z.array(explorerBuilderCommandResultSchema),
+    diagnostics: z.array(explorerAuthoringDiagnosticSchema),
+    acceptedConstruction: z.lazy(() => explorerBuilderAcceptedConstructionSchema).optional(),
+  })
+  .strict();
+export type ExplorerBuilderCommandsResult = z.infer<
+  typeof explorerBuilderCommandsResultSchema
+>;
+
+export const explorerBuilderContractColumnSchema = z
+  .object({
+    column: opaqueIdSchema,
+    authoredColumns: z.array(opaqueIdSchema).min(1).optional(),
+    label: z.string(),
+    logicalType: opaqueIdSchema,
+    resultUnit: resultUnitSchema.optional(),
+    filterable: z.boolean(),
+    chartable: z.boolean(),
+    nullable: z.boolean().optional(),
+    shape: z.string().optional(),
+    sourceResourceType: z.string().optional(),
+    sourcePath: z.string().optional(),
+    choiceArm: z.string().optional(),
+    coordinates: z
+      .array(
+        z
+          .object({
+            boundaryPath: opaqueIdSchema,
+            index: z.number().int().nonnegative(),
+            width: z.number().int().positive(),
+          })
+          .strict(),
+      )
+      .optional(),
+    lossless: z.boolean().optional(),
+    mlReady: z.boolean().optional(),
+    structuralSuitability: z.enum(['scalar', 'array', 'requires-review']).optional(),
+    lossReasons: z.array(z.string()).optional(),
+    unitNormalization: z.object({
+      target: resultUnitSchema,
+      rules: z.array(z.object({ id: opaqueIdSchema, version: opaqueIdSchema }).strict()).min(1),
+    }).strict().optional(),
+  })
+  .strict();
+export type ExplorerBuilderContractColumn = z.infer<
+  typeof explorerBuilderContractColumnSchema
+>;
+
+export interface ExplorerBuilderSelection {
+  readonly candidateId: string;
+  readonly occurrenceId: string;
+  readonly projectionMode: string;
+}
+export interface ExplorerPresentationIntent {
+  readonly label?: string;
+  readonly visible?: boolean;
+  readonly order?: number;
+  readonly table?: { readonly pinned?: boolean };
+  readonly filter?: { readonly label?: string };
+  readonly chart?: { readonly type: string; readonly title?: string };
+}
+export interface ExplorerBuilderEmission extends ExplorerBuilderContractColumn {
+  readonly outputId: string;
+  readonly candidateId: string;
+  readonly occurrenceId: string;
+  readonly projectionMode: string;
+  readonly emissionId: string;
+  readonly publicColumn: string;
+}
+export const explorerBuilderReceiptOutputSchema = z
+  .object({
+    outputId: opaqueIdSchema,
+    title: z.string().optional(),
+    rowGrain: z.string().optional(),
+    rootResourceType: z.string().optional(),
+    rowMultiplication: z.enum(['none', 'expand']).optional(),
+    lossless: z.boolean().optional(),
+    mlReady: z.boolean().optional(),
+    structuralSuitability: z.enum(['scalar', 'array', 'requires-review']).optional(),
+    lossReasons: z.array(z.string()).optional(),
+    columns: z.array(explorerBuilderContractColumnSchema),
+  })
+  .strict();
+export const explorerBuilderCompileResultSchema = z
+  .object({
+    apiVersion: z.literal(EXPLORER_AUTHORING_API_VERSION),
+    kind: z.literal('ExplorerBuilderReceipt'),
+    receiptId: opaqueIdSchema,
+    snapshotToken: opaqueIdSchema,
+    generation: z.string().optional(),
+    intentDigest: z.string().optional(),
+    resolvedInputsDigest: z.string().optional(),
+    compilerVersion: z.string().optional(),
+    shapeDigest: z.string().optional(),
+    recipeDigest: z.string().optional(),
+    resolvedRecipeDigest: z.string().optional(),
+    resolvedSchemaDigest: z.string().optional(),
+    outputContractDigest: z.string().optional(),
+    authorizationScopeDigest: z.string().optional(),
+    capabilitySchemaDigest: z.string().optional(),
+    builder: explorerBuilderWorkspaceSchema,
+    outputs: z.array(explorerBuilderReceiptOutputSchema),
+    diagnostics: z.array(explorerAuthoringDiagnosticSchema),
+  })
+  .strict();
+export type ExplorerBuilderCompileResult = z.infer<
+  typeof explorerBuilderCompileResultSchema
+>;
+export const explorerBuilderAcceptedConstructionReceiptSchema = explorerBuilderCompileResultSchema
+  .omit({ builder: true })
+  .extend({
+    generation: opaqueIdSchema,
+    intentDigest: opaqueIdSchema,
+    compilerVersion: opaqueIdSchema,
+  });
+export type ExplorerBuilderAcceptedConstructionReceipt = z.infer<
+  typeof explorerBuilderAcceptedConstructionReceiptSchema
+>;
+
+export const explorerBuilderPreviewColumnSchema =
+  explorerBuilderContractColumnSchema;
+export const explorerBuilderPreviewRowSourceSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('SINGLE'), resourceType: opaqueIdSchema, id: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal('COMPOSITE') }).strict(),
+  z.object({ kind: z.literal('UNAVAILABLE') }).strict(),
+]);
+export type ExplorerBuilderPreviewRowSource = z.infer<typeof explorerBuilderPreviewRowSourceSchema>;
+export const explorerBuilderRowLineageCapabilitySchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('AVAILABLE') }).strict(),
+  z.object({ status: z.literal('UNAVAILABLE'), reasonCode: z.string().min(1), operation: z.string().optional() }).strict(),
+]);
+export const explorerBuilderRowLineageResponseSchema = z.object({
+  receiptId: opaqueIdSchema,
+  outputId: opaqueIdSchema,
+  rowId: z.string().min(1),
+  status: z.enum(['COMPLETE', 'INCOMPLETE', 'UNAVAILABLE']),
+  contributors: z.array(z.object({
+    resourceType: opaqueIdSchema,
+    resourceId: z.string().min(1),
+    occurrenceKey: z.string().min(1),
+  }).strict()).optional(),
+  hasMore: z.boolean().optional(),
+  nextOffset: z.number().int().nonnegative().optional(),
+  reasonCode: z.string().min(1).optional(),
+  operation: z.string().min(1).optional(),
+}).strict();
+export type ExplorerBuilderRowLineageResponse = z.infer<typeof explorerBuilderRowLineageResponseSchema>;
+export const explorerBuilderPreviewResultSchema = z
+  .object({
+    apiVersion: z.literal(EXPLORER_AUTHORING_API_VERSION),
+    kind: z.literal('ExplorerBuilderPreview'),
+    receiptId: opaqueIdSchema,
+    outputId: opaqueIdSchema,
+    columns: z.array(explorerBuilderPreviewColumnSchema),
+    rows: z.array(unknownRecordSchema).nullable(),
+    rowSources: z.array(explorerBuilderPreviewRowSourceSchema).optional(),
+    rowLineageCapability: explorerBuilderRowLineageCapabilitySchema,
+    rowCount: z.number().int().nonnegative(),
+    sampled: z.boolean().optional(),
+    partialValidation: z.boolean().optional(),
+    diagnostics: z.array(explorerAuthoringDiagnosticSchema),
+  })
+  .strict()
+  .superRefine((preview, context) => {
+    if (preview.rowSources && preview.rowSources.length !== (preview.rows?.length ?? 0)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['rowSources'], message: 'row sources must match preview rows' });
+    }
+  });
+export type ExplorerBuilderPreviewResult = z.infer<
+  typeof explorerBuilderPreviewResultSchema
+>;
+
+export const explorerBuilderAcceptedConstructionSchema = z
+  .object({
+    receipt: explorerBuilderAcceptedConstructionReceiptSchema,
+    preview: explorerBuilderPreviewResultSchema,
+    previewLimit: z.number().int().min(1).max(1000),
+  })
+  .strict();
+export type ExplorerBuilderAcceptedConstruction = z.infer<
+  typeof explorerBuilderAcceptedConstructionSchema
+>;
+
+export const explorerBuilderPublishResultSchema = z
+  .object({
+    apiVersion: z.literal(EXPLORER_AUTHORING_API_VERSION),
+    kind: z.literal('ExplorerBuilderPublication'),
+    receiptId: opaqueIdSchema,
+    revisionId: opaqueIdSchema,
+    state: z.string(),
+    outputs: z.array(
+      z
+        .object({
+          outputId: opaqueIdSchema,
+          state: z.string(),
+          materializationId: z.string().optional(),
+        })
+        .strict(),
+    ),
+    diagnostics: z.array(explorerAuthoringDiagnosticSchema),
+  })
+  .strict();
+export type ExplorerBuilderPublishResult = z.infer<
+  typeof explorerBuilderPublishResultSchema
+>;
+
+export const explorerBuilderSuggestionsResultSchema = z
+  .object({
+    apiVersion: z.literal(EXPLORER_AUTHORING_API_VERSION),
+    kind: z.literal('ExplorerBuilderCandidateSuggestions'),
+    snapshotToken: opaqueIdSchema,
+    nodeId: opaqueIdSchema,
+    candidates: z.array(explorerBuilderCandidateSchema),
+    diagnostics: z.array(explorerAuthoringDiagnosticSchema),
+  })
+  .strict();
+export type ExplorerBuilderSuggestionsResult = z.infer<
+  typeof explorerBuilderSuggestionsResultSchema
+>;
+
+export const schemaFieldSearchRequestSchema = z
+  .object({
+    snapshotToken: opaqueIdSchema,
+    nodeId: opaqueIdSchema,
+    query: z.string().max(256).optional(),
+    limit: z.number().int().min(1).max(50).optional(),
+    cursor: z.string().max(4096).optional(),
+  })
+  .strict();
+export type SchemaFieldSearchRequest = z.infer<typeof schemaFieldSearchRequestSchema>;
+
+export const schemaFieldOptionSchema = z
+  .object({
+    origin: z.literal('GENERATED_SCHEMA'),
+    constructionChoice: constructionChoiceSchema.optional(),
+    nodeId: opaqueIdSchema,
+    resourceType: z.string().min(1),
+    path: z.string().min(1),
+    primitiveType: z.enum(['string', 'boolean', 'integer', 'decimal', 'date', 'date_time']),
+    cardinality: z.enum(['optional_one', 'many']),
+    repeatedPaths: z.array(z.string().min(1)).optional(),
+  })
+  .strict();
+export type SchemaFieldOption = z.infer<typeof schemaFieldOptionSchema>;
+
+export const explorerBuilderSchemaFieldsResultSchema = z
+  .object({
+    apiVersion: z.literal(EXPLORER_AUTHORING_API_VERSION),
+    kind: z.literal('ExplorerBuilderGeneratedSchemaFields'),
+    snapshotToken: opaqueIdSchema,
+    schemaDigest: z.string().regex(/^[a-f0-9]{64}$/),
+    nodeId: opaqueIdSchema,
+    resourceType: z.string().min(1),
+    query: z.string().max(256),
+    fields: z.array(schemaFieldOptionSchema).max(50),
+    complete: z.boolean(),
+    truncated: z.boolean(),
+    nextCursor: z.string().min(1).max(4096).optional(),
+  })
+  .strict();
+export type ExplorerBuilderSchemaFieldsResult = z.infer<
+  typeof explorerBuilderSchemaFieldsResultSchema
+>;
+
+export const semanticSelectionReadinessSchema = z
+  .object({
+    status: z.enum(['READY', 'READY_WITH_WARNING', 'NEEDS_MAPPING', 'UNSUPPORTED']),
+    code: z.string().min(1),
+    message: z.string().min(1),
+  })
+  .strict();
+export type SemanticSelectionReadiness = z.infer<typeof semanticSelectionReadinessSchema>;
+
+const semanticInventoryItemFields = {
+  conceptId: z.string(),
+  bindingId: z.string(),
+  resourceType: z.string().min(1),
+  sourcePath: z.string(),
+  system: z.string(),
+  code: z.string(),
+  codingVersion: z.string(),
+  display: z.string(),
+  valueSelector: z.string(),
+  valueType: z.string(),
+  owningScope: z.string(),
+
+  occurrences: z.number().int().nonnegative(),
+  examples: z.array(z.string()).max(32).optional(),
+  examplesTruncated: z.boolean(),
+  observedUnits: z.array(z.string()).optional(),
+  observedUnitsTruncated: z.boolean(),
+  completeness: z.enum(['complete', 'partial', 'incomplete']).optional(),
+  readiness: semanticSelectionReadinessSchema,
+  constructionChoice: constructionChoiceSchema.optional(),
+};
+export const semanticInventoryItemSchema = z.object({
+  ...semanticInventoryItemFields,
+  selectionMode: z.literal('SYSTEM_VERSION_CATEGORY').optional(),
+  familyId: opaqueIdSchema.optional(),
+}).strict().superRefine((item, context) => {
+  if (item.selectionMode === 'SYSTEM_VERSION_CATEGORY') {
+    const choice = item.constructionChoice;
+    if (!item.familyId || item.conceptId !== item.familyId || item.code !== '') {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'A category inventory item must identify its family without an exact code.',
+        path: ['familyId'],
+      });
+    } else if (choice && (
+      choice.source.kind !== 'SEMANTIC' ||
+      choice.source.ruleHint !== 'CODED_CATEGORY_V1' ||
+      choice.source.conceptId !== item.familyId ||
+      choice.source.bindingId !== item.bindingId ||
+      choice.source.resourceType !== item.resourceType ||
+      choice.source.system !== item.system ||
+      (choice.source.version ?? '') !== item.codingVersion ||
+      (choice.source.code ?? '') !== '' ||
+      choice.source.sourcePath !== item.sourcePath
+    )) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'A category inventory choice must match its compiler-issued family.',
+        path: ['constructionChoice'],
+      });
+    }
+  } else if (item.familyId !== undefined || item.constructionChoice?.source.kind === 'SEMANTIC' &&
+    item.constructionChoice.source.ruleHint === 'CODED_CATEGORY_V1') {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Coded category identity is only valid in system/version category mode.',
+      path: ['selectionMode'],
+    });
+  }
+});
+export type SemanticInventoryItem = z.infer<typeof semanticInventoryItemSchema>;
+
+export const fieldPresentationReasonSchema = z.enum([
+  'MISSING_SYSTEM',
+  'MISSING_CODE',
+  'TEXT_ONLY',
+  'AMBIGUOUS_ANCHOR',
+  'MIXED_CHOICE',
+  'UNSUPPORTED_VALUE_PROJECTION',
+  'UNSUPPORTED_VERSION',
+  'UNKNOWN_SCHEMA_MEMBER',
+  'UNKNOWN_CODE_CLASSIFICATION',
+  'UNSUPPORTED_SELECTOR',
+  'INCOMPLETE_SOURCE',
+  'WALK_FAILED',
+  'TRUNCATED_EVIDENCE',
+  'UNREPRESENTED_METADATA',
+  'COVERAGE_UNAVAILABLE',
+  'INCOMPLETE_COVERAGE',
+  'NO_EXACT_ROUTE',
+  'UNSUPPORTED_CURRENT_STAGE',
+  'STALE_CONTEXT',
+  'REPLACEMENT_UNAVAILABLE',
+  'SOURCE_FIELDS_INACCESSIBLE',
+  'CANDIDATE_NOT_POPULATED',
+  'CANDIDATE_NOT_ADDABLE',
+]);
+export type FieldPresentationReason = z.infer<typeof fieldPresentationReasonSchema>;
+
+export const fieldPresentationRequestSchema = z.object({
+  expectedDraftVersion: z.number().int().positive(),
+  expectedDraftDigest: opaqueIdSchema,
+  sourceNodeId: opaqueIdSchema,
+  occurrenceId: opaqueIdSchema,
+  stageId: opaqueIdSchema.optional(),
+  candidateIds: z.array(opaqueIdSchema).min(1).max(50).refine(
+    (candidateIds) => new Set(candidateIds).size === candidateIds.length,
+    'candidateIds must be unique',
+  ),
+}).strict();
+export type FieldPresentationRequest = z.infer<typeof fieldPresentationRequestSchema>;
+
+const semanticInventoryBrowseRequestBaseSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  rowRoot: opaqueIdSchema,
+  frameId: opaqueIdSchema.optional(),
+  sourceChoiceId: opaqueIdSchema.optional(),
+  selectionMode: semanticInventorySelectionModeSchema.optional(),
+  resourceType: z.string().optional(),
+  query: z.string().max(256).optional(),
+  cursor: z.string().max(4096).optional(),
+  limit: z.number().int().min(1).max(50).optional(),
+});
+export const semanticInventoryBrowseRequestSchema = z.union([
+  semanticInventoryBrowseRequestBaseSchema.extend({
+    outputId: opaqueIdSchema,
+    fieldPresentation: fieldPresentationRequestSchema,
+  }).strict(),
+  semanticInventoryBrowseRequestBaseSchema.extend({
+    outputId: opaqueIdSchema.optional(),
+    fieldPresentation: z.undefined().optional(),
+  }).strict(),
+]);
+export type SemanticInventoryBrowseRequest = z.infer<
+  typeof semanticInventoryBrowseRequestSchema
+>;
+
+export const semanticInventoryItemIdentitySchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('EXACT_CONCEPT'),
+    conceptId: opaqueIdSchema,
+    bindingId: opaqueIdSchema,
+  }).strict(),
+  z.object({
+    kind: z.literal('SYSTEM_VERSION_CATEGORY'),
+    familyId: opaqueIdSchema,
+    bindingId: opaqueIdSchema,
+  }).strict(),
+]);
+export type SemanticInventoryItemIdentity = z.infer<
+  typeof semanticInventoryItemIdentitySchema
+>;
+
+export const fieldPresentationContextSchema = z.object({
+  project: opaqueIdSchema,
+  authorizationScopeDigest: opaqueIdSchema,
+  snapshotToken: opaqueIdSchema,
+  datasetGeneration: opaqueIdSchema,
+  inventoryBuildId: opaqueIdSchema,
+  coverageBuildId: opaqueIdSchema,
+  explorerId: opaqueIdSchema,
+  outputId: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: opaqueIdSchema,
+  sourceNodeId: opaqueIdSchema,
+  occurrenceId: opaqueIdSchema,
+  route: z.array(constructionRouteStepSchema),
+  stageId: opaqueIdSchema.optional(),
+  presentationRevision: opaqueIdSchema,
+  candidateBatchDigest: opaqueIdSchema,
+}).strict();
+export type FieldPresentationContext = z.infer<typeof fieldPresentationContextSchema>;
+
+const fieldPresentationKeepRawSchema = z.object({
+  kind: z.literal('KEEP_RAW'),
+  candidateId: opaqueIdSchema,
+  reason: fieldPresentationReasonSchema,
+}).strict();
+const fieldPresentationGroupUnderSemanticSchema = z.object({
+  kind: z.literal('GROUP_UNDER_SEMANTIC'),
+  candidateId: opaqueIdSchema,
+  coverageId: opaqueIdSchema,
+  replacementIds: z.array(semanticInventoryItemIdentitySchema).min(1).max(100).refine(
+    (replacementIds) => new Set(replacementIds.map((identity) => JSON.stringify(identity))).size === replacementIds.length,
+    'replacementIds must be unique',
+  ),
+  access: z.literal('SOURCE_FIELDS'),
+}).strict();
+export const fieldPresentationDecisionSchema = z.discriminatedUnion('kind', [
+  fieldPresentationKeepRawSchema,
+  fieldPresentationGroupUnderSemanticSchema,
+]);
+export type FieldPresentationDecision = z.infer<typeof fieldPresentationDecisionSchema>;
+
+export const fieldPresentationSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('UNAVAILABLE'),
+    reason: fieldPresentationReasonSchema,
+  }).strict(),
+  z.object({
+    kind: z.literal('READY'),
+    context: fieldPresentationContextSchema,
+    decisions: z.array(fieldPresentationDecisionSchema).min(1).max(50),
+    replacements: z.array(semanticInventoryItemSchema).max(100),
+  }).strict(),
+]);
+export type FieldPresentation = z.infer<typeof fieldPresentationSchema>;
+
+export const semanticInventoryBrowseCoreResponseSchema = z
+  .object({
+    frameId: opaqueIdSchema.optional(),
+    frameSource: frameDefinitionSchema.optional(),
+    contextToken: z.string().min(1),
+    buildId: z.string(),
+    state: z.enum([
+      'unknown',
+      'not_started',
+      'running',
+      'complete',
+      'failed',
+      'invalidated',
+    ]),
+    sourceAvailability: z.enum(['unknown', 'verified', 'unproven']),
+    entries: z.array(semanticInventoryItemSchema).max(50),
+    nextCursor: z.string().min(1).optional(),
+  })
+  .strict();
+export const semanticInventoryBrowseResponseSchema = semanticInventoryBrowseCoreResponseSchema
+  .extend({ fieldPresentation: fieldPresentationSchema.optional() })
+  .strict();
+export type SemanticInventoryBrowseResponse = z.infer<
+  typeof semanticInventoryBrowseResponseSchema
+>;
+
+export const explorerAuthoringCapabilitiesSchema = z
+  .object({
+    apiVersion: z.literal(EXPLORER_AUTHORING_API_VERSION),
+    kind: z.literal('ExplorerAuthoringCapabilities'),
+    operations: z.array(z.string()),
+    previewLimits: z.array(z.number().int().positive()).optional(),
+    features: z
+      .object({
+        emissionFilters: z.boolean(),
+        emissionCharts: z.boolean(),
+        sharedFilters: z.boolean(),
+        fixedFilters: z.boolean(),
+        fileActions: z.boolean(),
+        deleteExplorer: z.boolean(),
+      })
+      .strict(),
+  })
+  .strict();
+export type ExplorerAuthoringCapabilities = z.infer<
+  typeof explorerAuthoringCapabilitiesSchema
+>;
+
+export const explorerAuthoringErrorSchema = z
+  .object({
+    code: opaqueIdSchema,
+    message: z.string(),
+    diagnostics: z.array(explorerAuthoringDiagnosticSchema).optional(),
+    requestId: z.string().optional(),
+    details: unknownRecordSchema.optional(),
+  })
+  .strict();
+export type ExplorerAuthoringError = z.infer<
+  typeof explorerAuthoringErrorSchema
+>;
+
+const explorerErrorDiagnosticWireSchema = z.object({
+  severity: z.string().min(1),
+  stage: z.string().min(1),
+  code: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
+  jsonPath: z.string().optional(),
+  message: z.string().min(1),
+  details: unknownRecordSchema.optional(),
+  requestId: z.string().optional(),
+}).strict();
+
+export const explorerErrorResponseSchema = z.object({
+  error: z.object({
+    code: z.string().min(1),
+    message: z.string().min(1),
+    requestId: z.string().optional(),
+    diagnostic: explorerErrorDiagnosticWireSchema.optional(),
+    details: unknownRecordSchema.optional(),
+  }).passthrough(),
+  diagnostics: z.array(explorerErrorDiagnosticWireSchema).optional(),
+}).strict();
+export type ExplorerErrorResponse = z.infer<typeof explorerErrorResponseSchema>;
+
+export const assertExplorerBuilderState = (value: unknown) =>
+  explorerBuilderStateSchema.parse(value);
+export const assertExplorerBuilderCompileResult = (value: unknown) =>
+  explorerBuilderCompileResultSchema.parse(value);
+export const assertExplorerBuilderPreviewResult = (value: unknown) =>
+  explorerBuilderPreviewResultSchema.parse(value);
+export const assertExplorerBuilderPublishResult = (value: unknown) =>
+  explorerBuilderPublishResultSchema.parse(value);
+
+export interface PublicationMetadata {
+  readonly state: string;
+  readonly generation?: string;
+  readonly executionId?: string;
+  readonly revisionId?: string;
+  readonly updatedAt?: string;
+}
+export interface ExplorerRuntimeColumnV1 {
+  readonly column: string;
+  readonly label: string;
+  readonly logicalType: string;
+  readonly resultUnit?: ResultUnit;
+  readonly visible: boolean;
+  readonly order: number;
+  readonly repeated?: boolean;
+  readonly filterable: boolean;
+  readonly sortable?: boolean;
+  readonly chartable: boolean;
+  readonly aggregatable?: boolean;
+}
+export type ExplorerRuntimeColumnsV1 = ReadonlyArray<ExplorerRuntimeColumnV1>;
+export interface ExplorerRuntimeBindingV1 {
+  readonly column: string;
+  readonly outputId?: string;
+  readonly label?: string;
+  readonly type?: string;
+  readonly title?: string;
+}
+export interface ExplorerRuntimeOutputV1 {
+  readonly outputId: string;
+  readonly name: string;
+  readonly title: string;
+  readonly rowLabel: string;
+  readonly selector: DataframeSelector;
+  readonly columns: ExplorerRuntimeColumnsV1;
+  readonly table: {
+    readonly columns: ReadonlyArray<
+      ExplorerRuntimeBindingV1 & { readonly visible: boolean } & {
+        readonly pinned?: boolean;
+        readonly cellRenderer?: 'fileActions';
+      }
+    >;
+  };
+  readonly filters: ReadonlyArray<ExplorerRuntimeBindingV1>;
+  readonly charts: ReadonlyArray<ExplorerRuntimeBindingV1>;
+  readonly fixedFilters: Readonly<Record<string, ReadonlyArray<string>>>;
+  readonly actions?: ReadonlyArray<{
+    readonly type: string;
+    readonly title: string;
+    readonly fileName?: string;
+    readonly output?: string;
+    readonly columns?: ReadonlyArray<string>;
+    readonly exportHeaders?: Readonly<Record<string, string>>;
+  }>;
+  readonly query?: Readonly<Record<string, unknown>>;
+  readonly materialization?: Readonly<Record<string, unknown>>;
+}
+export interface ExplorerRuntimeV1 {
+
+  readonly responseIdentity?: string;
+  readonly status?: string;
+  readonly generation?: string;
+  readonly publication?: PublicationMetadata;
+  readonly schema?: { readonly digest?: string; readonly version?: string };
+  readonly outputs: ReadonlyArray<ExplorerRuntimeOutputV1>;
+  readonly sharedFilters: Readonly<
+    Record<string, ReadonlyArray<ExplorerRuntimeBindingV1>>
+  >;
+  readonly fileActions?: {
+    readonly extensions?: Readonly<Record<string, ReadonlyArray<string>>>;
+    readonly actions?: Readonly<Record<string, string>>;
+  };
+  readonly qualityReports?: ReadonlyArray<ExplorerQualityReportV1>;
+  readonly diagnostics: ReadonlyArray<ExplorerRuntimeDiagnostic>;
+}
+
+export interface ExplorerRuntimeDiagnostic {
+  readonly severity: string;
+  readonly stage?: string;
+  readonly code: string;
+  readonly fieldPath?: string | null;
+  readonly message: string;
+  readonly details?: Readonly<Record<string, unknown>>;
+  readonly retryable?: boolean;
+  readonly requestId?: string;
+}
+
+export interface ExplorerColumnQualityV1 {
+  readonly column: string;
+  readonly present: number;
+  readonly missing: number;
+  readonly recordedNull: number;
+  readonly emptyArray: number;
+  readonly relatedSource?: RelatedSourcePopulationV1;
+}
+
+export interface RelatedSourcePopulationV1 {
+  readonly basis: 'ALL_MATCHES_NO_FILTER_OR_WINDOW';
+  readonly outputRows: number;
+  readonly nonemptyListRows: number;
+  readonly emptyListRows: number;
+  readonly totalListEntries: number;
+  readonly rowsWithMultipleEntries: number;
+  readonly nullOrAbsentFieldValueEntries: number;
+  readonly unknownRows: number;
+}
+
+export interface ExplorerQualityReportV1 {
+  readonly id: string;
+  readonly receiptId: string;
+  readonly project: string;
+  readonly datasetGeneration: string;
+  readonly scopeDigest: string;
+  readonly output: string;
+  readonly policyVersion: string;
+  readonly completeness: 'COMPLETE' | 'INCOMPLETE';
+  readonly verdict: 'PASSED' | 'FAILED';
+  readonly rowCount: number;
+  readonly columns: ReadonlyArray<ExplorerColumnQualityV1>;
+  readonly keyIntegrity: {
+    readonly distinct: number;
+    readonly missing: number;
+    readonly duplicate: number;
+  };
+  readonly limits: {
+    readonly maxRows: number;
+    readonly maxDistinctKeys: number;
+  };
+  readonly issues: {
+    readonly ambiguous: number;
+    readonly invalidType: number;
+    readonly incompatibleUnit: number;
+  };
+  readonly omissions?: ReadonlyArray<{ readonly code: string; readonly detail: string }>;
+}
+
+export type ExplorerStateAuthoringBundleV1 = Readonly<Record<string, unknown>>;
+export interface ExplorerStateEmittedColumnV1 {
+  readonly emissionId: string;
+  readonly outputId: string;
+  readonly nodeId?: string;
+  readonly selectionId?: string;
+  readonly candidateId?: string;
+  readonly occurrenceId?: string;
+  readonly publicColumn: string;
+  readonly logicalType: string;
+  readonly filterable: boolean;
+  readonly chartable: boolean;
+}
+export interface ExplorerStatePhysicalColumnV1 {
+  readonly name: string;
+  readonly semanticPath?: string;
+  readonly clickhouseType?: string;
+  readonly logicalType?: string;
+  readonly nullable?: boolean;
+  readonly repeated?: boolean;
+  readonly provenance?: string;
+  readonly loomOwned?: boolean;
+}
+export interface ExplorerStateDatasetOutputV1 {
+  readonly name: string;
+  readonly state: string;
+  readonly queryable: boolean;
+  readonly fingerprint?: string;
+  readonly selector?: DataframeSelector;
+  readonly columns?: ReadonlyArray<ExplorerStatePhysicalColumnV1>;
+}
+export interface ExplorerStateMaterializationV1 {
+  readonly outputId: string;
+  readonly output: string;
+  readonly materializationId: string;
+  readonly fingerprint?: string;
+  readonly selector?: DataframeSelector;
+  readonly columns: ReadonlyArray<ExplorerStatePhysicalColumnV1>;
+}
+
+export interface ExplorerStateV1 {
+  readonly apiVersion: 'loom.calypr.org/explorer-state/v1';
+  readonly kind: 'ExplorerState';
+  readonly project: string;
+  readonly explorerId: string;
+  readonly title: string;
+  readonly management:
+    | 'repository'
+    | 'interactive'
+    | 'REPOSITORY'
+    | 'INTERACTIVE';
+  readonly draft: {
+    readonly bundle?: ExplorerStateAuthoringBundleV1;
+    readonly receiptId?: string;
+    readonly version: number;
+    readonly digest: string;
+    readonly intentDigest?: string;
+  };
+  readonly active: {
+    readonly bundle?: ExplorerStateAuthoringBundleV1;
+    readonly revisionId?: string;
+    readonly intentDigest?: string;
+    readonly status?: string;
+  };
+  readonly generated: {
+    readonly recipeDigest?: string;
+    readonly sourceGeneration?: string;
+    readonly resolvedSchemaDigest?: string;
+    readonly emittedColumns?: ReadonlyArray<ExplorerStateEmittedColumnV1>;
+    readonly materializations?: ReadonlyArray<ExplorerStateMaterializationV1>;
+    readonly dataset?: {
+      readonly outputs: ReadonlyArray<ExplorerStateDatasetOutputV1>;
+    };
+    readonly publication?: PublicationMetadata;
+    readonly qualityReports?: ReadonlyArray<ExplorerQualityReportV1>;
+    readonly diagnostics?: ReadonlyArray<ExplorerRuntimeDiagnostic>;
+  };
+  readonly activeUrl: string;
+  readonly updatedBy?: string;
+  readonly updatedAt?: string;
+
+  readonly runtime?: ExplorerRuntimeV1 | null;
+}
+
+const legacyExplorerStateKeys = new Set(['draftConfig', 'activeConfig']);
+
+const dataframeSelectorSchema = z
+  .object({
+    recipe: opaqueIdSchema,
+    translationVersion: opaqueIdSchema,
+    output: opaqueIdSchema,
+  })
+  .strict();
+const publicationMetadataSchema = z
+  .object({
+    state: z.string(),
+    generation: z.string().optional(),
+    executionId: z.string().optional(),
+    revisionId: z.string().optional(),
+    updatedAt: z.string().optional(),
+  })
+  .strict();
+const runtimeBindingSchema = z
+  .object({
+    column: opaqueIdSchema,
+    outputId: z.string().optional(),
+    label: z.string().optional(),
+    type: z.string().optional(),
+    title: z.string().optional(),
+  })
+  .strict();
+const runtimeColumnSchema = z
+  .object({
+    column: opaqueIdSchema,
+    label: z.string(),
+    logicalType: z.string(),
+    resultUnit: resultUnitSchema.optional(),
+    visible: z.boolean(),
+    order: z.number().int().nonnegative(),
+    repeated: z.boolean().optional(),
+    filterable: z.boolean(),
+    sortable: z.boolean().optional(),
+    chartable: z.boolean(),
+    aggregatable: z.boolean().optional(),
+  })
+  .strict();
+const runtimeTableColumnSchema = z
+  .object({
+    column: opaqueIdSchema,
+    visible: z.boolean(),
+    pinned: z.boolean().optional(),
+    cellRenderer: z.literal('fileActions').optional(),
+  })
+  .passthrough();
+const runtimeActionSchema = z
+  .object({
+    type: opaqueIdSchema,
+    title: z.string(),
+    fileName: z.string().optional(),
+    output: z.string().optional(),
+    columns: z.array(z.string()).optional(),
+    exportHeaders: z.record(z.string(), z.string()).optional(),
+  })
+  .strict();
+const runtimeOutputSchema = z
+  .object({
+    outputId: opaqueIdSchema,
+    name: z.string(),
+    title: z.string(),
+    rowLabel: z.string(),
+    selector: dataframeSelectorSchema,
+    columns: z.array(runtimeColumnSchema),
+    table: z.object({ columns: z.array(runtimeTableColumnSchema) }).strict(),
+    filters: z.array(runtimeBindingSchema),
+    charts: z.array(runtimeBindingSchema),
+    fixedFilters: z.record(z.string(), z.array(z.string())),
+    actions: z.array(runtimeActionSchema).optional(),
+    query: unknownRecordSchema.optional(),
+    materialization: unknownRecordSchema.optional(),
+  })
+  .strict();
+const runtimeDiagnosticSchema = z
+  .object({
+    severity: z.string(),
+    stage: z.string().optional(),
+    code: opaqueIdSchema,
+    fieldPath: z.string().nullable().optional(),
+    message: z.string(),
+    details: unknownRecordSchema.optional(),
+    retryable: z.boolean().optional(),
+    requestId: z.string().optional(),
+  })
+  .strict();
+const qualityReportSchema = z
+  .object({
+    id: opaqueIdSchema,
+    receiptId: opaqueIdSchema,
+    project: z.string(),
+    datasetGeneration: z.string(),
+    scopeDigest: z.string(),
+    output: opaqueIdSchema,
+    policyVersion: z.string(),
+    completeness: z.enum(['COMPLETE', 'INCOMPLETE']),
+    verdict: z.enum(['PASSED', 'FAILED']),
+    rowCount: z.number().int().nonnegative(),
+    columns: z.array(z.object({
+      column: opaqueIdSchema,
+      present: z.number().int().nonnegative(),
+      missing: z.number().int().nonnegative(),
+      recordedNull: z.number().int().nonnegative(),
+      emptyArray: z.number().int().nonnegative(),
+      relatedSource: z.object({
+        basis: z.literal('ALL_MATCHES_NO_FILTER_OR_WINDOW'),
+        outputRows: z.number().int().nonnegative(),
+        nonemptyListRows: z.number().int().nonnegative(),
+        emptyListRows: z.number().int().nonnegative(),
+        totalListEntries: z.number().int().nonnegative(),
+        rowsWithMultipleEntries: z.number().int().nonnegative(),
+        nullOrAbsentFieldValueEntries: z.number().int().nonnegative(),
+        unknownRows: z.number().int().nonnegative(),
+      }).strict().optional(),
+    }).strict()),
+    keyIntegrity: z.object({
+      distinct: z.number().int().nonnegative(),
+      missing: z.number().int().nonnegative(),
+      duplicate: z.number().int().nonnegative(),
+    }).strict(),
+    limits: z.object({
+      maxRows: z.number().int().nonnegative(),
+      maxDistinctKeys: z.number().int().nonnegative(),
+    }).strict(),
+    issues: z.object({
+      ambiguous: z.number().int().nonnegative(),
+      invalidType: z.number().int().nonnegative(),
+      incompatibleUnit: z.number().int().nonnegative(),
+    }).strict(),
+    omissions: z.array(z.object({ code: z.string(), detail: z.string() }).strict()).optional(),
+  })
+  .strict();
+const runtimeSchema = z
+  .object({
+    status: z.string().optional(),
+    generation: z.string().optional(),
+    publication: publicationMetadataSchema.optional(),
+    schema: z.object({ digest: z.string().optional(), version: z.string().optional() }).strict().optional(),
+    outputs: z.array(runtimeOutputSchema),
+    sharedFilters: z.record(z.string(), z.array(runtimeBindingSchema)),
+    fileActions: z.object({
+      extensions: z.record(z.string(), z.array(z.string())).optional(),
+      actions: z.record(z.string(), z.string()).optional(),
+    }).strict().optional(),
+    qualityReports: z.array(qualityReportSchema).optional(),
+    diagnostics: z.array(runtimeDiagnosticSchema),
+  })
+  .strict();
+const physicalColumnSchema = z
+  .object({
+    name: opaqueIdSchema,
+    semanticPath: z.string().optional(),
+    clickhouseType: z.string().optional(),
+    logicalType: z.string().optional(),
+    nullable: z.boolean().optional(),
+    repeated: z.boolean().optional(),
+    provenance: z.string().optional(),
+    loomOwned: z.boolean().optional(),
+  })
+  .passthrough();
+const selectorMetadataSchema = dataframeSelectorSchema.optional();
+const datasetOutputSchema = z
+  .object({
+    name: opaqueIdSchema,
+    state: z.string(),
+    queryable: z.boolean(),
+    fingerprint: z.string().optional(),
+    selector: selectorMetadataSchema,
+    columns: z.array(physicalColumnSchema).optional(),
+  })
+  .strict();
+const emittedColumnSchema = z
+  .object({
+    emissionId: opaqueIdSchema,
+    outputId: opaqueIdSchema,
+    nodeId: z.string().optional(),
+    selectionId: z.string().optional(),
+    candidateId: z.string().optional(),
+    occurrenceId: z.string().optional(),
+    publicColumn: opaqueIdSchema,
+    logicalType: z.string(),
+    filterable: z.boolean(),
+    chartable: z.boolean(),
+  })
+  .passthrough();
+const materializationSchema = z
+  .object({
+    outputId: opaqueIdSchema,
+    output: opaqueIdSchema,
+    materializationId: opaqueIdSchema,
+    fingerprint: z.string().optional(),
+    selector: selectorMetadataSchema,
+    columns: z.array(physicalColumnSchema),
+  })
+  .passthrough();
+const generatedSchema = z
+  .object({
+    recipeDigest: z.string().optional(),
+    sourceGeneration: z.string().optional(),
+    resolvedSchemaDigest: z.string().optional(),
+    emittedColumns: z.array(emittedColumnSchema).optional(),
+    materializations: z.array(materializationSchema).optional(),
+    dataset: z.object({
+      generation: z.string().optional(),
+      schemaDigest: z.string().optional(),
+      outputs: z.array(datasetOutputSchema).nullable().transform((value) => value ?? []),
+    }).strict().optional(),
+    publication: publicationMetadataSchema.optional(),
+    qualityReports: z.array(qualityReportSchema).optional(),
+    diagnostics: z.array(runtimeDiagnosticSchema).optional(),
+  })
+  .strict();
+const bundleSchema = unknownRecordSchema;
+const explorerStateV1Schema = z
+  .object({
+    apiVersion: z.literal('loom.calypr.org/explorer-state/v1'),
+    kind: z.literal('ExplorerState'),
+    project: opaqueIdSchema,
+    explorerId: opaqueIdSchema,
+    title: z.string(),
+    management: z.enum(['repository', 'interactive', 'REPOSITORY', 'INTERACTIVE']),
+    active: z.object({
+      bundle: bundleSchema.optional(),
+      revisionId: z.string().optional(),
+      intentDigest: z.string().optional(),
+      status: z.string().optional(),
+    }).strict(),
+    generated: generatedSchema,
+    activeUrl: z.string(),
+    updatedBy: z.string().optional(),
+    updatedAt: z.string().optional(),
+    runtime: runtimeSchema.nullable().optional(),
+    draft: z.object({
+      bundle: bundleSchema.optional(),
+      receiptId: z.string().optional(),
+      version: z.number().int().nonnegative(),
+      digest: z.string(),
+      intentDigest: z.string().optional(),
+    }).strict(),
+  })
+  .strict();
+
+export const isExplorerStateV1 = (value: unknown): value is ExplorerStateV1 =>
+  explorerStateV1Schema.safeParse(normalizeExplorerStateV1(value)).success;
+
+const normalizeExplorerStateV1 = (value: unknown): unknown => {
+  if (!isRecord(value) || !isRecord(value.runtime)) return value;
+  if (value.runtime.diagnostics !== null) return value;
+
+  return {
+    ...value,
+    runtime: {
+      ...value.runtime,
+      diagnostics: [],
+    },
+  };
+};
+
+export const assertExplorerStateV1 = (value: unknown): ExplorerStateV1 => {
+  const normalized = normalizeExplorerStateV1(value);
+  const parsed = explorerStateV1Schema.safeParse(normalized);
+  if (parsed.success) return parsed.data;
+  const hasLegacyConfiguration =
+    isRecord(value) &&
+    Object.keys(value).some((key) => legacyExplorerStateKeys.has(key));
+  if (hasLegacyConfiguration)
+    throw new Error(
+      'Loom returned an invalid ExplorerStateV1 response; legacy Explorer configuration fields are not supported.',
+    );
+  throw new Error('Loom returned an invalid ExplorerStateV1 response.');
+};

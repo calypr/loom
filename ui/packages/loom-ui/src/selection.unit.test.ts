@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createLoomClient } from './api';
-import { selectionRevisionSchema } from './selection';
+import { createLoomClient } from './client/api';
+import { selectionRevisionSchema } from './contracts/selection';
 
 const ref = { project: 'org/project', generation: 'g1', resourceType: 'Specimen', id: 'specimen-1' };
 const revision = {

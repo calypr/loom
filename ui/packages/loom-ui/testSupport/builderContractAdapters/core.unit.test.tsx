@@ -2,7 +2,7 @@
 import React from 'react';
 import { render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createLoomClient, type LoomClient } from '../../src/api';
+import { createLoomClient, type LoomClient } from '../../src/client/api';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
@@ -11,9 +11,9 @@ import type {
   ConstructionStageDescriptor,
   ExplorerBuilderState,
   ExplorerBuilderWorkspace,
-} from '../../src/types';
-import { constructionCapabilitiesResponseSchema, constructionProposalRequestSchema } from '../../src/types';
-import BuilderWorkspace from '../../src/features/ExplorerBuilder/BuilderWorkspace';
+} from '../../src/contracts/types';
+import { constructionCapabilitiesResponseSchema, constructionProposalRequestSchema } from '../../src/contracts/types';
+import BuilderWorkspace from '../../src/features/ExplorerBuilder/ui/workspace/BuilderWorkspace';
 import { coreAdapters } from './core';
 
 type CapturedRequest = Readonly<{ url: string; method: string; body: string | null }>;
@@ -29,40 +29,52 @@ const fixture = vi.hoisted(() => ({
 
 let client: LoomClient;
 
+vi.mock('../../src/features/ExplorerBuilder/session/useBuilderLoad', () => ({
+  useGetExplorerBuilderStateV2Query: () => ({ data: fixture.state, isLoading: false, refetch: vi.fn() }),
+}));
+
+vi.mock('../../src/data/builderQueries', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../src/data/builderQueries')>(),
+  useResolveConfiguredColumnContextsQuery: () => ({ data: undefined, error: undefined, isLoading: false, isFetching: false }),
+  useResolvePopulationSelectionQuery: () => ({ data: undefined, error: undefined, isLoading: false, isFetching: false, refetch: vi.fn() }),
+}));
+
 vi.mock('../../src/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/react')>();
   const mutation = () => [vi.fn(), { isLoading: false }];
   return {
     ...actual,
     useLoomClient: () => client,
-    useApplyExplorerBuilderCommandsV2Mutation: mutation,
-    useAssessExplorerRowChangeMutation: mutation,
-    useCreateExplorerAuthoringMutation: mutation,
-    useDeleteExplorerAuthoringMutation: mutation,
+    useBuilderMutation: (method: string) => {
+      const overrides: Readonly<Record<string, () => unknown>> = {
+        applyCommands: mutation,
+        assessRowChange: mutation,
+        createExplorer: mutation,
+        deleteExplorer: mutation,
+        suggestions: () => [fixture.getSuggestions, { isLoading: false }],
+        preview: mutation,
+        publish: mutation,
+        reconcile: mutation,
+      };
+      const override = overrides[method];
+      return override ? override() : actual.useBuilderMutation(method as Parameters<typeof actual.useBuilderMutation>[0]);
+    },
     useGetExplorerAuthoringCapabilityV2Query: () => ({ data: { features: {} } }),
     useGetExplorerAuthoringExplorersQuery: () => ({ data: [{ explorerId: 'builder', title: 'Core driver probe' }], isLoading: false, refetch: vi.fn() }),
-    useGetExplorerBuilderStateV2Query: () => ({ data: fixture.state, isLoading: false, refetch: vi.fn() }),
-    useGetExplorerCandidateSuggestionsV2Mutation: () => [fixture.getSuggestions, { isLoading: false }],
-    usePreviewExplorerAuthoringV2Mutation: mutation,
-    usePublishExplorerAuthoringV2Mutation: mutation,
-    useReconcileExplorerBuilderV2Mutation: mutation,
-    useResolveConfiguredColumnContextsQuery: () => ({ data: undefined, error: undefined, isLoading: false, isFetching: false }),
-    useResolvePopulationSelectionQuery: () => ({ data: undefined, error: undefined, isLoading: false, isFetching: false, refetch: vi.fn() }),
   };
 });
 
-vi.mock('../../src/features/ExplorerBuilder/useAutomaticPreview', () => ({ useAutomaticPreview: () => ({ error: undefined, isLoading: false }) }));
+vi.mock('../../src/features/ExplorerBuilder/session/useAutomaticPreviewResource', () => ({ useAutomaticPreview: () => ({ error: undefined, isLoading: false }) }));
 vi.mock('../../src/features/ExplorerBuilder/hooks/useDirtyBeforeUnload', () => ({ useDirtyBeforeUnload: () => undefined }));
 vi.mock('../../src/features/ExplorerBuilder/hooks/usePortalHost', () => ({ usePortalHost: () => null }));
-vi.mock('../../src/features/ExplorerBuilder/components/DatasetReviewPanel', () => ({ DatasetReviewPanel: () => null }));
-vi.mock('../../src/features/ExplorerBuilder/components/PreviewTable', async (importOriginal) => ({
-  ...await importOriginal<typeof import('../../src/features/ExplorerBuilder/components/PreviewTable')>(),
+vi.mock('../../src/features/ExplorerBuilder/ui/review/DatasetReviewPanel', () => ({ DatasetReviewPanel: () => null }));
+vi.mock('../../src/features/ExplorerBuilder/ui/preview/PreviewTable', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../src/features/ExplorerBuilder/ui/preview/PreviewTable')>(),
   PreviewTable: () => null,
 }));
-vi.mock('../../src/features/ExplorerBuilder/components/DataframeContractPanel', () => ({ DataframeContractPanel: () => null }));
-vi.mock('../../src/features/ExplorerBuilder/components/PopulationPanel', () => ({ PopulationPanel: () => null }));
-vi.mock('../../src/features/ExplorerBuilder/components/RowChangePreviewPanel', () => ({ RowChangePreviewPanel: () => null }));
-vi.mock('../../src/features/ExplorerBuilder/components/InterpretationPanel', () => ({ InterpretationPanel: () => null }));
+vi.mock('../../src/features/ExplorerBuilder/ui/review/DataframeContractPanel', () => ({ DataframeContractPanel: () => null }));
+vi.mock('../../src/features/ExplorerBuilder/ui/population/PopulationPanel', () => ({ PopulationPanel: () => null }));
+vi.mock('../../src/features/ExplorerBuilder/ui/review/RowChangePreviewPanel', () => ({ RowChangePreviewPanel: () => null }));
 
 const apiVersion = 'loom.calypr.org/explorer-authoring/v2' as const;
 const outputId = 'patients';

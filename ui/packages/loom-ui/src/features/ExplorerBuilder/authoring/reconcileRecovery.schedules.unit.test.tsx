@@ -1,13 +1,14 @@
+import { useBuilderToolbarSession } from '../session/BuilderToolbarSession';
 // @vitest-environment jsdom
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoomProvider } from '../../../react';
-import { createLoomClient } from '../../../api';
-import BuilderWorkspace from '../BuilderWorkspace';
-import { reconcileAcceptance } from './reconcileAcceptance';
-import { reconcileRecoveryAction } from './reconcileRecovery';
-import { EXPLORER_AUTHORING_API_VERSION, explorerBuilderCompileResultSchema, type ExplorerBuilderCompileResult } from '../../../types';
+import { createLoomClient } from '../../../client/api';
+import BuilderWorkspace from '../ui/workspace/BuilderWorkspace';
+import { reconcileAcceptance } from '../model/reconcileAcceptance';
+import { reconcileRecoveryAction } from '../model/reconcileRecovery';
+import { EXPLORER_AUTHORING_API_VERSION, explorerBuilderCompileResultSchema, type ExplorerBuilderCompileResult } from '../../../contracts/types';
 import { reconcile_recovery as cases, reconcile_callback_schedules as callbackSchedules } from '../../../../testdata/schedules/reconcile_recovery';
 
 const harness = vi.hoisted(() => ({
@@ -19,31 +20,48 @@ const harness = vi.hoisted(() => ({
   client: {} as Record<string, unknown>,
 }));
 
+vi.mock('../session/useBuilderLoad', () => ({
+  useGetExplorerBuilderStateV2Query: vi.fn(() => ({ data: harness.state, isLoading: false, refetch: harness.refetch })),
+}));
+
+vi.mock('../../../data/builderQueries', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../data/builderQueries')>(),
+  useResolvePopulationSelectionQuery: () => ({ data: undefined, isLoading: false, isFetching: false, refetch: vi.fn() }),
+  useResolveConfiguredColumnContextsQuery: () => ({ data: undefined, isLoading: false, isFetching: false, refetch: vi.fn() }),
+}));
+
 vi.mock('../../../react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../react')>();
   return {
     ...actual,
     useLoomClient: () => harness.client,
     useGetExplorerAuthoringExplorersQuery: () => ({ data: [{ explorerId: 'patients', title: 'Patients' }], isLoading: false, refetch: vi.fn() }),
-    useResolvePopulationSelectionQuery: () => ({ data: undefined, isLoading: false, isFetching: false, refetch: vi.fn() }),
-    useGetExplorerBuilderStateV2Query: vi.fn(() => ({ data: harness.state, isLoading: false, refetch: harness.refetch })),
     useGetExplorerAuthoringCapabilityV2Query: () => ({ data: { features: { deleteExplorer: false } } }),
-    useReconcileExplorerBuilderV2Mutation: () => [harness.reconcile, { isLoading: false }],
-    usePreviewExplorerAuthoringV2Mutation: () => [harness.preview, { isLoading: false }],
-    usePublishExplorerAuthoringV2Mutation: vi.fn(() => [harness.publish, { isLoading: false }]),
-    useApplyExplorerBuilderCommandsV2Mutation: () => [vi.fn(), { isLoading: false }],
-    useAssessExplorerRowChangeMutation: () => [vi.fn(), { isLoading: false }],
-    useCreateExplorerAuthoringMutation: () => [vi.fn(), { isLoading: false }],
-    useDeleteExplorerAuthoringMutation: () => [vi.fn(), { isLoading: false }],
-    useGetExplorerCandidateSuggestionsV2Mutation: () => [vi.fn(), { isLoading: false }],
-    usePopulationMappingMutation: () => [vi.fn(), { isLoading: false }],
-    useResolveConfiguredColumnContextsQuery: () => ({ data: undefined, isLoading: false, isFetching: false, refetch: vi.fn() }),
+    useBuilderMutation: (method: string) => {
+      const overrides: Readonly<Record<string, () => unknown>> = {
+        reconcile: () => [harness.reconcile, { isLoading: false }],
+        preview: () => [harness.preview, { isLoading: false }],
+        publish: vi.fn(() => [harness.publish, { isLoading: false }]),
+        applyCommands: () => [vi.fn(), { isLoading: false }],
+        assessRowChange: () => [vi.fn(), { isLoading: false }],
+        createExplorer: () => [vi.fn(), { isLoading: false }],
+        deleteExplorer: () => [vi.fn(), { isLoading: false }],
+        suggestions: () => [vi.fn(), { isLoading: false }],
+        populationMapping: () => [vi.fn(), { isLoading: false }],
+      };
+      const override = overrides[method];
+      return override ? override() : actual.useBuilderMutation(method as Parameters<typeof actual.useBuilderMutation>[0]);
+    },
   };
 });
 
-vi.mock('../components/BuilderToolbar', () => ({
-  BuilderToolbar: ({ onPublish, onReview, publishDisabled }: { readonly onPublish: () => void; readonly onReview: () => void; readonly publishDisabled: boolean }) =>
-    <><button type="button" onClick={onReview}>Review dataset</button><button type="button" disabled={publishDisabled} onClick={onPublish}>Publish</button></>,
+vi.mock('../ui/toolbar/BuilderToolbar', () => ({
+  BuilderToolbar: () => {
+    const props = useBuilderToolbarSession(session => session);
+    const renderMockToolbar = ({ onPublish, onReview, publishDisabled }: { readonly onPublish: () => void; readonly onReview: () => void; readonly publishDisabled: boolean }) =>
+    <><button type="button" onClick={onReview}>Review dataset</button><button type="button" disabled={publishDisabled} onClick={onPublish}>Publish</button></>;
+    return renderMockToolbar(props as unknown as Parameters<typeof renderMockToolbar>[0]);
+  },
 }));
 
 const column = {

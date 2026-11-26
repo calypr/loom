@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createLoomClient, getProjectViewBuilderState, projectViewBuilderPath } from './api';
-import type { ProjectViewBuilderState } from './projectViewBuilder';
+import { createLoomClient, getProjectViewBuilderState, projectViewBuilderPath } from './client/api';
+import type { ProjectViewBuilderState } from './contracts/projectViewBuilder';
 
 const state: ProjectViewBuilderState = {
   settings: { project: 'HTAN_INT/BForePC', version: 7, defaultConfigId: 'metadata', defaultFrameId: 'clinical_metadata/Specimen', catalogs: { clinical_metadata: 'catalog-r3' } },

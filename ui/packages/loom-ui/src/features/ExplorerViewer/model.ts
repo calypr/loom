@@ -1,8 +1,35 @@
+export const isMissingValue = (value: string): boolean => value === 'No value (null or missing)';
+
+import type { LoomFacetResult } from '../../client/api';
+import { displayValue } from '../../display/valueDisplay';
+
+const textForFacet = (value: unknown): string => displayValue(value);
+
+export const facetValues = (
+  facet: LoomFacetResult | undefined,
+  column: string,
+): Array<{ readonly value: string; readonly count?: string }> => {
+  if (!facet) return [];
+  const values = new Map<string, number | undefined>();
+  for (const row of facet.rows) {
+    const raw = row.key ?? row[column];
+    if (raw === undefined || raw === null) continue;
+    const value = textForFacet(raw);
+    const count = Number(row.doc_count);
+    const previous = values.get(value);
+    values.set(value, Number.isFinite(count) ? (previous ?? 0) + count : previous);
+  }
+  return [...values].map(([value, count]) => ({
+    value,
+    ...(count === undefined ? {} : { count: String(count) }),
+  }));
+};
+
 import type {
   ExplorerRuntimeBindingV1,
   ExplorerRuntimeOutputV1,
   ExplorerRuntimeV1,
-} from '../../types';
+} from '../../contracts/types';
 
 export const PAGE_SIZES = [5, 10, 20, 40, 100] as const;
 export type PageSize = (typeof PAGE_SIZES)[number];
@@ -12,7 +39,7 @@ export const isPageSize = (value: number): value is PageSize => {
   return false;
 };
 
-export type ViewerFilterKind = 'enum' | 'terms';
+type ViewerFilterKind = 'enum' | 'terms';
 
 export interface ViewerSort {
   readonly column: string;
@@ -38,7 +65,7 @@ export const isClearedSelection = (selection: ViewerFieldSelection): boolean =>
 export const isSelectedSelection = (selection: ViewerFieldSelection | undefined): boolean =>
   selection !== undefined && !isClearedSelection(selection);
 
-export interface ViewerOutputState {
+interface ViewerOutputState {
   readonly filterValues: Readonly<Record<string, ViewerFieldSelection>>;
   readonly sort?: ViewerSort;
   readonly pageSize: PageSize;
@@ -50,7 +77,7 @@ export interface ViewerSharedFilterProposal {
   readonly selection: ViewerFieldSelection;
 }
 
-export type ViewerOverlay =
+type ViewerOverlay =
   | { readonly kind: 'none' }
   | { readonly kind: 'rowDetails'; readonly outputId: string; readonly row: Readonly<Record<string, unknown>> }
   | { readonly kind: 'sharedFilterConfirmation'; readonly proposal: ViewerSharedFilterProposal };

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { importedSourceParametersSchema } from './sourceRecipeParameters';
+import { importedSourceParametersSchema } from './contracts/sourceRecipeParameters';
 
 it('accepts exact catalog output overrides and rejects duplicate or invalid identities', () => {
   const valid = importedSourceParametersSchema.safeParse({ catalog: {

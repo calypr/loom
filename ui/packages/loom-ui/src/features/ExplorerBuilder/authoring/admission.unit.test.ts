@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { ExplorerBuilderCommand, ExplorerBuilderDocument } from '../../../types';
-import { admitAuthoringRequest } from './admission';
-import type { DraftTable } from './model';
+import type { ExplorerBuilderCommand, ExplorerBuilderDocument } from '../../../contracts/types';
+import { admitAuthoringRequest } from '../model/admission';
+import type { DraftTable } from '../model/authoring';
 
 const table = (outputId: string, importedRecipe = false): DraftTable => ({
   outputId,

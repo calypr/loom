@@ -1,348 +1,34 @@
-import React, { createContext, useCallback, useContext, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { createLoomClient, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './api';
-import type { SelectionRevision } from './selection';
+import { createLoomClient, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './client/api';
 import type {
-  ApplyExplorerBuilderCommandsArgs,
-  AssessExplorerRowChangeArgs,
   BrowseSemanticInventoryArgs,
-  CellTraceArgs,
-  CreateExplorerArgs,
-  DeleteExplorerArgs,
   ExplorerAuthoringProjectArgs,
   ExplorerAuthoringStateArgs,
-  ExplorerCandidateSuggestionsArgs,
-  PreviewExplorerBuilderArgs,
-  PopulationMappingArgs,
-  PublishExplorerBuilderArgs,
-  ReconcileExplorerBuilderArgs,
-  ResolveConfiguredColumnContextsArgs,
-} from './api';
+} from './client/api';
 
-const LoomClientContext = createContext<LoomClient | null>(null);
+import { useLoomClient } from './data/provider';
+import { useLoomReadCache } from './data/loomReadCache';
+import { useQuery, type QueryResult } from './data/queries';
+export { useBuilderMutation, type BuilderMutationResult } from './data/builderMutations';
 
-export const LoomProvider = ({
-  client,
-  children,
-}: {
-  readonly client: LoomClient;
-  readonly children: React.ReactNode;
-}) => (
-  <LoomClientContext.Provider value={client}>
-    {children}
-  </LoomClientContext.Provider>
-);
-
-export const useLoomClient = (): LoomClient => {
-  const client = useContext(LoomClientContext);
-  if (!client) throw new Error('Loom UI must be rendered inside LoomProvider.');
-  return client;
-};
-
-interface QueryResult<T> {
-  readonly data?: T;
-  readonly error?: unknown;
-  readonly isLoading: boolean;
-  readonly isFetching: boolean;
-  readonly refetch: (options?: QueryRefetchOptions) => Promise<{ readonly data?: T; readonly error?: unknown }>;
-}
-
-export interface QueryRefetchOptions {
-  readonly reload?: boolean;
-}
-
-interface ResourceSnapshot<T> {
-  readonly data?: T;
-  readonly error?: unknown;
-  readonly loading: boolean;
-}
-
-interface Resource<T> {
-  readonly getSnapshot: () => ResourceSnapshot<T>;
-  readonly subscribe: (listener: () => void) => () => void;
-  readonly refresh: (options?: QueryRefetchOptions) => Promise<{ readonly data?: T; readonly error?: unknown }>;
-}
-
-export const resourceFor = <T,>(
-  loader: (signal: AbortSignal, options?: QueryRefetchOptions) => Promise<T>,
-  enabled = true,
-): Resource<T> => {
-  let snapshot: ResourceSnapshot<T> = { loading: enabled };
-  let controller: AbortController | undefined;
-  const listeners = new Set<() => void>();
-  let started = false;
-  let epoch = 0;
-  const notify = () => listeners.forEach((listener) => listener());
-  const refresh = async (options?: QueryRefetchOptions) => {
-    if (!enabled) return {};
-    controller?.abort();
-    const requestController = new AbortController();
-    controller = requestController;
-    const requestEpoch = ++epoch;
-    started = true;
-    snapshot = { ...snapshot, loading: true, error: undefined };
-    notify();
-    try {
-      const data = await loader(requestController.signal, options);
-      if (controller !== requestController || epoch !== requestEpoch) return { data };
-      snapshot = { data, loading: false };
-      notify();
-      return { data };
-    } catch (error) {
-      if (requestController.signal.aborted || controller !== requestController || epoch !== requestEpoch) {
-        return { error };
-      }
-      snapshot = { error, loading: false };
-      notify();
-      return { error };
-    }
-  };
-  const resource: Resource<T> = {
-    getSnapshot: () => snapshot,
-    subscribe: (listener) => {
-      listeners.add(listener);
-      if (!started && enabled) void refresh();
-      return () => {
-        listeners.delete(listener);
-        queueMicrotask(() => {
-          if (listeners.size > 0) return;
-          controller?.abort();
-          controller = undefined;
-          epoch += 1;
-          started = false;
-          snapshot = { loading: enabled };
-        });
-      };
-    },
-    refresh,
-  };
-  return resource;
-};
-
-export const useQuery = <T,>(
-  loader: (signal: AbortSignal, options?: QueryRefetchOptions) => Promise<T>,
-  dependencies: ReadonlyArray<unknown>,
-  enabled = true,
-): QueryResult<T> => {
-  const loaderRef = useRef(loader);
-  loaderRef.current = loader;
-  const resource = useMemo(
-    () => resourceFor((signal, options) => loaderRef.current(signal, options), enabled),
-    [...dependencies, enabled],
-  );
-  const snapshot = useSyncExternalStore(resource.subscribe, resource.getSnapshot, resource.getSnapshot);
-  return {
-    ...snapshot,
-    isLoading: enabled && snapshot.loading,
-    isFetching: enabled && snapshot.loading,
-    refetch: resource.refresh,
-  };
-};
-
-export const useKeyedQuery = <T,>(
-  key: string | undefined,
-  loader: (signal: AbortSignal, options?: QueryRefetchOptions) => Promise<T>,
-  enabled = true,
-): QueryResult<T> => useQuery(loader, [key], Boolean(key) && enabled);
-
-interface MutationState {
-  readonly isLoading: boolean;
-}
-
-type Trigger<TArgs, TResult> = (args: TArgs) => {
-  readonly unwrap: () => Promise<TResult>;
-  readonly abort: () => void;
-};
-
-const useMutation = <TArgs, TResult>(
-  operation: (args: TArgs, signal: AbortSignal) => Promise<TResult>,
-): [Trigger<TArgs, TResult>, MutationState] => {
-  const [pendingRequests, setPendingRequests] = useState(0);
-  const operationRef = useRef(operation);
-  operationRef.current = operation;
-  const trigger = useCallback<Trigger<TArgs, TResult>>((args) => {
-    const controller = new AbortController();
-    const promise = operationRef.current(args, controller.signal);
-    setPendingRequests((count) => count + 1);
-    const settle = () => setPendingRequests((count) => count - 1);
-    void promise.then(settle, settle);
-    return { unwrap: () => promise, abort: () => controller.abort() };
-  }, []);
-  return [trigger, { isLoading: pendingRequests > 0 }];
-};
+export { LoomProvider, useLoomClient } from './data/provider';
+export { useQuery } from './data/queries';
 
 export const useGetExplorerAuthoringExplorersQuery = (args: ExplorerAuthoringProjectArgs): QueryResult<Awaited<ReturnType<LoomClient['listExplorers']>>> => {
   const client = useLoomClient();
-  return useQuery((signal) => client.listExplorers(args, signal), [client, args.project]);
-};
-
-export const useGetExplorerBuilderStateV2Query = (args: ExplorerAuthoringStateArgs): QueryResult<Awaited<ReturnType<LoomClient['getBuilder']>>> => {
-  const client = useLoomClient();
-  return useQuery((signal, options) => client.getBuilder(args, { signal, reload: options?.reload }), [client, args.project, args.explorerId, args.authResourcePath], Boolean(args.explorerId));
-};
-
-export const useResolveConfiguredColumnContextsQuery = (
-  args: ResolveConfiguredColumnContextsArgs | undefined,
-  key: string,
-): QueryResult<Awaited<ReturnType<LoomClient['resolveConfiguredColumnContexts']>>> => {
-  const client = useLoomClient();
-  return useQuery(
-    (signal) => {
-      if (!args) throw new Error('Configured column context query started without a saved draft identity.');
-      const requestId = `configured-column-context-${window.crypto.randomUUID()}`;
-      return client.resolveConfiguredColumnContexts({ ...args, requestId }, signal);
-    },
-    [
-      client,
-      key,
-      args?.project,
-      args?.explorerId,
-      args?.authResourcePath,
-      args?.snapshotToken,
-      args?.expectedDraftVersion,
-      args?.expectedDraftDigest,
-    ],
-    args !== undefined,
-  );
-};
-
-export interface ResolvePopulationSelectionQueryArgs {
-  readonly project: string;
-  readonly explorerId: string;
-  readonly authResourcePath?: string;
-  readonly snapshotToken: string;
-  readonly generation: string;
-  readonly outputId: string;
-  readonly resourceType: string;
-  readonly attachedSelectionId?: string;
-  readonly cohortRevisionId?: string;
-}
-
-export const useResolvePopulationSelectionQuery = (
-  args: ResolvePopulationSelectionQueryArgs | undefined,
-  key: string,
-): QueryResult<SelectionRevision> => {
-  const client = useLoomClient();
-  return useQuery(
-    async (signal) => {
-      if (!args) throw new Error('Population selection query started without a table identity.');
-      let selectionRevisionId = args.attachedSelectionId;
-      if (!selectionRevisionId) {
-        if (!args.cohortRevisionId) {
-          throw new Error('Population selection query started without a saved selection.');
-        }
-        const choices = await client.listRowDefinitionChoices({
-          project: args.project,
-          explorerId: args.explorerId,
-          authResourcePath: args.authResourcePath,
-          snapshotToken: args.snapshotToken,
-          outputId: args.outputId,
-        }, signal);
-        if (choices.outputId !== args.outputId || choices.snapshotToken !== args.snapshotToken) {
-          throw new Error('Loom returned cohort choices for a different table or catalog snapshot.');
-        }
-        const cohortChoice = choices.explicitGroups.find((candidate) => candidate.revisionId === args.cohortRevisionId);
-        if (!cohortChoice?.sourceSelectionRevisionId) {
-          throw new Error('The saved cohort does not expose its source selection in this authorized catalog snapshot.');
-        }
-        selectionRevisionId = cohortChoice.sourceSelectionRevisionId;
-      }
-      const page = await client.getSelection({
-        project: args.project,
-        explorerId: args.explorerId,
-        authResourcePath: args.authResourcePath,
-        selectionRevision: selectionRevisionId,
-        limit: 1,
-      }, signal);
-      if (page.revision.id !== selectionRevisionId || page.revision.project !== args.project ||
-        page.revision.generation !== args.generation ||
-        (!args.attachedSelectionId && page.revision.resourceType !== args.resourceType)) {
-        throw new Error('The saved cohort source selection does not match this table and catalog snapshot.');
-      }
-      return page.revision;
-    },
-    [
-      client,
-      key,
-      args?.project,
-      args?.explorerId,
-      args?.authResourcePath,
-      args?.snapshotToken,
-      args?.generation,
-      args?.outputId,
-      args?.resourceType,
-      args?.attachedSelectionId,
-      args?.cohortRevisionId,
-    ],
-    args !== undefined,
-  );
+  const cache = useLoomReadCache(client, 'explorers', args);
+  return useQuery((signal) => client.listExplorers(args, signal), [client, args.project, args.authResourcePath], true, cache);
 };
 
 export const useGetExplorerAuthoringCapabilityV2Query = (args: ExplorerAuthoringStateArgs): QueryResult<Awaited<ReturnType<LoomClient['getCapability']>>> => {
   const client = useLoomClient();
-  return useQuery((signal) => client.getCapability(args, signal), [client, args.project, args.explorerId, args.authResourcePath], Boolean(args.explorerId));
-};
-
-export const useApplyExplorerBuilderCommandsV2Mutation = () => {
-  const client = useLoomClient();
-  return useMutation<ApplyExplorerBuilderCommandsArgs, Awaited<ReturnType<LoomClient['applyCommands']>>>((args, signal) => client.applyCommands(args, signal));
-};
-
-export const useAssessExplorerRowChangeMutation = () => {
-  const client = useLoomClient();
-  return useMutation<AssessExplorerRowChangeArgs, Awaited<ReturnType<LoomClient['assessRowChange']>>>((args, signal) => client.assessRowChange(args, signal));
-};
-
-export const useReconcileExplorerBuilderV2Mutation = () => {
-  const client = useLoomClient();
-  return useMutation<ReconcileExplorerBuilderArgs, Awaited<ReturnType<LoomClient['reconcile']>>>((args, signal) => client.reconcile(args, signal));
-};
-
-export const useGetExplorerCandidateSuggestionsV2Mutation = () => {
-  const client = useLoomClient();
-  return useMutation<ExplorerCandidateSuggestionsArgs, Awaited<ReturnType<LoomClient['suggestions']>>>((args, signal) => client.suggestions(args, signal));
-};
-
-export const useBrowseSemanticInventoryV2Mutation = () => {
-  const client = useLoomClient();
-  return useMutation<BrowseSemanticInventoryArgs, Awaited<ReturnType<LoomClient['browseSemanticInventory']>>>((args, signal) => client.browseSemanticInventory(args, signal));
-};
-
-export const usePreviewExplorerAuthoringV2Mutation = () => {
-  const client = useLoomClient();
-  return useMutation<PreviewExplorerBuilderArgs, Awaited<ReturnType<LoomClient['preview']>>>((args, signal) => client.preview(args, signal));
-};
-
-export const usePopulationMappingMutation = () => {
-  const client = useContext(LoomClientContext);
-  return useMutation<PopulationMappingArgs, Awaited<ReturnType<LoomClient['populationMapping']>>>((args, signal) => {
-    if (!client) return Promise.reject(new Error('Loom UI must be rendered inside LoomProvider.'));
-    return client.populationMapping(args, signal);
-  });
-};
-
-export const useCellTraceMutation = () => {
-  const client = useLoomClient();
-  return useMutation<CellTraceArgs, Awaited<ReturnType<LoomClient['cellTrace']>>>((args, signal) => client.cellTrace(args, signal));
-};
-
-export const usePublishExplorerAuthoringV2Mutation = () => {
-  const client = useLoomClient();
-  return useMutation<PublishExplorerBuilderArgs, Awaited<ReturnType<LoomClient['publish']>>>((args, signal) => client.publish(args, signal));
-};
-
-export const useCreateExplorerAuthoringMutation = () => {
-  const client = useLoomClient();
-  return useMutation<CreateExplorerArgs, Awaited<ReturnType<LoomClient['createExplorer']>>>((args, signal) => client.createExplorer(args, signal));
-};
-
-export const useDeleteExplorerAuthoringMutation = () => {
-  const client = useLoomClient();
-  return useMutation<DeleteExplorerArgs, null>((args, signal) => client.deleteExplorer(args, signal));
+  const cache = useLoomReadCache(client, 'capability', args);
+  return useQuery((signal) => client.getCapability(args, signal), [client, args.project, args.authResourcePath, args.explorerId], Boolean(args.explorerId), cache);
 };
 
 export const useLoomRuntime = (args: ExplorerAuthoringStateArgs): QueryResult<Awaited<ReturnType<LoomClient['getExplorer']>>> => {
   const client = useLoomClient();
-  return useQuery((signal) => client.getExplorer(args, signal), [client, 'runtime', args.project, args.explorerId]);
+  const cache = useLoomReadCache(client, 'viewer', args);
+  return useQuery((signal) => client.getExplorer(args, signal), [client, args.project, args.authResourcePath, args.explorerId], true, cache);
 };
 
 export const useLoomOutput = (
@@ -376,5 +62,3 @@ export const useLoomRows = (
   );
   return enabled ? query : { data: undefined, error: undefined, isLoading: false, isFetching: false, refetch: async () => ({}) };
 };
-
-export type { QueryResult };

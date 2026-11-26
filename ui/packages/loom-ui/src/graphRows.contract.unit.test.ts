@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createLoomClient } from './api';
-import { sourceRelationshipChangeSchema, explorerBuilderDocumentSchema, sourceRelationshipProposalSchema, sourceRelationshipProposalWithPreviewSchema } from './types';
+import { createLoomClient } from './client/api';
+import { sourceRelationshipChangeSchema, explorerBuilderDocumentSchema, sourceRelationshipProposalSchema, sourceRelationshipProposalWithPreviewSchema } from './contracts/types';
 describe('record network public contracts', () => {
   it('rejects mixed or executable source relationship payloads', () => {
     expect(sourceRelationshipChangeSchema.safeParse({ action: 'REMOVE', occurrenceId: 'x', edgeId: 'edge' }).success).toBe(false);

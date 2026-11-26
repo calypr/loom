@@ -3,9 +3,9 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { createLoomClient, type LoomOutputFilter, type LoomOutputRequest } from '../../api';
-import { LoomExplorerViewer } from '../../Viewer';
-import type { ExplorerRuntimeV1 } from '../../types';
+import { createLoomClient, type LoomOutputFilter, type LoomOutputRequest } from '../../client/api';
+import { LoomExplorerViewer } from './Viewer';
+import type { ExplorerRuntimeV1 } from '../../contracts/types';
 import { clearedSelection, missingSelection, valuesSelection } from './model';
 import { createViewerReducerState, viewerReducer } from './reducer';
 import { MISSING_VALUE, MISSING_VALUE_DESCRIPTION, outputRequestFor } from './serialization';

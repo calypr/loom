@@ -2,7 +2,7 @@ import type {
   Construction,
   ConstructionCapabilitiesResponse,
   ConstructionStageDescriptor,
-} from '../src/types';
+} from '../src/contracts/types';
 
 type SourceStageOverrides = Partial<Omit<ConstructionStageDescriptor, 'id' | 'inputStageId' | 'columns' | 'capabilities'>> & {
   readonly id?: string;

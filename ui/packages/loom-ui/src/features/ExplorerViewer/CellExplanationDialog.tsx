@@ -1,7 +1,7 @@
 import React from 'react';
 import { Alert, Badge, Button, Group, Loader, Modal, Paper, Stack, Text } from '@mantine/core';
-import type { CellTrace, CellTraceContribution } from '../../cellTrace';
-import { displayValue } from '../../valueDisplay';
+import type { CellTrace, CellTraceContribution } from '../../contracts/cellTrace';
+import { displayValue } from '../../display/valueDisplay';
 
 export interface CellExplanationCoordinate {
   readonly outputId: string;

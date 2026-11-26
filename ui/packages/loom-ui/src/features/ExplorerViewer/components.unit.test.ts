@@ -2,10 +2,11 @@ import React from 'react';
 import { MantineProvider } from '@mantine/core';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { LoomOutputResult } from '../../api';
-import type { ExplorerRuntimeBindingV1, ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from '../../types';
+import type { LoomOutputResult } from '../../client/api';
+import type { ExplorerRuntimeBindingV1, ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from '../../contracts/types';
 import { createViewerReducerState } from './reducer';
-import { ChartPanel, OutputTable, facetValues, textFor } from './components';
+import { facetValues } from './model';
+import { OutputCharts, OutputTable, textFor } from './components';
 
 describe('Explorer Viewer facet values', () => {
   it('coalesces duplicate display values for Mantine controls', () => {
@@ -63,7 +64,7 @@ describe('Explorer Viewer chart summary', () => {
       }],
     } satisfies LoomOutputResult;
 
-    const markup = renderToStaticMarkup(React.createElement(MantineProvider, null, React.createElement(ChartPanel, { binding, output, result })));
+    const markup = renderToStaticMarkup(React.createElement(MantineProvider, null, React.createElement(OutputCharts, { output: { ...output, charts: [binding] }, result, visible: true })));
 
     expect(markup).toContain('aria-label="Gender chart values"');
     expect(markup).toMatch(/<th[^>]*>Category<\/th>/);

@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { LoomProvider } from '../../src/react';
-import type { LoomClient } from '../../src/api';
-import type { Construction, ConstructionCapabilitiesResponse, ConstructionProposalResponse, ExplorerBuilderCatalog, ExplorerBuilderPreviewResult } from '../../src/types';
-import { RelatedExpandEditor } from '../../src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor';
-import { useConstructionLifecycle } from '../../src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle';
-import { ConstructionProposalPanel } from '../../src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel';
-import { PreviewTable } from '../../src/features/ExplorerBuilder/components/PreviewTable';
+import type { LoomClient } from '../../src/client/api';
+import type { Construction, ConstructionCapabilitiesResponse, ConstructionProposalResponse, ExplorerBuilderCatalog, ExplorerBuilderPreviewResult } from '../../src/contracts/types';
+import { RelatedExpandEditor } from '../../src/features/ExplorerBuilder/ui/reshape/RelatedExpandEditor';
+import { useConstructionLifecycle } from '../../src/features/ExplorerBuilder/session/useConstructionLifecycle';
+import { ConstructionProposalPanel } from '../../src/features/ExplorerBuilder/ui/review/ConstructionProposalPanel';
+import { PreviewTable } from '../../src/features/ExplorerBuilder/ui/preview/PreviewTable';
 
 const route = (id: string) => [{ edgeId: id, fromNodeId: 'patient', toNodeId: 'observation', fromResourceType: 'Patient', toResourceType: 'Observation', relationship: id, storageDirection: 'OUTBOUND' as const, matchMode: 'OPTIONAL' as const }];
 const columns = [{ id: 'patient', name: 'patient_id', label: 'Patient ID', type: 'string' }, { id: 'observation', name: 'observation_id', label: 'Observation ID', type: 'string' }];

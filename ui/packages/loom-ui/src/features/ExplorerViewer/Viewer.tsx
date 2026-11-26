@@ -1,0 +1,469 @@
+import React, { useMemo, useReducer, useRef, useState } from 'react';
+import { Alert, Button, Center, Group, Loader, MantineProvider, Modal, Stack, Tabs, Text, Title } from '@mantine/core';
+import { createLoomClient, type Artifact, type LoomClient, type LoomOutputResult } from '../../client/api';
+import { ChartToggle, QualitySummary, QuerySummary } from './ViewerChrome';
+import { FilterRail, OutputCharts, OutputTable, PageControls, textFor, type ViewerRow } from './components';
+import { runtimeSessionKey } from './model';
+import { createViewerReducerState, viewerReducer } from './reducer';
+import { outputRequestFor } from './serialization';
+import { CellExplanationDialog, type CellExplanationCoordinate } from './CellExplanationDialog';
+import type { CellTraceArgs } from '../../client/api';
+import { useMutation } from '../../data/useMutation';
+import { invokeViewerAction, type LoomViewerActionHandler, type ViewerRuntimeAction } from '../../data/viewerAction';
+import { LoomProvider, useLoomClient, useLoomOutput, useLoomRuntime } from '../../react';
+import { resultUnitTitle } from '../../display/resultUnitDisplay';
+import type { CellTraceResponse } from '../../contracts/cellTrace';
+import type { ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from '../../contracts/types';
+
+export type { LoomViewerActionContext, LoomViewerActionHandler } from '../../data/viewerAction';
+
+interface LoomFeatureRepairContext {
+  readonly outputId: string;
+  readonly column: string;
+  readonly label: string;
+  readonly status: CellTraceResponse['trace']['status'];
+}
+
+export interface LoomExplorerViewerProps {
+  readonly project: string;
+  readonly explorerId?: string;
+  readonly client?: LoomClient;
+  readonly className?: string;
+  readonly activeOutputId?: string;
+  readonly onActiveOutputChange?: (outputId: string) => void;
+  readonly renderRowDetails?: (row: ViewerRow) => React.ReactNode;
+  readonly customActions?: Readonly<Record<string, LoomViewerActionHandler>>;
+  readonly onRepairFeature?: (context: LoomFeatureRepairContext) => void;
+}
+
+type TracePages = readonly [CellTraceResponse, ...CellTraceResponse[]];
+type CellExplanationState =
+  | { readonly kind: 'closed' }
+  | { readonly kind: 'loading'; readonly coordinate: CellExplanationCoordinate }
+  | { readonly kind: 'loadingMore'; readonly coordinate: CellExplanationCoordinate; readonly pages: TracePages; readonly moreError?: string }
+  | { readonly kind: 'ready'; readonly coordinate: CellExplanationCoordinate; readonly pages: TracePages; readonly moreError?: string }
+  | { readonly kind: 'error'; readonly coordinate: CellExplanationCoordinate; readonly message: string };
+
+const tracePagesFor = (state: CellExplanationState): TracePages | undefined =>
+  state.kind === 'ready' || state.kind === 'loadingMore' ? state.pages : undefined;
+
+const explanationErrorCopy = (error: unknown, fallback: string): string => {
+  const message = error instanceof Error ? error.message.trim() : '';
+  return (message || fallback).replace(/\bnot(\s+not)+\b/gi, 'not');
+};
+
+type DatasetDownloadState =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'preparing'; readonly outputId: string; readonly requestToken: number }
+  | { readonly kind: 'ready'; readonly outputId: string; readonly requestToken: number; readonly artifact: Artifact }
+  | { readonly kind: 'error'; readonly outputId: string; readonly requestToken: number; readonly message: string };
+
+type ActionRunState = {
+  readonly running: ReadonlyMap<string, number>;
+  readonly errors: ReadonlyMap<string, { readonly outputId: string; readonly message: string }>;
+};
+type ActionRunEvent =
+  | { readonly type: 'started'; readonly actionKey: string }
+  | { readonly type: 'succeeded'; readonly actionKey: string }
+  | { readonly type: 'failed'; readonly actionKey: string; readonly outputId: string; readonly message: string }
+  | { readonly type: 'dismissed'; readonly actionKey: string };
+
+const initialActionRunState: ActionRunState = { running: new Map(), errors: new Map() };
+
+const decrementRun = (running: ReadonlyMap<string, number>, actionKey: string): ReadonlyMap<string, number> => {
+  const inFlight = (running.get(actionKey) ?? 0) - 1;
+  const next = new Map(running);
+  if (inFlight > 0) next.set(actionKey, inFlight);
+  else next.delete(actionKey);
+  return next;
+};
+
+const actionRunReducer = (state: ActionRunState, event: ActionRunEvent): ActionRunState => {
+  switch (event.type) {
+    case 'started': {
+      const running = new Map(state.running).set(event.actionKey, (state.running.get(event.actionKey) ?? 0) + 1);
+      if (!state.errors.has(event.actionKey)) return { running, errors: state.errors };
+      const errors = new Map(state.errors);
+      errors.delete(event.actionKey);
+      return { running, errors };
+    }
+    case 'succeeded':
+      return { running: decrementRun(state.running, event.actionKey), errors: state.errors };
+    case 'failed':
+      return {
+        running: decrementRun(state.running, event.actionKey),
+        errors: new Map(state.errors).set(event.actionKey, { outputId: event.outputId, message: event.message }),
+      };
+    case 'dismissed': {
+      if (!state.errors.has(event.actionKey)) return state;
+      const errors = new Map(state.errors);
+      errors.delete(event.actionKey);
+      return { running: state.running, errors };
+    }
+  }
+};
+
+const actionIdentity = (action: ViewerRuntimeAction): string =>
+  JSON.stringify([action.type, action.title, action.fileName ?? null, action.output ?? null,
+    action.columns ?? null, action.exportHeaders ?? null]);
+
+const actionRunKeys = (outputId: string, actions: ReadonlyArray<ViewerRuntimeAction>): string[] => {
+  const occurrences = new Map<string, number>();
+  return actions.map((action) => {
+    const identity = actionIdentity(action);
+    const occurrence = occurrences.get(identity) ?? 0;
+    occurrences.set(identity, occurrence + 1);
+    return `${outputId}|${identity}|${occurrence}`;
+  });
+};
+
+const appendTracePage = (pages: TracePages, page: CellTraceResponse): TracePages =>
+  [pages[0], ...pages.slice(1), page];
+
+type ResolvedActionTarget =
+  | { readonly kind: 'active' }
+  | { readonly kind: 'output'; readonly output: ExplorerRuntimeOutputV1 }
+  | { readonly kind: 'unresolved'; readonly target: string };
+
+const resolveActionTarget = (runtime: ExplorerRuntimeV1, action: ViewerRuntimeAction): ResolvedActionTarget => {
+  if (action.output === undefined) return { kind: 'active' };
+  const named = action.output;
+  if (!named.trim()) return { kind: 'unresolved', target: named };
+  const byId = runtime.outputs.filter((candidate) => candidate.outputId === named);
+  const candidates = byId.length > 0 ? byId : runtime.outputs.filter((candidate) => candidate.name === named);
+  const [match, ...conflicts] = candidates;
+  if (match && conflicts.length === 0) return { kind: 'output', output: match };
+  return { kind: 'unresolved', target: named };
+};
+
+const downloadBlob = (blob: Blob, fileName: string) => {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  queueMicrotask(() => URL.revokeObjectURL(url));
+};
+
+const artifactRequestKey = (): string => {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
+  return `artifact-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+};
+
+const ViewerContent = ({ project, explorerId, activeOutputId, onActiveOutputChange, renderRowDetails, customActions, onRepairFeature }: Required<Pick<LoomExplorerViewerProps, 'project'>> & Pick<LoomExplorerViewerProps, 'explorerId' | 'activeOutputId' | 'onActiveOutputChange' | 'renderRowDetails' | 'customActions' | 'onRepairFeature'>) => {
+  const runtimeQuery = useLoomRuntime({ project, explorerId: explorerId ?? 'default' });
+  if (runtimeQuery.isLoading && !runtimeQuery.data) return <Center mih="45vh"><Stack align="center" gap="sm"><Loader size="sm" /><Text size="sm">Loading published Explorer…</Text></Stack></Center>;
+  if (runtimeQuery.error || !runtimeQuery.data) return <Center mih="45vh"><Alert color="red" title="Explorer unavailable"><Stack gap="sm"><Text size="sm">The published Explorer could not be loaded.</Text><Button size="xs" onClick={() => { void runtimeQuery.refetch(); }}>Try again</Button></Stack></Alert></Center>;
+  if (runtimeQuery.data.outputs.length === 0) return <Center mih="45vh"><Alert title="No published outputs">This Explorer has no published tables yet.</Alert></Center>;
+  const sessionKey = runtimeSessionKey(runtimeQuery.data);
+  if (!sessionKey) return <Center mih="45vh"><Alert color="red" title="Explorer unavailable">The published Explorer response is missing its revision identity.</Alert></Center>;
+  return <ViewerSession key={sessionKey} project={project} explorerId={explorerId ?? 'default'} runtime={runtimeQuery.data} activeOutputId={activeOutputId} onActiveOutputChange={onActiveOutputChange} renderRowDetails={renderRowDetails} customActions={customActions} onRepairFeature={onRepairFeature} />;
+};
+
+const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlledOutputId, onActiveOutputChange, renderRowDetails, customActions, onRepairFeature }: { readonly project: string; readonly explorerId: string; readonly runtime: ExplorerRuntimeV1; readonly activeOutputId?: string; readonly onActiveOutputChange?: (outputId: string) => void; readonly renderRowDetails?: (row: ViewerRow) => React.ReactNode; readonly customActions?: LoomExplorerViewerProps['customActions']; readonly onRepairFeature?: LoomExplorerViewerProps['onRepairFeature'] }) => {
+  const [state, dispatch] = useReducer(viewerReducer, runtime, (value) => createViewerReducerState(value, controlledOutputId));
+  const [actionRuns, dispatchActionRuns] = useReducer(actionRunReducer, initialActionRunState);
+  const [datasetDownload, setDatasetDownload] = useState<DatasetDownloadState>({ kind: 'idle' });
+  const datasetDownloadRequest = useRef(0);
+  const [cellExplanation, setCellExplanation] = useState<CellExplanationState>({ kind: 'closed' });
+  const cellExplanationToken = useRef(0);
+  const output = runtime.outputs.find((candidate) => candidate.outputId === controlledOutputId)
+    ?? runtime.outputs.find((candidate) => candidate.outputId === state.activeOutputId)
+    ?? runtime.outputs[0];
+  const outputId = output?.outputId ?? '';
+  const previousOutputId = useRef(outputId);
+  if (previousOutputId.current !== outputId) {
+    previousOutputId.current = outputId;
+    datasetDownloadRequest.current += 1;
+  }
+  const request = useMemo(() => output ? outputRequestFor(project, runtime, { ...state, activeOutputId: outputId }, output) : undefined, [output, outputId, project, runtime, state]);
+  const resultQuery = useLoomOutput(request ?? { project, selector: { recipe: '', translationVersion: '', output: '' }, columns: [] }, { enabled: Boolean(request) });
+  const resultCache = useRef(new Map<string, LoomOutputResult>());
+  if (resultQuery.data) resultCache.current.set(outputId, resultQuery.data);
+  const result = resultQuery.data ?? resultCache.current.get(outputId);
+  const client = useLoomClient();
+  const [traceCell] = useMutation((args: CellTraceArgs, signal) => client.cellTrace(args, signal));
+  if (!output || !request) return null;
+  const actionKeys = actionRunKeys(outputId, output.actions ?? []);
+
+  const selectOutput = (nextOutputId: string | null) => {
+    if (!nextOutputId) return;
+    datasetDownloadRequest.current += 1;
+    setDatasetDownload({ kind: 'idle' });
+    dispatch({ type: 'selectOutput', outputId: nextOutputId });
+    onActiveOutputChange?.(nextOutputId);
+  };
+  const prepareDatasetDownload = async () => {
+    const requestToken = datasetDownloadRequest.current + 1;
+    datasetDownloadRequest.current = requestToken;
+    const requestOutputId = output.outputId;
+    setDatasetDownload({ kind: 'preparing', outputId: requestOutputId, requestToken });
+    try {
+      const revisionId = runtime.publication?.revisionId;
+      if (!revisionId) throw new Error('This published Explorer is missing the exact revision required for a training artifact.');
+      const artifact = await client.prepareArtifact({
+        project,
+        explorerId,
+        revisionId,
+        outputId: output.outputId,
+        idempotencyKey: artifactRequestKey(),
+      });
+      if (datasetDownloadRequest.current !== requestToken || previousOutputId.current !== requestOutputId) return;
+      setDatasetDownload({ kind: 'ready', outputId: requestOutputId, requestToken, artifact });
+    } catch (error) {
+      if (datasetDownloadRequest.current !== requestToken || previousOutputId.current !== requestOutputId) return;
+      setDatasetDownload({ kind: 'error', outputId: requestOutputId, requestToken, message: error instanceof Error ? error.message : 'The dataset download could not be prepared.' });
+    }
+  };
+  const runAction = async (action: ViewerRuntimeAction, actionKey: string) => {
+    dispatchActionRuns({ type: 'started', actionKey });
+    try {
+
+      const target = resolveActionTarget(runtime, action);
+      if (target.kind === 'unresolved') {
+        throw new Error(`The action "${action.title}" targets the output "${target.target || '(blank)'}", which is not exactly one published output of this Explorer. No table was exported.`);
+      }
+      const targetOutput = target.kind === 'output' ? target.output : output;
+      const targetRequest = targetOutput.outputId === output.outputId
+        ? request
+        : outputRequestFor(project, runtime, { ...state, activeOutputId: targetOutput.outputId }, targetOutput);
+      const targetResult = targetOutput.outputId === output.outputId
+        ? result
+        : resultCache.current.get(targetOutput.outputId);
+      const customAction = customActions?.[action.type];
+      if (customAction) {
+        await invokeViewerAction(customAction, { project, runtime, output: targetOutput, action, request: targetRequest, result: targetResult });
+      } else {
+        const exportRequest = {
+          ...targetRequest,
+          ...(action.columns ? { columns: action.columns } : {}),
+          ...(action.exportHeaders ? { exportHeaders: action.exportHeaders } : {}),
+        };
+        const blob = await client.exportOutput(exportRequest);
+        downloadBlob(blob, action.fileName ?? `${targetOutput.name || targetOutput.outputId}.csv`);
+      }
+      dispatchActionRuns({ type: 'succeeded', actionKey });
+    } catch (error) {
+      dispatchActionRuns({ type: 'failed', actionKey, outputId, message: error instanceof Error ? error.message : 'The action could not be completed.' });
+    }
+  };
+  const overlay = state.overlay;
+  const qualityReportFor = (explainerOutputId: string) =>
+    runtime.qualityReports?.find((candidate) => candidate.output === explainerOutputId || candidate.output === output.name);
+  const explainCell = async (coordinate: CellExplanationCoordinate) => {
+    const token = cellExplanationToken.current + 1;
+    cellExplanationToken.current = token;
+    const report = qualityReportFor(coordinate.outputId);
+    if (!report) {
+      setCellExplanation({ kind: 'error', coordinate, message: 'This publication does not include receipt-bound quality evidence.' });
+      return;
+    }
+    setCellExplanation({ kind: 'loading', coordinate });
+    try {
+      const response = await traceCell({ project, explorerId, receiptId: report.receiptId, outputId: coordinate.outputId, rowId: coordinate.rowId, column: coordinate.column, limit: 25 }).unwrap();
+      if (cellExplanationToken.current !== token) return;
+      setCellExplanation({ kind: 'ready', coordinate, pages: [response] });
+    } catch (error) {
+      if (cellExplanationToken.current !== token) return;
+      setCellExplanation({ kind: 'error', coordinate, message: explanationErrorCopy(error, 'Loom could not explain this cell.') });
+    }
+  };
+  const loadMoreEvidence = async () => {
+
+    if (cellExplanation.kind !== 'ready') return;
+    const coordinate = cellExplanation.coordinate;
+    const pages = cellExplanation.pages;
+    if (!pages[pages.length - 1].trace.hasMore) return;
+    const report = qualityReportFor(coordinate.outputId);
+    if (!report) return;
+    const offset = pages[pages.length - 1].trace.nextOffset;
+    const token = cellExplanationToken.current + 1;
+    cellExplanationToken.current = token;
+    setCellExplanation({ kind: 'loadingMore', coordinate, pages, moreError: cellExplanation.moreError });
+    try {
+      const response = await traceCell({ project, explorerId, receiptId: report.receiptId, outputId: coordinate.outputId, rowId: coordinate.rowId, column: coordinate.column, offset, limit: 25 }).unwrap();
+      if (cellExplanationToken.current !== token) return;
+      setCellExplanation({ kind: 'ready', coordinate, pages: appendTracePage(pages, response) });
+    } catch (error) {
+      if (cellExplanationToken.current !== token) return;
+      setCellExplanation({
+        kind: 'ready',
+        coordinate,
+        pages,
+        moreError: explanationErrorCopy(error, 'Loom could not load more source details.'),
+      });
+    }
+  };
+  const tracePages = tracePagesFor(cellExplanation);
+  const currentTracePage = tracePages ? tracePages[tracePages.length - 1] : undefined;
+  const currentTrace = currentTracePage?.trace;
+  const traceContributions = tracePages?.flatMap((page) => page.trace.contributions);
+  const preparedArtifact = datasetDownload.kind === 'ready'
+    && datasetDownload.outputId === outputId
+    && datasetDownload.requestToken === datasetDownloadRequest.current
+    ? datasetDownload.artifact
+    : undefined;
+  const preparedOutput = preparedArtifact
+    ? runtime.outputs.find((candidate) => candidate.outputId === preparedArtifact.outputId)
+    : undefined;
+
+  return (
+    <main className="loom-viewer min-h-screen bg-[var(--loom-viewer-bg)] px-4 py-3 text-[var(--loom-viewer-text)] md:px-8 lg:px-12" aria-label="Loom Explorer Viewer">
+      <div className="mx-auto max-w-[1500px]">
+        <Group component="header" className="loom-viewer-header" justify="space-between" align="center" gap="md" mb="sm" wrap="wrap">
+          <div className="loom-viewer-heading">
+            <Group className="loom-viewer-kicker" gap="sm" align="center" wrap="wrap">
+              <Text c="blue" fw={700} fz="xs" tt="uppercase" className="tracking-widest">Loom Explorer</Text>
+              <Text component="span" className="loom-viewer-status" size="xs">Published</Text>
+            </Group>
+            <Title order={1} fz={{ base: 24, md: 30 }}>{output.title}</Title>
+          </div>
+          <Group gap="xs" wrap="wrap">
+            <Button loading={datasetDownload.kind === 'preparing' && datasetDownload.outputId === outputId} onClick={() => { void prepareDatasetDownload(); }}>Download dataset</Button>
+            {output.actions?.map((action, index) => {
+              const actionKey = actionKeys[index];
+              return (
+                <Button variant="default" key={actionKey} loading={actionRuns.running.has(actionKey)} onClick={() => { void runAction(action, actionKey); }}>
+                  {action.title}
+                </Button>
+              );
+            })}
+          </Group>
+        </Group>
+        {[...actionRuns.errors].filter(([, failure]) => failure.outputId === outputId).map(([actionKey, failure]) => (
+          <Alert key={actionKey} color="red" title="Action failed" withCloseButton closeButtonLabel="Dismiss action failure" onClose={() => { dispatchActionRuns({ type: 'dismissed', actionKey }); }} mb="md">{failure.message}</Alert>
+        ))}
+        {datasetDownload.kind === 'error' && datasetDownload.outputId === outputId && datasetDownload.requestToken === datasetDownloadRequest.current ? <Alert color="red" title="Dataset download failed" withCloseButton onClose={() => setDatasetDownload({ kind: 'idle' })} mb="md">{datasetDownload.message}</Alert> : null}
+        <Tabs value={outputId} onChange={selectOutput}>
+          <Tabs.List aria-label="Output tables" className="loom-viewer-tabs-list flex-nowrap overflow-x-auto">
+            {runtime.outputs.map((candidate) => (
+              <Tabs.Tab value={candidate.outputId} key={candidate.outputId} className="loom-viewer-tab shrink-0">
+                <Stack gap={0} align="flex-start"><Text size="sm" fw={600}>{candidate.title}</Text><Text c="dimmed" size="xs" className="loom-viewer-tab-subtitle">{candidate.rowLabel}</Text></Stack>
+              </Tabs.Tab>
+            ))}
+          </Tabs.List>
+          {runtime.outputs.map((candidate) => (
+            <Tabs.Panel value={candidate.outputId} key={candidate.outputId}>
+              {candidate.outputId === outputId ? (
+                <div className="grid grid-cols-1 gap-4 pt-3 lg:grid-cols-[17rem_minmax(0,1fr)]">
+                  <FilterRail runtime={runtime} output={output} result={result} state={state} dispatch={dispatch} />
+                  <section className="min-w-0" aria-label={output.title}>
+                    <QuerySummary output={output} runtime={runtime} state={state} result={result} dispatch={dispatch} />
+                    <QualitySummary output={output} runtime={runtime} />
+                    <Group justify="space-between" gap="sm" mih={40} mb="xs">
+                      {resultQuery.isLoading
+                        ? <Group gap="xs" role="status"><Loader size="xs" /><Text c="dimmed" size="xs">Updating results…</Text></Group>
+                        : resultQuery.error
+                          ? <Group gap="xs"><Text c="red" size="xs" role="alert">Results could not be loaded.</Text><Button variant="subtle" size="compact-xs" onClick={() => { void resultQuery.refetch(); }}>Retry</Button></Group>
+                          : <Text c="dimmed" size="xs">Visual overview</Text>}
+                      {output.charts.length > 0 ? <ChartToggle outputId={outputId} visible={state.chartsVisible[outputId] ?? true} dispatch={dispatch} /> : null}
+                    </Group>
+                    <OutputCharts output={output} result={result} visible={state.chartsVisible[outputId] ?? true} />
+                    <PageControls output={output} result={result} state={state} dispatch={dispatch} />
+                    <OutputTable runtime={runtime} output={output} result={result} state={state} dispatch={dispatch} onExplainCell={(coordinate) => { void explainCell(coordinate); }} />
+                  </section>
+                </div>
+              ) : null}
+            </Tabs.Panel>
+          ))}
+        </Tabs>
+      </div>
+      <Modal opened={overlay.kind === 'sharedFilterConfirmation'} onClose={() => dispatch({ type: 'clearOverlay' })} title="Apply shared filter?" centered>
+        {overlay.kind === 'sharedFilterConfirmation' ? (
+          <Stack>
+            <Text size="sm">Apply <strong>{overlay.proposal.name}</strong> to every linked output?</Text>
+            <Group justify="flex-end"><Button variant="default" onClick={() => dispatch({ type: 'clearOverlay' })}>Cancel</Button><Button onClick={() => dispatch({ type: 'setSharedFilter', name: overlay.proposal.name, selection: overlay.proposal.selection })}>Apply filter</Button></Group>
+          </Stack>
+        ) : null}
+      </Modal>
+      <Modal opened={overlay.kind === 'rowDetails'} onClose={() => dispatch({ type: 'hideOverlay' })} title="Row details" closeButtonProps={{ 'aria-label': 'Close row details' }} centered size="lg">
+        {overlay.kind === 'rowDetails'
+          ? renderRowDetails
+            ? renderRowDetails(overlay.row)
+            : <dl className="grid grid-cols-[minmax(9rem,.35fr)_1fr] gap-x-4 gap-y-2 text-sm">{Object.entries(overlay.row).map(([key, value]) => <React.Fragment key={key}><dt className="font-semibold text-slate-500">{key}</dt><dd className="m-0 break-words">{textFor(value)}</dd></React.Fragment>)}</dl>
+          : null}
+      </Modal>
+      <Modal opened={Boolean(preparedArtifact)} onClose={() => setDatasetDownload({ kind: 'idle' })} title="Download dataset" closeButtonProps={{ 'aria-label': 'Close dataset download' }} centered size="lg">
+        {preparedArtifact ? (
+          <Stack gap="md">
+            <Text size="sm">
+              Loom prepared {preparedArtifact.rows.toLocaleString()} {preparedArtifact.rows === 1 ? 'row' : 'rows'} from the complete authorized population. Each row represents {preparedOutput?.rowLabel || 'the published row definition'}.
+            </Text>
+            <dl className="grid grid-cols-[minmax(9rem,.35fr)_1fr] gap-x-4 gap-y-2 text-sm">
+              <dt className="font-semibold text-slate-500">Representation</dt>
+              <dd className="m-0">{preparedArtifact.format === 'CSV' ? 'Typed scalar CSV in a ZIP archive' : 'Typed JSON Lines in a ZIP archive'}</dd>
+              <dt className="font-semibold text-slate-500">Columns</dt>
+              <dd className="m-0">{preparedArtifact.features.toLocaleString()} declared output columns</dd>
+              <dt className="font-semibold text-slate-500">Value preservation</dt>
+              <dd className="m-0">{preparedArtifact.format === 'CSV' ? 'Scalar values retain declared types through schema.json; null and empty values remain distinct.' : 'Structured and repeated values retain native JSON types, row identity, nulls, and missing values.'}</dd>
+              <dt className="font-semibold text-slate-500">Source generation</dt>
+              <dd className="m-0 break-all">{preparedArtifact.datasetGeneration}</dd>
+              <dt className="font-semibold text-slate-500">Schema digest</dt>
+              <dd className="m-0 break-all">{preparedArtifact.schemaDigest}</dd>
+            </dl>
+            <section aria-label="Declared output types" className="max-h-48 overflow-y-auto rounded border border-slate-200 p-3">
+              <Stack gap="xs">
+                {preparedOutput?.columns.map((column) => (
+                  <Group key={column.column} justify="space-between" gap="sm" wrap="nowrap">
+                    <Text size="sm" fw={600}>{column.label}</Text>
+                    <Text
+                      size="xs"
+                      c="dimmed"
+                      title={column.resultUnit ? resultUnitTitle(column.resultUnit) : undefined}
+                    >
+                      {column.logicalType}{column.repeated ? ' · repeated' : ''}{column.resultUnit ? ` · unit ${column.resultUnit.code}` : ''}
+                    </Text>
+                  </Group>
+                ))}
+              </Stack>
+            </section>
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setDatasetDownload({ kind: 'idle' })}>Cancel</Button>
+              <Button
+                component="a"
+                href={client.artifactDownloadURL({ project, explorerId, artifactId: preparedArtifact.id })}
+                download={preparedArtifact.filename}
+                rel="noopener"
+                onClick={() => setDatasetDownload({ kind: 'idle' })}
+              >
+                Download ZIP
+              </Button>
+            </Group>
+          </Stack>
+        ) : null}
+      </Modal>
+      <CellExplanationDialog
+        coordinate={cellExplanation.kind === 'closed' ? undefined : cellExplanation.coordinate}
+        trace={currentTrace}
+        contributions={traceContributions}
+        loading={cellExplanation.kind === 'loading' || cellExplanation.kind === 'loadingMore'}
+        error={cellExplanation.kind === 'error' ? cellExplanation.message : undefined}
+        moreError={cellExplanation.kind === 'ready' || cellExplanation.kind === 'loadingMore' ? cellExplanation.moreError : undefined}
+        onClose={() => {
+          cellExplanationToken.current += 1;
+          setCellExplanation({ kind: 'closed' });
+        }}
+        onLoadMore={() => { void loadMoreEvidence(); }}
+        onRepair={onRepairFeature && currentTracePage ? (_coordinate, status) => onRepairFeature({
+          outputId: currentTracePage.feature.outputId,
+          column: currentTracePage.feature.authoredColumn,
+          label: currentTracePage.feature.label,
+          status,
+        }) : undefined}
+      />
+    </main>
+  );
+};
+
+export const LoomExplorerViewer = ({ project, explorerId, client, className, activeOutputId, onActiveOutputChange, renderRowDetails, customActions, onRepairFeature }: LoomExplorerViewerProps) => {
+  const ownedClient = useMemo(() => client ?? createLoomClient(), [client]);
+  return (
+    <LoomProvider client={ownedClient}>
+      <MantineProvider>
+        <div className={['loom-ui-root', className].filter(Boolean).join(' ')}>
+          <ViewerContent project={project} explorerId={explorerId} activeOutputId={activeOutputId} onActiveOutputChange={onActiveOutputChange} renderRowDetails={renderRowDetails} customActions={customActions} onRepairFeature={onRepairFeature} />
+        </div>
+      </MantineProvider>
+    </LoomProvider>
+  );
+};

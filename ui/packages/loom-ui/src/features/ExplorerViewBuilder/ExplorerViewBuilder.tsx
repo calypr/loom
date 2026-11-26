@@ -13,15 +13,11 @@ import {
   Tabs,
   Title,
 } from '@mantine/core';
-import type { ProjectViewBuilderState, ProjectViewConfig } from '../../projectViewBuilder';
-import { createLoomClient, type LoomClient } from '../../api';
-import { LoomProvider } from '../../react';
-import {
-  useAdoptProjectViewBuilderCatalogsMutation,
-  useDeleteProjectViewConfigMutation,
-  useGetProjectViewBuilderQuery,
-  useSaveProjectViewConfigMutation,
-} from '../../projectViewBuilderReact';
+import type { ProjectViewBuilderState, ProjectViewConfig } from '../../contracts/projectViewBuilder';
+import { createLoomClient, type DeleteProjectViewConfigArgs, type LoomClient, type ProjectViewBuilderArgs, type SaveProjectViewConfigArgs } from '../../client/api';
+import { LoomProvider, useLoomClient } from '../../react';
+import { useMutation } from '../../data/useMutation';
+import { useGetProjectViewBuilderQuery } from './projectViewBuilderReact';
 import {
   duplicateProjectConfig,
   projectConfigFromCatalog,
@@ -106,11 +102,12 @@ const SavedViewBuilderContent = ({
     onSaved?.(updated);
   };
   const stateQuery = useGetProjectViewBuilderQuery({ project, authResourcePath });
-  const [saveConfig, saveConfigStatus] = useSaveProjectViewConfigMutation();
+  const client = useLoomClient();
+  const [saveConfig, saveConfigStatus] = useMutation((args: SaveProjectViewConfigArgs, signal) => client.saveProjectViewConfig(args, signal));
   const [deleteConfig, deleteConfigStatus] =
-    useDeleteProjectViewConfigMutation();
+    useMutation((args: DeleteProjectViewConfigArgs, signal) => client.deleteProjectViewConfig(args, signal));
   const [adoptCatalogs, adoptCatalogsStatus] =
-    useAdoptProjectViewBuilderCatalogsMutation();
+    useMutation((args: ProjectViewBuilderArgs, signal) => client.adoptProjectViewBuilderCatalogs(args, signal));
   const [drafts, setDrafts] = useState<
     Readonly<Record<string, LocalConfigDraft>>
   >({});

@@ -2,7 +2,7 @@
 import React from 'react';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { createLoomClient } from './api';
+import { createLoomClient } from './client/api';
 import { LoomProvider, useQuery } from './react';
 
 const pendingResponses: Array<(response: Response) => void> = [];

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ExplorerRuntimeV1 } from '../../types';
+import type { ExplorerRuntimeV1 } from '../../contracts/types';
 import { clearedSelection, missingSelection, valuesSelection } from './model';
 import { createViewerReducerState, viewerReducer } from './reducer';
 import { runtimeSessionKey } from './model';

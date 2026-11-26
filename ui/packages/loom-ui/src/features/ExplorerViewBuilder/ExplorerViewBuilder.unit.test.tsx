@@ -9,7 +9,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
-import type { ProjectViewBuilderState } from '../../projectViewBuilder';
+import type { ProjectViewBuilderState } from '../../contracts/projectViewBuilder';
 import { ExplorerViewBuilder } from './ExplorerViewBuilder';
 
 const mocks = vi.hoisted(() => ({
@@ -21,13 +21,20 @@ const mockDeleteProjectViewConfig = mocks.remove;
 const mockSaveProjectViewDefaults = mocks.defaults;
 const mockAdoptProjectViewBuilderCatalogs = mocks.adopt;
 
-vi.mock('../../projectViewBuilderReact', () => ({
+vi.mock('./projectViewBuilderReact', () => ({
   useGetProjectViewBuilderQuery: (...args: unknown[]) => mockGetProjectViewBuilder(...args),
-  useSaveProjectViewConfigMutation: () => [mockSaveProjectViewConfig, { isLoading: false }],
-  useDeleteProjectViewConfigMutation: () => [mockDeleteProjectViewConfig, { isLoading: false }],
-  useSaveProjectViewDefaultsMutation: () => [mockSaveProjectViewDefaults, { isLoading: false }],
-  useAdoptProjectViewBuilderCatalogsMutation: () => [mockAdoptProjectViewBuilderCatalogs, { isLoading: false }],
 }));
+
+vi.mock('../../react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../react')>();
+  const client = {
+    saveProjectViewConfig: (args: unknown) => mocks.save(args).unwrap(),
+    deleteProjectViewConfig: (args: unknown) => mocks.remove(args).unwrap(),
+    saveProjectViewDefaults: (args: unknown) => mocks.defaults(args).unwrap(),
+    adoptProjectViewBuilderCatalogs: (args: unknown) => mocks.adopt(args).unwrap(),
+  };
+  return { ...actual, useLoomClient: () => client };
+});
 
 const project = 'HTAN_INT/BForePC';
 const projectConfig = {
