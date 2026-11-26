@@ -1,4 +1,5 @@
 import createOpenApiClient from 'openapi-fetch';
+import { invalidateLoomRead, registerLoomReadPublisher, type LoomReadKey } from './readInvalidation';
 import type { paths } from './openapi.generated';
 import type { ExplorerSummary } from '../contracts/explorerSummary';
 export type { ExplorerSummary } from '../contracts/explorerSummary';
@@ -825,6 +826,16 @@ export const canonicalProject = (project: string): string => {
   return value;
 };
 
+export const loomReadKey = (
+  kind: LoomReadKey[0],
+  args: ProjectViewBuilderArgs & { readonly explorerId?: string },
+): LoomReadKey => [
+  kind,
+  canonicalProject(args.project),
+  args.authResourcePath?.trim() ?? '',
+  ...(kind === 'builder' || kind === 'viewer' || kind === 'capability' ? [args.explorerId ?? ''] : []),
+];
+
 export const encodeLoomProjectPath = (project: string): string =>
   encodeURIComponent(encodeURIComponent(canonicalProject(project)));
 const encodedProject = encodeLoomProjectPath;
@@ -1163,14 +1174,6 @@ const openApiPathOrigin = 'https://loom.invalid';
 export const createLoomClient = (options: LoomClientOptions = {}): LoomClient => {
   const fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
   const baseUrl = options.baseUrl ?? '/';
-  interface CacheEntry {
-    readonly controller: AbortController;
-    readonly promise: Promise<unknown>;
-    consumers: number;
-    settled: boolean;
-  }
-  const cache = new Map<string, CacheEntry>();
-
   const urlFor = (path: string): string => {
     if (/^https?:\/\//.test(baseUrl)) return `${baseUrl.replace(/\/$/, '')}${path}`;
     return `${baseUrl.replace(/\/$/, '')}${path}` || '/';
@@ -1216,77 +1219,6 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     project: encodeURIComponent(canonicalProject(args.project)),
     explorerId: args.explorerId,
   });
-  const evictCached = (key: string): void => {
-    const entry = cache.get(key);
-    if (!entry) return;
-    cache.delete(key);
-    if (!entry.settled) entry.controller.abort();
-  };
-  const abortError = (): DOMException =>
-    new DOMException('The request was aborted.', 'AbortError');
-  const getCached = <T>(
-    key: string,
-    run: (signal: AbortSignal) => Promise<unknown>,
-    parse: (value: unknown) => T,
-    signal?: AbortSignal,
-    reload = false,
-  ): Promise<T> => {
-    if (reload) evictCached(key);
-    let entry = cache.get(key);
-    if (!entry) {
-      const controller = new AbortController();
-      const promise = Promise.resolve().then(() => run(controller.signal));
-      const createdEntry: CacheEntry = { controller, promise, consumers: 0, settled: false };
-      entry = createdEntry;
-      cache.set(key, createdEntry);
-      void promise.then(
-        () => {
-          createdEntry.settled = true;
-        },
-        () => {
-          createdEntry.settled = true;
-          if (cache.get(key) === createdEntry) cache.delete(key);
-        },
-      );
-    }
-    const current = entry;
-    current.consumers += 1;
-    const value = new Promise<unknown>((resolve, reject) => {
-      let released = false;
-      const release = () => {
-        if (released) return;
-        released = true;
-        current.consumers -= 1;
-        if (current.consumers === 0 && !current.settled && cache.get(key) === current) {
-          cache.delete(key);
-          current.controller.abort();
-        }
-      };
-      const onAbort = () => {
-        signal?.removeEventListener('abort', onAbort);
-        release();
-        reject(signal?.reason ?? abortError());
-      };
-      if (signal?.aborted) {
-        onAbort();
-        return;
-      }
-      signal?.addEventListener('abort', onAbort, { once: true });
-      void current.promise.then(
-        (result) => {
-          signal?.removeEventListener('abort', onAbort);
-          release();
-          resolve(result);
-        },
-        (error: unknown) => {
-          signal?.removeEventListener('abort', onAbort);
-          release();
-          reject(error);
-        },
-      );
-    });
-    return value.then(parse);
-  };
   const authoringPath = (args: ExplorerAuthoringStateArgs, suffix: string): string =>
     `/api/v1/projects/${encodedProject(args.project)}/explorers/${encodeURIComponent(args.explorerId)}/authoring/v2${suffix}`;
   const projectPath = (args: ExplorerAuthoringProjectArgs): string =>
@@ -1309,15 +1241,13 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     try { return viewBuilderStateSchema.parse(value); }
     catch { throw new LoomRequestError({ status: 502, code: 'INVALID_VIEW_BUILDER_STATE', message: 'Loom returned invalid saved view settings.', retryable: false }); }
   };
-  const viewBuilderCacheKey = (args: ProjectViewBuilderArgs): string => `view-builder:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}`;
   const updatedProjectViewBuilder = (args: ProjectViewBuilderArgs, value: unknown): ProjectViewBuilderState => {
     const state = parseProjectViewBuilder(value);
-    evictCached(viewBuilderCacheKey(args));
+    invalidateLoomRead(client, loomReadKey('view-builder', args));
     return state;
   };
   const getProjectViewBuilder = (args: ProjectViewBuilderArgs, queryOptions: { readonly signal?: AbortSignal; readonly reload?: boolean } = {}) =>
-    getCached(viewBuilderCacheKey(args),
-      (signal) => request(viewBuilderPath(args), { signal }), parseProjectViewBuilder, queryOptions.signal, queryOptions.reload);
+    request(viewBuilderPath(args), { signal: queryOptions.signal }).then(parseProjectViewBuilder);
   const saveProjectViewConfig = async (args: SaveProjectViewConfigArgs, signal?: AbortSignal) =>
     updatedProjectViewBuilder(args, await request(`${projectViewBuilderPath(args.project)}/configs/${encodeURIComponent(args.configId)}${authResourcePathQuery(args.authResourcePath)}`, { method: 'PUT', body: JSON.stringify(args.request), signal }));
   const deleteProjectViewConfig = async (args: DeleteProjectViewConfigArgs, signal?: AbortSignal) => {
@@ -1337,34 +1267,23 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     headers: requestId ? { 'X-Request-ID': requestId } : undefined,
   });
 
-  const listExplorers = (args: ExplorerAuthoringProjectArgs, signal?: AbortSignal) =>
-    getCached(
-      `explorers:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}`,
-      (requestSignal) => request(projectPath(args), { signal: requestSignal }),
-      (value): ReadonlyArray<ExplorerSummary> => {
-        if (!Array.isArray(value)) throw new LoomRequestError({ status: 502, code: 'INVALID_EXPLORER_LIST', message: 'Loom returned an invalid Explorer list.', retryable: false });
-        return value.map((item): ExplorerSummary => {
-          if (!isRecord(item) || typeof item.project !== 'string' || typeof item.explorerId !== 'string' || typeof item.title !== 'string' || typeof item.management !== 'string' || typeof item.updatedAt !== 'string') throw new LoomRequestError({ status: 502, code: 'INVALID_EXPLORER_LIST', message: 'Loom returned an invalid Explorer list.', retryable: false });
-          return {
-            project: item.project,
-            explorerId: item.explorerId,
-            title: item.title,
-            management: item.management,
-            ...(typeof item.activeRevisionId === 'string' ? { activeRevisionId: item.activeRevisionId } : {}),
-            updatedAt: item.updatedAt,
-          };
-        });
-      },
-      signal,
-    );
+  const listExplorers = async (args: ExplorerAuthoringProjectArgs, signal?: AbortSignal): Promise<ReadonlyArray<ExplorerSummary>> => {
+    const value = await request(projectPath(args), { signal });
+    if (!Array.isArray(value)) throw new LoomRequestError({ status: 502, code: 'INVALID_EXPLORER_LIST', message: 'Loom returned an invalid Explorer list.', retryable: false });
+    return value.map((item): ExplorerSummary => {
+      if (!isRecord(item) || typeof item.project !== 'string' || typeof item.explorerId !== 'string' || typeof item.title !== 'string' || typeof item.management !== 'string' || typeof item.updatedAt !== 'string') throw new LoomRequestError({ status: 502, code: 'INVALID_EXPLORER_LIST', message: 'Loom returned an invalid Explorer list.', retryable: false });
+      return {
+        project: item.project,
+        explorerId: item.explorerId,
+        title: item.title,
+        management: item.management,
+        ...(typeof item.activeRevisionId === 'string' ? { activeRevisionId: item.activeRevisionId } : {}),
+        updatedAt: item.updatedAt,
+      };
+    });
+  };
   const getBuilder = (args: ExplorerAuthoringStateArgs, queryOptions: { readonly signal?: AbortSignal; readonly reload?: boolean } = {}) =>
-    getCached(
-      `builder:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}:${args.explorerId}`,
-      (signal) => request(authoringPath(args, '/builder'), { signal }),
-      assertExplorerBuilderState,
-      queryOptions.signal,
-      queryOptions.reload,
-    );
+    request(authoringPath(args, '/builder'), { signal: queryOptions.signal }).then(assertExplorerBuilderState);
   const getCapability = async (args: ExplorerAuthoringStateArgs, signal?: AbortSignal) => {
     const { response } = await openApi.GET('/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability', {
       params: { path: openApiExplorerPath(args) },
@@ -1373,31 +1292,26 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     });
     return explorerAuthoringCapabilitiesSchema.parse(await parseJSON(response));
   };
-  const getExplorer = (args: ExplorerAuthoringStateArgs, signal?: AbortSignal) =>
-    getCached(
-      `viewer:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}:${args.explorerId}`,
-      (requestSignal) => request(`/api/v1/projects/${encodedProject(args.project)}/explorers/${encodeURIComponent(args.explorerId)}`, { signal: requestSignal }),
-      (value) => {
-        let state: ReturnType<typeof assertExplorerStateV1>;
-        try {
-          state = assertExplorerStateV1(value);
-        } catch {
-          throw new LoomRequestError({ status: 502, code: 'INVALID_EXPLORER_STATE', message: 'Loom returned an invalid Explorer state.', retryable: false });
-        }
-        if (!state.runtime) throw new LoomRequestError({ status: 422, code: 'EXPLORER_RUNTIME_REQUIRED', message: 'The selected Explorer has no published runtime.', retryable: false });
-        const runtimeIdentity = state.runtime.publication?.revisionId
-          ?? state.runtime.publication?.generation
-          ?? state.runtime.generation
-          ?? state.runtime.schema?.digest;
-        if (runtimeIdentity) return state.runtime;
-        const responseIdentity = state.active.revisionId ?? state.updatedAt;
-        if (!responseIdentity) {
-          throw new LoomRequestError({ status: 502, code: 'INVALID_EXPLORER_STATE', message: 'Loom returned a published runtime without a session identity.', retryable: false });
-        }
-        return { ...state.runtime, responseIdentity };
-      },
-      signal,
-    );
+  const getExplorer = async (args: ExplorerAuthoringStateArgs, signal?: AbortSignal) => {
+    const value = await request(`${projectPath(args)}/${encodeURIComponent(args.explorerId)}`, { signal });
+    let state: ReturnType<typeof assertExplorerStateV1>;
+    try {
+      state = assertExplorerStateV1(value);
+    } catch {
+      throw new LoomRequestError({ status: 502, code: 'INVALID_EXPLORER_STATE', message: 'Loom returned an invalid Explorer state.', retryable: false });
+    }
+    if (!state.runtime) throw new LoomRequestError({ status: 422, code: 'EXPLORER_RUNTIME_REQUIRED', message: 'The selected Explorer has no published runtime.', retryable: false });
+    const runtimeIdentity = state.runtime.publication?.revisionId
+      ?? state.runtime.publication?.generation
+      ?? state.runtime.generation
+      ?? state.runtime.schema?.digest;
+    if (runtimeIdentity) return state.runtime;
+    const responseIdentity = state.active.revisionId ?? state.updatedAt;
+    if (!responseIdentity) {
+      throw new LoomRequestError({ status: 502, code: 'INVALID_EXPLORER_STATE', message: 'Loom returned a published runtime without a session identity.', retryable: false });
+    }
+    return { ...state.runtime, responseIdentity };
+  };
   const applyCommands = async (args: ApplyExplorerBuilderCommandsArgs, signal?: AbortSignal) => {
     const commands = args.commands.map((command) => {
       if (command.type !== 'UPDATE_COLUMN' || !command.columnValue) return command;
@@ -1413,7 +1327,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       ...(args.expectedDraftDigest ? { expectedDraftDigest: args.expectedDraftDigest } : {}),
       commands,
     }, signal, args.requestId)));
-    evictCached(`builder:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}:${args.explorerId}`);
+    invalidateLoomRead(client, loomReadKey('builder', args));
     return value;
   };
   const assessRowChange = (args: AssessExplorerRowChangeArgs, signal?: AbortSignal) =>
@@ -1690,12 +1604,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
   const artifactDownloadURL = (args: DownloadArtifactArgs): string =>
     urlFor(`${authoringPath(args, '/artifacts')}/${encodeURIComponent(args.artifactId)}`);
   const listInterpretationLibraries = (args: ExplorerAuthoringProjectArgs, signal?: AbortSignal) =>
-    getCached(
-      `interpretations:${canonicalProject(args.project)}`,
-      (requestSignal) => request(interpretationLibrariesPath(args.project), { signal: requestSignal }),
-      (value) => interpretationLibraryListResponseSchema.parse(value).libraries,
-      signal,
-    );
+    request(interpretationLibrariesPath(args.project), { signal }).then((value) => interpretationLibraryListResponseSchema.parse(value).libraries);
   const getInterpretationRevision = (args: { readonly project: string; readonly revisionId: string }, signal?: AbortSignal) =>
     request(interpretationRevisionPath(args.project, args.revisionId), { signal }).then((value) => interpretationRevisionSchema.parse(value));
   const createInterpretationRevision = async (args: CreateInterpretationRevisionArgs, signal?: AbortSignal) => {
@@ -1710,7 +1619,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
         explanation: args.explanation,
       }, signal, args.requestId),
     );
-    evictCached(`interpretations:${canonicalProject(args.project)}`);
+    invalidateLoomRead(client, ['interpretations', canonicalProject(args.project)]);
     return interpretationRevisionSchema.parse(value);
   };
   const resolveConfiguredColumnContexts = (args: ResolveConfiguredColumnContextsArgs, signal?: AbortSignal) =>
@@ -1741,7 +1650,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       ...(parentRevisionId ? { parentRevisionId } : {}),
       explanation: args.explanation,
     }, signal, args.requestId));
-    evictCached(`interpretations:${canonicalProject(args.project)}`);
+    invalidateLoomRead(client, ['interpretations', canonicalProject(args.project)]);
     return interpretationRevisionSchema.parse(value);
   };
   const previewInterpretationCandidate = (args: PreviewInterpretationCandidateArgs, signal?: AbortSignal) =>
@@ -1766,12 +1675,12 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     if (options.publishTransport && result.receiptId !== args.receiptId) {
       throw new Error('The publication result belongs to a different compilation receipt.');
     }
-    evictCached(`viewer:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}:${args.explorerId}`);
+    invalidateLoomRead(client, loomReadKey('viewer', args), true);
     return result;
   };
   const createExplorer = async (args: CreateExplorerArgs, signal?: AbortSignal) => {
     const value = await request(durableProjectPath(args), withJson({ name: args.name, ...(args.title ? { title: args.title } : {}), ...(args.sourceExplorerId ? { sourceExplorerId: args.sourceExplorerId } : {}) }, signal, args.requestId));
-    evictCached(`explorers:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}`);
+    invalidateLoomRead(client, loomReadKey('explorers', args));
     return value as ExplorerSummary;
   };
   const createSelection = (args: CreateSelectionArgs, signal?: AbortSignal) =>
@@ -1812,8 +1721,8 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
   };
   const deleteExplorer = async (args: DeleteExplorerArgs, signal?: AbortSignal) => {
     await request(`${projectPath(args)}/${encodeURIComponent(args.explorerId)}`, { method: 'DELETE', signal, headers: args.requestId ? { 'X-Request-ID': args.requestId } : undefined });
-    evictCached(`explorers:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}`);
-    evictCached(`builder:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}:${args.explorerId}`);
+    invalidateLoomRead(client, loomReadKey('explorers', args));
+    invalidateLoomRead(client, loomReadKey('builder', args));
     return null;
   };
   const queryOutput = async (outputRequest: LoomOutputRequest, signal?: AbortSignal): Promise<LoomOutputResult> => {
@@ -1909,7 +1818,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     const result = await queryOutput({ project: rowOptions.project, selector, columns, first: rowOptions.first ?? 100 }, rowOptions.signal);
     return { columns: result.columns, rows: result.rows, totalCount: result.totalCount };
   };
-  return {
+  const client: LoomClient = {
     listExplorers,
     createSelection,
     getSelection,
@@ -1966,12 +1875,17 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     queryOutput,
     exportOutput,
     invalidate: (scope = 'all') => {
-      if (scope === 'all' || scope === 'explorers') [...cache.keys()].filter((key) => key.startsWith('explorers:')).forEach(evictCached);
-      if (scope === 'all' || scope === 'builder') [...cache.keys()].filter((key) => key.startsWith('builder:')).forEach(evictCached);
-      if (scope === 'all' || scope === 'interpretations') [...cache.keys()].filter((key) => key.startsWith('interpretations:')).forEach(evictCached);
-      if (scope === 'all') [...cache.keys()].filter((key) => key.startsWith('viewer:')).forEach(evictCached);
+      if (scope === 'all') {
+        for (const kind of ['explorers', 'builder', 'viewer', 'interpretations'] as const) {
+          invalidateLoomRead(client, [kind]);
+        }
+      } else {
+        invalidateLoomRead(client, [scope]);
+      }
     },
   };
+  registerLoomReadPublisher(client);
+  return client;
 };
 
 export type { LoomOutputFilter, LoomOutputFilterOperator } from '../contracts/selection';

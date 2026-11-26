@@ -2050,7 +2050,7 @@ describe('Loom project paths', () => {
     );
   });
 
-  it('separates cached Builder reads by authorization scope', async () => {
+  it('loads fresh Builder state on each direct client read', async () => {
     const builder = JSON.stringify({
       apiVersion: 'loom.calypr.org/explorer-authoring/v2',
       kind: 'ExplorerBuilderState',
@@ -2066,7 +2066,7 @@ describe('Loom project paths', () => {
     const base = { project: 'HTAN_INT/BForePC', explorerId: 'default' };
 
     await client.getBuilder({ ...base, authResourcePath: '/programs/HTAN_INT/projects/BForePC' });
-    await client.getBuilder({ ...base, authResourcePath: '/programs/HTAN_INT/projects/OtherPC' });
+    await client.getBuilder({ ...base, authResourcePath: '/programs/HTAN_INT/projects/BForePC' });
 
     expect(fetch).toHaveBeenCalledTimes(2);
   });
@@ -2129,7 +2129,7 @@ describe('Loom project paths', () => {
     });
   });
 
-  it('invalidates cached Viewer runtime after publication', async () => {
+  it('reads fresh Viewer runtime after publication', async () => {
     const explorerState = (generation: string) => ({
       apiVersion: 'loom.calypr.org/explorer-state/v1',
       kind: 'ExplorerState',

@@ -11,6 +11,7 @@ import {
   LoomProvider,
   useGetExplorerAuthoringExplorersQuery,
   useGetExplorerAuthoringCapabilityV2Query,
+  useLoomRuntime,
 } from './react';
 import { useResolveConfiguredColumnContextsQuery } from './data/builderQueries';
 import { useGetExplorerBuilderStateV2Query } from './features/ExplorerBuilder/session/useBuilderLoad';
@@ -88,6 +89,115 @@ describe('Loom React queries', () => {
     second.rerender('/scope/b');
     await waitFor(() => expect(second.result.current.data?.operations).toEqual(['request-4']));
     expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it('shares Explorer list reads and refreshes only the affected scope after CRUD', async () => {
+    const project = 'HTAN_INT/BForePC';
+    const firstScope = { project, authResourcePath: '/scope/a' };
+    const secondScope = { project, authResourcePath: '/scope/b' };
+    const summary = (explorerId: string) => ({
+      project, explorerId, title: explorerId, management: 'interactive', updatedAt: '2026-11-25',
+    });
+    let entries = [summary('original')];
+    let reads = 0;
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
+      if (init?.method === 'POST') {
+        const created = summary('created');
+        entries = [...entries, created];
+        return Response.json(created);
+      }
+      if (init?.method === 'DELETE') {
+        entries = entries.filter(({ explorerId }) => explorerId !== 'created');
+        return new Response(null, { status: 204 });
+      }
+      reads++;
+      return Response.json(entries);
+    });
+    const client = createLoomClient({ fetch });
+    const wrapper = ({ children }: { readonly children: React.ReactNode }) => (
+      <LoomProvider client={client}>{children}</LoomProvider>
+    );
+    const mount = (scope: typeof firstScope) => renderHook(
+      () => useGetExplorerAuthoringExplorersQuery(scope),
+      { wrapper },
+    );
+    const first = mount(firstScope);
+    const shared = mount(firstScope);
+    const separate = mount(secondScope);
+    await waitFor(() => expect(first.result.current.data).toHaveLength(1));
+    await waitFor(() => expect(shared.result.current.data).toHaveLength(1));
+    await waitFor(() => expect(separate.result.current.data).toHaveLength(1));
+    expect(reads).toBe(2);
+
+    await act(async () => { await client.createExplorer({ ...firstScope, name: 'Created' }); });
+    await act(async () => { await first.result.current.refetch(); });
+    expect(first.result.current.data?.map(({ explorerId }) => explorerId)).toEqual(['original', 'created']);
+    expect(shared.result.current.data).toHaveLength(2);
+    expect(separate.result.current.data).toHaveLength(1);
+    expect(reads).toBe(3);
+
+    first.unmount();
+    shared.unmount();
+    await client.deleteExplorer({ ...firstScope, explorerId: 'created' });
+    const reopened = mount(firstScope);
+    await waitFor(() => expect(reopened.result.current.data?.map(({ explorerId }) => explorerId)).toEqual(['original']));
+    expect(reads).toBe(4);
+  });
+
+  it('restarts an initial Explorer list read interrupted by invalidation', async () => {
+    let pendingSignal: AbortSignal | null | undefined;
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockImplementationOnce((_input, init) => new Promise<Response>(() => {
+        pendingSignal = init?.signal;
+      }))
+      .mockResolvedValueOnce(Response.json([]));
+    const client = createLoomClient({ fetch });
+    const { result } = renderHook(
+      () => useGetExplorerAuthoringExplorersQuery({ project: 'NCPI_ACCEPTANCE' }),
+      { wrapper: ({ children }) => <LoomProvider client={client}>{children}</LoomProvider> },
+    );
+    await waitFor(() => expect(pendingSignal?.aborted).toBe(false));
+
+    act(() => client.invalidate('explorers'));
+
+    expect(pendingSignal?.aborted).toBe(true);
+    await waitFor(() => expect(result.current.data).toEqual([]));
+    expect(result.current.isLoading).toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('refreshes active Viewer runtime after publication without crossing authorization scopes', async () => {
+    const scope = { project: 'NCPI_ACCEPTANCE', explorerId: 'default', authResourcePath: '/scope/a' };
+    let generation = 'old';
+    let reads = 0;
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_input, init) => {
+      if (init?.method === 'POST') {
+        generation = 'new';
+        return Response.json({
+          apiVersion: EXPLORER_AUTHORING_API_VERSION, kind: 'ExplorerBuilderPublication',
+          receiptId: 'receipt-1', revisionId: 'revision-2', state: 'READY', outputs: [], diagnostics: [],
+        });
+      }
+      reads++;
+      return Response.json({
+        apiVersion: 'loom.calypr.org/explorer-state/v1', kind: 'ExplorerState',
+        project: scope.project, explorerId: scope.explorerId, title: 'Cohort', management: 'interactive',
+        active: {}, draft: { version: 1, digest: 'digest' }, generated: {}, activeUrl: '/viewer',
+        runtime: { generation, outputs: [], sharedFilters: {}, diagnostics: [] },
+      });
+    });
+    const client = createLoomClient({ fetch });
+    const { result } = renderHook(() => ({
+      active: useLoomRuntime(scope),
+      separate: useLoomRuntime({ ...scope, authResourcePath: '/scope/b' }),
+    }), { wrapper: ({ children }) => <LoomProvider client={client}>{children}</LoomProvider> });
+    await waitFor(() => expect(result.current.active.data?.generation).toBe('old'));
+    await waitFor(() => expect(result.current.separate.data?.generation).toBe('old'));
+
+    await act(async () => { await client.publish({ ...scope, receiptId: 'receipt-1' }); });
+    await waitFor(() => expect(result.current.active.data?.generation).toBe('new'));
+    expect(result.current.separate.data?.generation).toBe('old');
+    expect(reads).toBe(3);
   });
 
   it('keeps configured-context queries disabled until their saved draft identity is ready', async () => {
